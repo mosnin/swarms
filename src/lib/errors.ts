@@ -135,6 +135,8 @@ export const Errors = {
   policyDenied: (message = "Denied by policy", details?: Record<string, unknown>) =>
     new AppError(ErrorCode.POLICY_DENIED, message, { details }),
   notFound: (message = "Not found") => new AppError(ErrorCode.NOT_FOUND, message),
+  conflict: (message = "Conflict", details?: Record<string, unknown>) =>
+    new AppError(ErrorCode.CONFLICT, message, { details }),
   capabilityNotFound: (message = "Capability not found") =>
     new AppError(ErrorCode.CAPABILITY_NOT_FOUND, message),
   idempotencyConflict: (message = "Idempotency key reused with a different request") =>

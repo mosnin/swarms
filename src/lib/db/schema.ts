@@ -1,9 +1,9 @@
 /**
- * Drizzle schema root. Domain tables are added per the implementation sequence
- * (see docs/IMPLEMENTATION_SEQUENCE.md, Phase 1+). Postgres is the system of
- * record; every entity carries `createdAt`/`updatedAt` and tenant scoping.
- *
- * Intentionally empty in Phase 0 — no product tables are defined yet.
+ * Drizzle schema root. The full schema lives in `./schema/*` and is re-exported
+ * here so both the app (`drizzle(client, { schema })`) and drizzle-kit resolve
+ * a single entry point. Postgres is the system of record; every entity carries
+ * `createdAt`/`updatedAt`, org-scoped tables carry `organizationId`, and
+ * ledger/audit/log tables are append-only.
  */
 
-export {};
+export * from "@/lib/db/schema/index";
