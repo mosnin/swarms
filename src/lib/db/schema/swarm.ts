@@ -74,9 +74,11 @@ export const swarmAgents = pgTable(
     skillVersionId: text("skill_version_id").references(() => skillVersions.id, {
       onDelete: "set null",
     }),
+    jobId: text("job_id").references(() => jobs.id, { onDelete: "set null" }),
     status: jobStatus("status").notNull().default("queued"),
     input: jsonb("input"),
     output: jsonb("output"),
+    error: jsonb("error"),
     costMinor: amountMinorColumn("cost_minor").notNull().default(0),
     costCurrency: currencyColumn("cost_currency").notNull().default("USD"),
     ...timestamps,

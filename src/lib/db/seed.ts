@@ -175,12 +175,33 @@ async function seed(): Promise<void> {
       name: "Research Swarm",
       description: "Orchestrator + two specialist workers",
       visibility: "private",
-      topology: { orchestrator: "lead", members: ["researcher", "summarizer"] },
+      topology: { orchestrator: "lead", members: ["researcher", "summarizer"], maxAgents: 4 },
       memberRefs: [
         { role: "researcher", skillSlug: "web-summarize" },
         { role: "summarizer", skillSlug: "pdf-extract" },
       ],
       priceMinor: 1_000,
+      priceCurrency: "USD",
+    })
+    .onConflictDoNothing();
+
+  // --- Demo competitor-research swarm (4 roles) ---------------------------
+  await db
+    .insert(schema.swarmTemplates)
+    .values({
+      organizationId: organization.id,
+      slug: "competitor-research-swarm",
+      name: "Competitor Research Swarm",
+      description: "Researcher, pricing analyst, positioning analyst, synthesis auditor",
+      visibility: "private",
+      topology: { orchestrator: "synthesis auditor", maxAgents: 4 },
+      memberRefs: [
+        { role: "researcher", skillSlug: "web-summarize" },
+        { role: "pricing analyst", skillSlug: "web-summarize" },
+        { role: "positioning analyst", skillSlug: "web-summarize" },
+        { role: "synthesis auditor" },
+      ],
+      priceMinor: 2_000,
       priceCurrency: "USD",
     })
     .onConflictDoNothing();
