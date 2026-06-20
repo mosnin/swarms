@@ -6,7 +6,7 @@
  * (the standalone worker in Phase 16 reuses the same core).
  */
 
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, lt, sql } from "drizzle-orm";
 
 import { getDb } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
@@ -140,8 +140,12 @@ function deps(db: Db, workerId: string): ProcessDeps {
 const WORKER_ID = `inproc-${process.pid}`;
 
 /** Process a single job by id using Postgres-backed stores. */
-export async function processJobInDb(jobId: string, db: Db = getDb()): Promise<JobRecord> {
-  const job = await processJob(deps(db, WORKER_ID), jobId);
+export async function processJobInDb(
+  jobId: string,
+  db: Db = getDb(),
+  opts: { preClaimed?: boolean } = {},
+): Promise<JobRecord> {
+  const job = await processJob(deps(db, WORKER_ID), jobId, opts);
   // A failed job never charges; release its reservation hold.
   if (job.status === "failed") {
     await releaseBudget(
@@ -190,4 +194,71 @@ export async function pollQueuedJobs(db: Db = getDb(), batchSize = 5): Promise<n
     processed += 1;
   }
   return processed;
+}
+
+/**
+ * Multi-worker safe claim + process. Atomically flips up to `batchSize` queued
+ * jobs to `running` using `SELECT ... FOR UPDATE SKIP LOCKED`, so concurrent
+ * worker replicas never claim the same job, then processes each as pre-claimed.
+ */
+export async function claimAndProcessJobs(db: Db = getDb(), batchSize = 5): Promise<number> {
+  const claimed = await db.execute(sql`
+    UPDATE jobs
+    SET status = 'running', started_at = now(), attempt = attempt + 1, updated_at = now()
+    WHERE id IN (
+      SELECT id FROM jobs
+      WHERE status = 'queued'
+      ORDER BY created_at ASC
+      LIMIT ${batchSize}
+      FOR UPDATE SKIP LOCKED
+    )
+    RETURNING id
+  `);
+
+  const ids = (claimed as unknown as Array<{ id: string }>).map((r) => r.id);
+  let processed = 0;
+  for (const id of ids) {
+    await processJobInDb(id, db, { preClaimed: true });
+    processed += 1;
+  }
+  return processed;
+}
+
+/**
+ * Reaper: fail jobs that have been `running` longer than `maxRunMs` (their
+ * worker likely died), releasing any outstanding budget hold so reservations
+ * are never stuck. Returns the number reaped.
+ */
+export async function reapExpiredJobs(db: Db = getDb(), maxRunMs = 120_000): Promise<number> {
+  const cutoff = new Date(Date.now() - maxRunMs);
+  const stuck = await db
+    .select({
+      id: schema.jobs.id,
+      organizationId: schema.jobs.organizationId,
+      costCurrency: schema.jobs.costCurrency,
+    })
+    .from(schema.jobs)
+    .where(and(eq(schema.jobs.status, "running"), lt(schema.jobs.startedAt, cutoff)));
+
+  for (const job of stuck) {
+    await db
+      .update(schema.jobs)
+      .set({
+        status: "failed",
+        error: { code: "LEASE_EXPIRED", message: "Worker lease expired; job reaped" },
+        finishedAt: new Date(),
+      })
+      .where(eq(schema.jobs.id, job.id));
+    await releaseBudget(
+      { organizationId: job.organizationId, jobId: job.id, currency: job.costCurrency },
+      db,
+    ).catch(() => undefined);
+    await writeAuditSystem(job.organizationId, {
+      action: "job.failed",
+      resourceType: "job",
+      resourceId: job.id,
+      after: { reason: "lease_expired" },
+    });
+  }
+  return stuck.length;
 }

@@ -24,24 +24,26 @@ GitHub-issue-style note. Nothing here is hidden behind a silent TODO.
 
 ## High
 
-### KR-3 — No rate limiting on paid/job-creation endpoints
-- **Impact**: a compromised key can spam job/payment creation (cost, DoS).
-- **Status**: not implemented.
-- **Blocks**: production (Phase 21).
-- **Fix**: per-key/IP token-bucket on `execute`, `execute-paid`, `swarms/run`.
+### KR-3 — Rate limiting is single-instance only
+- **Impact**: token-bucket limits are enforced per process; multiple web
+  replicas do not share state, so the effective limit scales with replica count.
+- **Status**: **mitigated** — token-bucket limiter wired into `execute`,
+  `execute-paid`, `swarms/run`, `connectors/call`. Evidence:
+  `src/server/ratelimit/*`, `tokenBucket.test.ts`. Downgraded from "missing".
+- **Fix (production)**: back the `RateLimiter` port with a shared store (Redis)
+  for cross-instance limits.
 
-### KR-4 — Single-worker job claiming
-- **Impact**: running multiple worker replicas can double-process a job under
-  contention (processJob is idempotent on non-queued jobs, which bounds but does
-  not eliminate this).
-- **Status**: single-worker safe. Evidence: `pollQueuedJobs`, `WORKER_RUNTIME.md`.
-- **Fix**: `SELECT ... FOR UPDATE SKIP LOCKED` claim or atomic `queued→running`.
+### KR-4 — Multi-worker job claiming — RESOLVED
+- **Status**: **resolved** — `claimAndProcessJobs` uses
+  `SELECT ... FOR UPDATE SKIP LOCKED` to atomically claim queued jobs, so worker
+  replicas never grab the same job. Evidence: `src/modules/execution/worker.ts`,
+  `processJob({ preClaimed })`, `processJob.test.ts`.
 
-### KR-5 — No stuck-job / lease reaper
-- **Impact**: a worker crash mid-run can leave a job `running` and its budget
-  hold outstanding.
-- **Status**: `worker_runs.leaseExpiresAt` exists; no reaper yet.
-- **Fix**: lease-based reaper that fails/retries expired runs and releases holds.
+### KR-5 — Stuck-job reaper — RESOLVED
+- **Status**: **resolved** — `reapExpiredJobs` fails jobs running past
+  `WORKER_MAX_RUN_MS`, releases their budget hold, and audits. Runs periodically
+  in the worker loop. Evidence: `src/modules/execution/worker.ts`,
+  `apps/worker/index.ts`.
 
 ## Medium
 

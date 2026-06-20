@@ -13,20 +13,32 @@
 
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
-import { pollQueuedJobs } from "@/modules/execution/worker";
+import { claimAndProcessJobs, reapExpiredJobs } from "@/modules/execution/worker";
 
 const POLL_INTERVAL_MS = Number(process.env.WORKER_POLL_INTERVAL_MS ?? 1000);
 const BATCH_SIZE = Number(process.env.WORKER_BATCH_SIZE ?? 5);
+const REAP_EVERY_MS = Number(process.env.WORKER_REAP_INTERVAL_MS ?? 30_000);
+const MAX_RUN_MS = Number(process.env.WORKER_MAX_RUN_MS ?? 120_000);
 
 let running = true;
 let inFlight = false;
+let lastReapMs = 0;
 
 async function tick(): Promise<void> {
   if (inFlight) return;
   inFlight = true;
   try {
-    const processed = await pollQueuedJobs(undefined, BATCH_SIZE);
+    // Multi-worker safe claim (SELECT ... FOR UPDATE SKIP LOCKED).
+    const processed = await claimAndProcessJobs(undefined, BATCH_SIZE);
     if (processed > 0) logger.info("Worker processed jobs", { processed });
+
+    // Periodically reap jobs whose worker died mid-run.
+    const now = Date.now();
+    if (now - lastReapMs >= REAP_EVERY_MS) {
+      lastReapMs = now;
+      const reaped = await reapExpiredJobs(undefined, MAX_RUN_MS);
+      if (reaped > 0) logger.warn("Worker reaped stuck jobs", { reaped });
+    }
   } catch (error) {
     // Never crash the loop on a single failure; log and continue.
     logger.error("Worker poll failed", { error });

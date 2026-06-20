@@ -49,8 +49,8 @@ See [`docs/SECURITY_MODEL.md`](./docs/SECURITY_MODEL.md) and
 | Append-only ledger + audit | ✅ |
 | Budget + policy enforcement | ✅ |
 | Secret redaction | ✅ |
-| Worker separation | ✅ (single replica) |
-| Rate limiting on paid/job endpoints | ❌ not yet (see KNOWN_RISKS) |
+| Worker separation | ✅ (multi-worker SKIP LOCKED claiming + reaper) |
+| Rate limiting on paid/job endpoints | ✅ token bucket (single-instance; distributed needs shared store) |
 | Real sandbox for untrusted code | ❌ not yet — public marketplace blocked |
 | Mainnet payments | ❌ gated off |
 

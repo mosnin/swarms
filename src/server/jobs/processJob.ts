@@ -65,16 +65,29 @@ const DEFAULT_MAX_RUNTIME_MS = 30_000;
 /**
  * Process a single job. Safe to call on a job that is no longer `queued`
  * (returns it unchanged) so redelivery cannot double-execute.
+ *
+ * `opts.preClaimed` is set by a multi-worker poller that has ALREADY atomically
+ * claimed the job (`queued → running` via `SELECT ... FOR UPDATE SKIP LOCKED`),
+ * so this function must not re-transition it.
  */
-export async function processJob(deps: ProcessDeps, jobId: string): Promise<JobRecord> {
+export async function processJob(
+  deps: ProcessDeps,
+  jobId: string,
+  opts: { preClaimed?: boolean } = {},
+): Promise<JobRecord> {
   const clock = deps.clock ?? systemClock;
   const job = await deps.jobStore.findById(jobId);
   if (!job) {
     logger.warn("processJob: job not found", { jobId });
     throw new Error(`Job ${jobId} not found`);
   }
-  // Idempotent: only queued jobs are eligible. Redeliveries are no-ops.
-  if (job.status !== "queued") return job;
+  // Idempotent: only an eligible job runs. A pre-claimed job is already
+  // `running`; an unclaimed job must still be `queued`.
+  if (opts.preClaimed) {
+    if (job.status !== "running") return job;
+  } else if (job.status !== "queued") {
+    return job;
+  }
 
   const resolved = await deps.resolve(job);
   if (!resolved) {
@@ -84,16 +97,19 @@ export async function processJob(deps: ProcessDeps, jobId: string): Promise<JobR
     });
   }
 
-  // queued → running
-  assertTransition(job.status, "running");
-  const startedAt = clock.now();
+  const startedAt = job.startedAt ?? clock.now();
   const startMono = clock.monotonicMs();
-  const running = await deps.jobStore.update(job.id, {
-    status: "running",
-    startedAt,
-    attempt: job.attempt + 1,
-    updatedAt: startedAt,
-  });
+  // queued → running (skipped when the poller already claimed it).
+  let running = job;
+  if (!opts.preClaimed) {
+    assertTransition(job.status, "running");
+    running = await deps.jobStore.update(job.id, {
+      status: "running",
+      startedAt,
+      attempt: job.attempt + 1,
+      updatedAt: startedAt,
+    });
+  }
 
   const workerRun = await deps.workerRunStore.insert({
     id: newId(IdPrefix.workerRun),

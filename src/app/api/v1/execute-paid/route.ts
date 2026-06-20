@@ -8,6 +8,7 @@ import { idempotencyKeySchema } from "@/lib/idempotency";
 import { decodePaymentHeader } from "@/modules/billing/payment-service";
 import { executePaidSkill } from "@/modules/billing/payment-repository";
 import { authenticateRequest } from "@/modules/identity/service";
+import { enforceRateLimit } from "@/server/ratelimit/enforce";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,6 +28,7 @@ const body = z.object({
 export async function POST(request: NextRequest): Promise<Response> {
   return route(async () => {
     const ctx = await authenticateRequest(request);
+    enforceRateLimit(ctx, "executePaid");
     const json = await request.json().catch(() => null);
     const parsed = body.safeParse(json);
     if (!parsed.success) {

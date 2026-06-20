@@ -34,11 +34,13 @@ invited beta with documentation: no rate limiting (mitigated by budgets +
 policy + trusted users), and live `db:migrate`/`db:seed` could not be executed in
 this audit environment (no Postgres) — they are verified to *generate* cleanly.
 
-## 3. Production readiness verdict — **NO**
+## 3. Production readiness verdict — **NO (closer after this pass)**
 
-Blockers: no rate controls on paid/job endpoints, in-memory queue adapter (DB is
-durable but no broker), single-worker claiming, no stuck-job reaper, no automated
-backups/rollback, real x402 not wired/monitored.
+Resolved this pass: rate limiting, multi-worker SKIP LOCKED claiming, stuck-job
+reaper. Remaining blockers: real x402 not wired/monitored (mainnet gated),
+in-memory queue adapter (DB is durable but no external broker), distributed rate
+limiting (single-instance today), no automated backups/rollback, no external
+monitoring sink.
 
 ## 4. Public marketplace readiness verdict — **NO**
 
@@ -61,13 +63,20 @@ No critical blocker exists for **beta** (testnet, trusted users).
 
 ## 6. High severity issues
 
-- **H-1** No rate limiting on `execute` / `execute-paid` / `swarms/run`.
-  Impact: cost/DoS abuse by a compromised key. Mitigated for beta by budgets +
-  policy. Fix: per-key/IP token bucket. (`KNOWN_RISKS` KR-3)
-- **H-2** Single-worker job claiming. Multiple replicas can double-process.
-  Evidence: `pollQueuedJobs` (no `SKIP LOCKED`). (KR-4)
-- **H-3** No stuck-job/lease reaper; a worker crash can leave a job `running`
-  with an outstanding hold. (`worker_runs.leaseExpiresAt` exists, unused.) (KR-5)
+> Update: the three High issues originally found in this audit have been
+> addressed in code during this pass. They are retained here with **RESOLVED**
+> status and evidence.
+
+- **H-1 — RESOLVED** Rate limiting added (token bucket) on `execute`,
+  `execute-paid`, `swarms/run`, `connectors/call`. Evidence:
+  `src/server/ratelimit/*`, `tokenBucket.test.ts`. Residual: single-instance only
+  (distributed needs a shared store) — downgraded to KR-3 (medium).
+- **H-2 — RESOLVED** Multi-worker claiming via `SELECT ... FOR UPDATE SKIP
+  LOCKED` (`claimAndProcessJobs` + `processJob({ preClaimed })`). Evidence:
+  `src/modules/execution/worker.ts`, `processJob.test.ts`.
+- **H-3 — RESOLVED** Stuck-job reaper (`reapExpiredJobs`) fails over-running
+  jobs, releases holds, audits; runs in the worker loop. Evidence:
+  `worker.ts`, `apps/worker/index.ts`.
 
 ## 7. Medium severity issues
 
@@ -215,7 +224,7 @@ Phase 4 — AuthN & AuthZ:               pass   (low)
 Phase 5 — API routes / server actions: pass   (medium) no server actions; rate limiting missing
 Phase 6 — Skill registry:              pass   (low)
 Phase 7 — Job execution:               pass   (low)
-Phase 8 — Worker runtime:              pass   (high)   single-worker; multi-replica claiming open
+Phase 8 — Worker runtime:              pass   (low)    multi-worker SKIP LOCKED claim + reaper
 Phase 9 — x402 payment:                pass   (high)   testnet/mock; mainnet gated
 Phase 10 — Budget & policy:            pass   (low)
 Phase 11 — Connector / MCP:            pass   (low)    mocks only (by design)
@@ -223,7 +232,7 @@ Phase 12 — Swarm orchestration:        pass   (low)
 Phase 13 — SDK:                        pass   (low)
 Phase 14 — Dashboard:                  pass   (low)
 Phase 15 — Audit & observability:      partial(medium) audit+redaction+request-id present; external sink missing
-Phase 16 — Security:                   partial(high)   strong; rate limiting missing
+Phase 16 — Security:                   pass   (medium) strong; rate limiting now present (single-instance)
 Phase 17 — Sandbox runtime:            pass   (critical-for-marketplace) honest stub, fails closed
 Phase 18 — Marketplace economics:      pass   (medium) ledger+fee+immutability; review workflow missing
 Phase 19 — Deployment readiness:       partial(high)   topology/env docs; backups/rate/incident open
@@ -257,15 +266,16 @@ Top 10 fixes before beta:
 9. Smoke-test the standalone worker against the seeded DB.
 10. Review KNOWN_RISKS with beta users so expectations are explicit.
 
-Top 10 fixes before production:
-1. Rate limiting / abuse controls on paid + job-creation endpoints.
-2. Multi-worker SKIP LOCKED claiming.
-3. Stuck-job / lease reaper releasing holds on worker death.
-4. Wire + monitor the real x402 facilitator adapter; keep mainnet gated until tested.
-5. Durable queue adapter (broker) behind the existing JobQueue port.
-6. Automated DB backups (PITR) + documented restore/rollback runbook.
-7. Payment monitoring + alerting; reconciliation jobs for ledger vs receipts.
-8. External observability sink (logs/metrics/traces) + request-id propagation end to end.
-9. Enforce per-key/connector budget scopes (not just org/period).
-10. Incident response process + on-call runbook.
+Top 10 fixes before production (rate limiting, SKIP LOCKED claiming, and the
+reaper are DONE this pass):
+1. Wire + monitor the real x402 facilitator adapter; keep mainnet gated until tested.
+2. Distributed rate limiting (shared store behind the RateLimiter port).
+3. Durable queue adapter (broker) behind the existing JobQueue port.
+4. Automated DB backups (PITR) + documented restore/rollback runbook.
+5. Payment monitoring + alerting; reconciliation jobs for ledger vs receipts.
+6. External observability sink (logs/metrics/traces) + end-to-end request-id propagation.
+7. Enforce per-key/connector budget scopes (not just org/period).
+8. DB integration + route handler tests against a test Postgres.
+9. Incident response process + on-call runbook.
+10. Real sandbox + connector broker (also required for marketplace).
 ```

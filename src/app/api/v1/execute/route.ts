@@ -7,6 +7,7 @@ import { idempotencyKeySchema } from "@/lib/idempotency";
 import { requireOrganization } from "@/modules/identity/access-control";
 import { authenticateRequest } from "@/modules/identity/service";
 import { executeSkill } from "@/modules/execution/job-repository";
+import { enforceRateLimit } from "@/server/ratelimit/enforce";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,6 +27,7 @@ const executeBody = z.object({
 export async function POST(request: NextRequest): Promise<Response> {
   return route(async () => {
     const ctx = await authenticateRequest(request);
+    enforceRateLimit(ctx, "execute");
     const json = await request.json().catch(() => null);
     const parsed = executeBody.safeParse(json);
     if (!parsed.success) {

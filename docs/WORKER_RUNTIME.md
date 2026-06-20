@@ -59,12 +59,21 @@ production.
 `SIGINT`/`SIGTERM` stop the loop after the current batch settles, then the
 process exits cleanly so an in-flight job is never abandoned mid-write.
 
-## Production hardening (not yet)
+## Multi-worker claiming + reaping (implemented)
 
-- **Multi-worker claiming**: switch `pollQueuedJobs` to
-  `SELECT ... FOR UPDATE SKIP LOCKED` (or an atomic `queued → running` claim) so
-  multiple replicas never grab the same job.
+- **Atomic claim**: `claimAndProcessJobs` uses
+  `SELECT ... FOR UPDATE SKIP LOCKED` to flip up to `WORKER_BATCH_SIZE` queued
+  jobs to `running`, so multiple replicas never grab the same job. Each claimed
+  job is processed as `preClaimed` (no re-transition).
+- **Reaper**: `reapExpiredJobs` fails jobs that have run longer than
+  `WORKER_MAX_RUN_MS` (worker likely died), releases their budget hold, and
+  audits — so reservations are never stuck. Runs every
+  `WORKER_REAP_INTERVAL_MS` in the worker loop.
+- `pollQueuedJobs` (non-atomic) remains for single-process dev demos.
+
+## Production hardening (still open)
+
 - **Durable broker**: the `JobQueue` port allows swapping the in-memory dev queue
-  for SQS/Redis; the Postgres poll already provides durability.
-- **Leases + reaping**: `worker_runs.leaseExpiresAt` exists for lease-based
-  recovery of jobs whose worker died mid-run (reaper not yet built).
+  for SQS/Redis; the Postgres poll/claim already provides durability.
+- **Distributed rate limiting**: the limiter is single-instance; back it with a
+  shared store for multi-replica web tiers.

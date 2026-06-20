@@ -161,4 +161,24 @@ describe("processJob", () => {
     expect(workerRunStore.runs.size).toBe(1); // not re-run
     expect(charges).toHaveLength(1);
   });
+
+  it("processes a pre-claimed (already running) job without re-transitioning", async () => {
+    // Simulate a poller that atomically claimed the job: queued -> running.
+    await jobStore.update("job_1", { status: "running", startedAt: clock.now(), attempt: 1 });
+    const result = await processJob(
+      makeDeps(jobStore, workerRunStore, mockExec, charges),
+      "job_1",
+      { preClaimed: true },
+    );
+    expect(result.status).toBe("succeeded");
+    expect(workerRunStore.runs.size).toBe(1);
+    expect(charges).toEqual([{ costMinor: 200, currency: "USD" }]);
+  });
+
+  it("a non-preClaimed call ignores an already-running job (no double run)", async () => {
+    await jobStore.update("job_1", { status: "running" });
+    const result = await processJob(makeDeps(jobStore, workerRunStore, mockExec, charges), "job_1");
+    expect(result.status).toBe("running"); // untouched
+    expect(workerRunStore.runs.size).toBe(0);
+  });
 });
