@@ -37,6 +37,10 @@ export const skillVersionStatus = pgEnum("skill_version_status", [
 
 export const permissionLevel = pgEnum("permission_level", ["view", "execute", "manage"]);
 
+export const riskLevel = pgEnum("risk_level", ["low", "medium", "high", "critical"]);
+
+export const runnerType = pgEnum("runner_type", ["mock", "http", "local_worker"]);
+
 export const connectorAccountStatus = pgEnum("connector_account_status", [
   "active",
   "revoked",
