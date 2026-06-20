@@ -6,7 +6,7 @@
  * (the standalone worker in Phase 16 reuses the same core).
  */
 
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 
 import { getDb } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
@@ -153,14 +153,40 @@ export async function processJobInDb(jobId: string, db: Db = getDb()): Promise<J
 }
 
 /**
- * LOCAL DEV ADAPTER: drain the in-memory queue, processing each job. The
- * standalone worker (Phase 16) replaces this with a durable poll loop.
+ * LOCAL DEV ADAPTER: drain the in-memory queue, processing each job. Used by the
+ * dev trigger endpoint when web + worker run in one process.
  */
 export async function drainLocalQueue(db: Db = getDb()): Promise<number> {
   const queue = getJobQueue();
   let processed = 0;
   for (let message = await queue.dequeue(); message; message = await queue.dequeue()) {
     await processJobInDb(message.jobId, db);
+    processed += 1;
+  }
+  return processed;
+}
+
+/**
+ * Durable poll: claim up to `batchSize` queued jobs from Postgres (the system of
+ * record) and process them. This is what the standalone worker (apps/worker)
+ * runs in a loop — it depends only on the DB, not on any web/dashboard code.
+ *
+ * NOTE (documented in KNOWN_RISKS): single-worker safe. Running multiple worker
+ * replicas requires `SELECT ... FOR UPDATE SKIP LOCKED` claiming to avoid two
+ * workers grabbing the same job; processJob is idempotent on non-queued jobs,
+ * which bounds (but does not fully eliminate) duplicate work under contention.
+ */
+export async function pollQueuedJobs(db: Db = getDb(), batchSize = 5): Promise<number> {
+  const rows = await db
+    .select({ id: schema.jobs.id })
+    .from(schema.jobs)
+    .where(eq(schema.jobs.status, "queued"))
+    .orderBy(asc(schema.jobs.createdAt))
+    .limit(batchSize);
+
+  let processed = 0;
+  for (const row of rows) {
+    await processJobInDb(row.id, db);
     processed += 1;
   }
   return processed;

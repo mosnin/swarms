@@ -10,6 +10,7 @@
     "dev": "next dev",
     "build": "SKIP_ENV_VALIDATION=true next build",
     "start": "next start",
+    "worker": "tsx apps/worker/index.ts",
     "lint": "next lint",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
