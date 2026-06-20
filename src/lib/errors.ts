@@ -131,7 +131,8 @@ export const Errors = {
     new AppError(ErrorCode.VALIDATION, message, { details }),
   unauthorized: (message = "Authentication required") =>
     new AppError(ErrorCode.UNAUTHORIZED, message),
-  forbidden: (message = "Forbidden") => new AppError(ErrorCode.FORBIDDEN, message),
+  forbidden: (message = "Forbidden", details?: Record<string, unknown>) =>
+    new AppError(ErrorCode.FORBIDDEN, message, { details }),
   policyDenied: (message = "Denied by policy", details?: Record<string, unknown>) =>
     new AppError(ErrorCode.POLICY_DENIED, message, { details }),
   notFound: (message = "Not found") => new AppError(ErrorCode.NOT_FOUND, message),

@@ -4,7 +4,7 @@ CREATE TYPE "public"."entity_status" AS ENUM('active', 'archived', 'suspended');
 CREATE TYPE "public"."job_status" AS ENUM('queued', 'running', 'awaiting_payment', 'awaiting_approval', 'succeeded', 'failed', 'cancelled');--> statement-breakpoint
 CREATE TYPE "public"."ledger_direction" AS ENUM('debit', 'credit');--> statement-breakpoint
 CREATE TYPE "public"."ledger_entry_kind" AS ENUM('charge', 'credit', 'refund', 'payment', 'adjustment', 'hold', 'release');--> statement-breakpoint
-CREATE TYPE "public"."org_role" AS ENUM('owner', 'admin', 'member');--> statement-breakpoint
+CREATE TYPE "public"."org_role" AS ENUM('owner', 'admin', 'developer', 'operator', 'viewer');--> statement-breakpoint
 CREATE TYPE "public"."payment_attempt_status" AS ENUM('pending', 'settled', 'failed', 'expired');--> statement-breakpoint
 CREATE TYPE "public"."permission_level" AS ENUM('view', 'execute', 'manage');--> statement-breakpoint
 CREATE TYPE "public"."policy_effect" AS ENUM('allow', 'deny');--> statement-breakpoint
@@ -29,7 +29,7 @@ CREATE TABLE "organization_members" (
 	"id" text PRIMARY KEY NOT NULL,
 	"organization_id" text NOT NULL,
 	"user_id" text NOT NULL,
-	"role" "org_role" DEFAULT 'member' NOT NULL,
+	"role" "org_role" DEFAULT 'viewer' NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );

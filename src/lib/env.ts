@@ -23,6 +23,14 @@ export const envSchema = z.object({
     .refine((value) => /^postgres(ql)?:\/\//.test(value), {
       message: "DATABASE_URL must be a postgres:// or postgresql:// connection string",
     }),
+
+  // Optional pepper mixed into API-key hashing (HMAC). When absent, a plain
+  // SHA-256 of the high-entropy key is used. Never the key itself.
+  API_KEY_PEPPER: z.string().min(16).optional(),
+
+  // LOCAL DEV ADAPTER: when no real session provider is wired, the dashboard
+  // falls back to this user's email for the active session. Dev only.
+  DEV_AUTH_USER_EMAIL: z.string().email().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

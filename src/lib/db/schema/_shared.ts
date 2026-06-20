@@ -14,7 +14,7 @@ import { bigint, pgEnum, timestamp, varchar } from "drizzle-orm/pg-core";
 /* Enums                                                               */
 /* ------------------------------------------------------------------ */
 
-export const orgRole = pgEnum("org_role", ["owner", "admin", "member"]);
+export const orgRole = pgEnum("org_role", ["owner", "admin", "developer", "operator", "viewer"]);
 
 export const jobStatus = pgEnum("job_status", [
   "queued",

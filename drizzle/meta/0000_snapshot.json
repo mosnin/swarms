@@ -1,5 +1,5 @@
 {
-  "id": "d48edca8-81f9-494b-8fc7-dc3d4eb55e73",
+  "id": "721d995c-31fc-4195-b1f1-c6d085933c1e",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -185,7 +185,7 @@
           "typeSchema": "public",
           "primaryKey": false,
           "notNull": true,
-          "default": "'member'"
+          "default": "'viewer'"
         },
         "created_at": {
           "name": "created_at",
@@ -3138,7 +3138,7 @@
     "public.org_role": {
       "name": "org_role",
       "schema": "public",
-      "values": ["owner", "admin", "member"]
+      "values": ["owner", "admin", "developer", "operator", "viewer"]
     },
     "public.payment_attempt_status": {
       "name": "payment_attempt_status",

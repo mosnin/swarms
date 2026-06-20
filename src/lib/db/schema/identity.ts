@@ -38,7 +38,7 @@ export const organizationMembers = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    role: orgRole("role").notNull().default("member"),
+    role: orgRole("role").notNull().default("viewer"),
     ...timestamps,
   },
   (table) => [uniqueIndex("org_members_org_user_uq").on(table.organizationId, table.userId)],
