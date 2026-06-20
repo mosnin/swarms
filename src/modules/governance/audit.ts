@@ -23,6 +23,33 @@ export interface AuditInput {
   ip?: string | null;
 }
 
+/**
+ * Write an audit event attributed to the system (no human/agent actor), e.g.
+ * from the worker process. Best-effort.
+ */
+export async function writeAuditSystem(
+  organizationId: string,
+  input: AuditInput,
+  db: Db = getDb(),
+): Promise<void> {
+  try {
+    await db.insert(schema.auditEvents).values({
+      organizationId,
+      actorUserId: null,
+      actorApiKeyId: null,
+      action: input.action,
+      resourceType: input.resourceType,
+      resourceId: input.resourceId ?? null,
+      before: input.before ?? null,
+      after: input.after ?? null,
+      requestId: input.requestId ?? null,
+      ip: input.ip ?? null,
+    });
+  } catch (error) {
+    logger.error("Failed to write system audit event", { action: input.action, error });
+  }
+}
+
 /** Write an audit event attributed to the actor in `ctx`. Best-effort. */
 export async function writeAudit(ctx: AuthContext, input: AuditInput, db: Db = getDb()): Promise<void> {
   try {

@@ -31,6 +31,13 @@ export const envSchema = z.object({
   // LOCAL DEV ADAPTER: when no real session provider is wired, the dashboard
   // falls back to this user's email for the active session. Dev only.
   DEV_AUTH_USER_EMAIL: z.string().email().optional(),
+
+  // Gate for the local_worker runner stub. Off by default; even when on, the
+  // stub refuses to execute until a hardened sandbox provider exists.
+  ENABLE_LOCAL_WORKER_RUNNER: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((value) => value === "true"),
 });
 
 export type Env = z.infer<typeof envSchema>;
