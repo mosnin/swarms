@@ -6,10 +6,12 @@
  * best-effort and swallow errors after logging.
  */
 
+import { and, desc, eq } from "drizzle-orm";
+
 import { getDb } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
 import { logger } from "@/lib/logger";
-import type { AuthContext } from "@/modules/identity/access-control";
+import { requirePermission, type AuthContext } from "@/modules/identity/access-control";
 
 type Db = ReturnType<typeof getDb>;
 
@@ -68,4 +70,54 @@ export async function writeAudit(ctx: AuthContext, input: AuditInput, db: Db = g
   } catch (error) {
     logger.error("Failed to write audit event", { action: input.action, error });
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Query (dashboard / diagnostics)                                     */
+/* ------------------------------------------------------------------ */
+
+export interface AuditFilter {
+  action?: string;
+  resourceType?: string;
+  limit?: number;
+}
+
+export interface AuditEventView {
+  id: string;
+  action: string;
+  resourceType: string;
+  resourceId: string | null;
+  actorUserId: string | null;
+  actorApiKeyId: string | null;
+  after: unknown;
+  createdAt: Date;
+}
+
+/** Query an organization's audit trail, optionally filtered by action/resource. */
+export async function listAuditEvents(
+  ctx: AuthContext,
+  filter: AuditFilter = {},
+  db: Db = getDb(),
+): Promise<AuditEventView[]> {
+  requirePermission(ctx, "audit.read");
+  const conditions = [eq(schema.auditEvents.organizationId, ctx.organizationId)];
+  if (filter.action) conditions.push(eq(schema.auditEvents.action, filter.action));
+  if (filter.resourceType) conditions.push(eq(schema.auditEvents.resourceType, filter.resourceType));
+
+  const rows = await db
+    .select({
+      id: schema.auditEvents.id,
+      action: schema.auditEvents.action,
+      resourceType: schema.auditEvents.resourceType,
+      resourceId: schema.auditEvents.resourceId,
+      actorUserId: schema.auditEvents.actorUserId,
+      actorApiKeyId: schema.auditEvents.actorApiKeyId,
+      after: schema.auditEvents.after,
+      createdAt: schema.auditEvents.createdAt,
+    })
+    .from(schema.auditEvents)
+    .where(and(...conditions))
+    .orderBy(desc(schema.auditEvents.createdAt))
+    .limit(Math.min(filter.limit ?? 100, 500));
+  return rows;
 }
