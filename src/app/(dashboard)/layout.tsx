@@ -3,10 +3,14 @@ import Link from "next/link";
 export const dynamic = "force-dynamic";
 
 const NAV = [
-  { href: "/dashboard", label: "Dashboard" },
+  { href: "/dashboard", label: "Overview" },
   { href: "/skills", label: "Skills" },
+  { href: "/jobs", label: "Jobs" },
+  { href: "/swarms", label: "Swarms" },
   { href: "/connectors", label: "Connectors" },
   { href: "/approvals", label: "Approvals" },
+  { href: "/payments", label: "Payments" },
+  { href: "/usage", label: "Usage" },
   { href: "/audit", label: "Audit" },
   { href: "/settings/budgets", label: "Budgets" },
   { href: "/settings/policies", label: "Policies" },
