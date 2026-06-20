@@ -68,7 +68,7 @@ export const paymentAttemptStatus = pgEnum("payment_attempt_status", [
 
 export const budgetPeriod = pgEnum("budget_period", ["once", "daily", "weekly", "monthly"]);
 
-export const policyEffect = pgEnum("policy_effect", ["allow", "deny"]);
+export const policyEffect = pgEnum("policy_effect", ["allow", "deny", "require_approval"]);
 
 export const entityStatus = pgEnum("entity_status", ["active", "archived", "suspended"]);
 

@@ -12,8 +12,8 @@ import { getDb } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
 import { Errors } from "@/lib/errors";
 import { isRunnerType } from "@/server/runners/runnerRegistry";
-import { appendEntry } from "@/modules/billing/ledger-service";
-import { dbLedgerStore } from "@/modules/billing/ledger-repository";
+import { commitBudget } from "@/server/budget/commitBudget";
+import { releaseBudget } from "@/server/budget/releaseBudget";
 import { writeAuditSystem } from "@/modules/governance/audit";
 import { dbJobStore } from "@/modules/execution/job-repository";
 import type { JobRecord } from "@/modules/execution/job-service";
@@ -121,18 +121,12 @@ function deps(db: Db, workerId: string): ProcessDeps {
     resolve: (job) => resolveExecution(db, job),
     workerId,
     async onCharge(job, costMinor, currency) {
-      // Append-only usage charge for the executed capability.
-      await appendEntry(dbLedgerStore(db), {
-        organizationId: job.organizationId,
-        jobId: job.id,
-        direction: "debit",
-        kind: "charge",
-        amountMinor: costMinor,
-        currency,
-        description: "Capability execution charge",
-        refType: "job",
-        refId: job.id,
-      });
+      // Commit the real usage charge and release the reservation hold so the
+      // budget reflects committed spend only (no double count).
+      await commitBudget(
+        { organizationId: job.organizationId, jobId: job.id, amountMinor: costMinor, currency },
+        db,
+      );
       await writeAuditSystem(job.organizationId, {
         action: "job.succeeded",
         resourceType: "job",
@@ -147,7 +141,15 @@ const WORKER_ID = `inproc-${process.pid}`;
 
 /** Process a single job by id using Postgres-backed stores. */
 export async function processJobInDb(jobId: string, db: Db = getDb()): Promise<JobRecord> {
-  return processJob(deps(db, WORKER_ID), jobId);
+  const job = await processJob(deps(db, WORKER_ID), jobId);
+  // A failed job never charges; release its reservation hold.
+  if (job.status === "failed") {
+    await releaseBudget(
+      { organizationId: job.organizationId, jobId: job.id, currency: job.costCurrency },
+      db,
+    ).catch(() => undefined);
+  }
+  return job;
 }
 
 /**

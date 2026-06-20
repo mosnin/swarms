@@ -29,6 +29,13 @@
       "when": 1781995870219,
       "tag": "0003_thankful_mantis",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1781996352715,
+      "tag": "0004_spotty_yellowjacket",
+      "breakpoints": true
     }
   ]
 }

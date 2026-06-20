@@ -11,15 +11,15 @@ import { and, asc, desc, eq } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
 import { Errors } from "@/lib/errors";
-import { appendEntry } from "@/modules/billing/ledger-service";
-import { dbLedgerStore } from "@/modules/billing/ledger-repository";
 import {
   requireOrganization,
   requirePermission,
   type AuthContext,
 } from "@/modules/identity/access-control";
 import { writeAudit } from "@/modules/governance/audit";
+import { loadPolicyRules } from "@/modules/governance/policy-repository";
 import {
+  approveJob as approveJobCore,
   cancelJob as cancelJobCore,
   createJob as createJobCore,
   type CreateJobResult,
@@ -30,6 +30,10 @@ import {
   type ResolvedSkillVersion,
 } from "@/modules/execution/job-service";
 import { canViewSkill, type SkillVisibility } from "@/modules/catalog/visibility";
+import { checkBudget } from "@/server/budget/checkBudget";
+import { reserveBudget } from "@/server/budget/reserveBudget";
+import { releaseBudget } from "@/server/budget/releaseBudget";
+import { evaluatePolicy, type PolicyRequest } from "@/server/policy/evaluatePolicy";
 import { getJobQueue } from "@/server/queue/queue";
 
 type Db = ReturnType<typeof getDb>;
@@ -167,7 +171,7 @@ export async function resolveSkillVersion(
   skillSlug: string,
   skillVersion: string | undefined,
   db: Db = getDb(),
-): Promise<ResolvedSkillVersion & { skillName: string }> {
+): Promise<ResolvedSkillVersion & { skillName: string; riskLevel: string }> {
   // The slug is unique per org, but execution may target another org's public
   // skill — match by slug across orgs, then enforce visibility.
   const skills = await db.select().from(schema.skills).where(eq(schema.skills.slug, skillSlug));
@@ -207,6 +211,7 @@ export async function resolveSkillVersion(
     priceMinor: chosen.priceMinor,
     priceCurrency: chosen.priceCurrency,
     skillName: skill.name,
+    riskLevel: skill.riskLevel,
   };
 }
 
@@ -242,6 +247,30 @@ export async function executeSkill(
   requirePermission(ctx, "jobs.create");
 
   const resolved = await resolveSkillVersion(ctx, request.skillSlug, request.skillVersion, db);
+  const currency = request.currency ?? resolved.priceCurrency;
+
+  // (1) Policy: deny / require approval / allow before anything is created.
+  const rules = await loadPolicyRules(ctx.organizationId, db);
+  const decision = evaluatePolicy(rules, {
+    skillRiskLevel: resolved.riskLevel as PolicyRequest["skillRiskLevel"],
+    costMinor: resolved.priceMinor,
+    requiresPayment: resolved.priceMinor > 0,
+  });
+  if (decision.effect === "deny") {
+    await writeAudit(ctx, {
+      action: "policy.denied",
+      resourceType: "skill_version",
+      resourceId: resolved.id,
+      after: { reason: decision.reason },
+    });
+    throw Errors.policyDenied(decision.reason, { rule: decision.matchedRule?.name });
+  }
+  const requireApproval = decision.effect === "require_approval";
+
+  // (2) Budget hard-stop check (only for paths that will actually run now).
+  if (!requireApproval) {
+    await checkBudget(ctx.organizationId, resolved.priceMinor, currency, db);
+  }
 
   const result: CreateJobResult = await createJobCore(dbJobStore(db), getJobQueue(), {
     organizationId: ctx.organizationId,
@@ -251,23 +280,29 @@ export async function executeSkill(
     input: request.input,
     idempotencyKey: request.idempotencyKey,
     budgetMinor: request.budgetMinor,
-    currency: request.currency,
+    currency,
+    requireApproval,
   });
 
   // First creation only: reserve budget (append-only hold) + audit.
   if (!result.replay) {
-    if (request.budgetMinor !== undefined && request.budgetMinor > 0) {
-      await appendEntry(dbLedgerStore(db), {
-        organizationId: ctx.organizationId,
-        jobId: result.job.id,
-        direction: "debit",
-        kind: "hold",
-        amountMinor: request.budgetMinor,
-        currency: result.job.costCurrency,
-        description: "Budget reservation for job execution",
-        refType: "job",
-        refId: result.job.id,
+    if (requireApproval) {
+      await writeAudit(ctx, {
+        action: "policy.approval_required",
+        resourceType: "job",
+        resourceId: result.job.id,
+        after: { reason: decision.reason },
       });
+    } else {
+      await reserveBudget(
+        {
+          organizationId: ctx.organizationId,
+          jobId: result.job.id,
+          amountMinor: resolved.priceMinor,
+          currency,
+        },
+        db,
+      );
     }
     await writeAudit(ctx, {
       action: "job.created",
@@ -363,9 +398,11 @@ export async function cancelJob(
   await loadJobInOrg(ctx, jobId, db);
   const cancelled = await cancelJobCore(dbJobStore(db), jobId);
 
-  // NOTE: releasing the reserved budget hold is handled by the budget engine
-  // (Phase 9), which knows the exact reserved amount; cancellation only records
-  // the lifecycle transition + audit here.
+  // Release any outstanding reservation hold for the cancelled job.
+  await releaseBudget(
+    { organizationId: ctx.organizationId, jobId, currency: cancelled.costCurrency },
+    db,
+  );
   await writeAudit(ctx, {
     action: "job.cancelled",
     resourceType: "job",
@@ -387,5 +424,42 @@ export async function cancelJob(
     queuedAt: cancelled.queuedAt?.toISOString() ?? null,
     startedAt: cancelled.startedAt?.toISOString() ?? null,
     finishedAt: cancelled.finishedAt?.toISOString() ?? null,
+  };
+}
+
+/** Approve a job awaiting approval, reserve its budget, and enqueue it. */
+export async function approveJob(
+  ctx: AuthContext,
+  jobId: string,
+  db: Db = getDb(),
+): Promise<JobView> {
+  requirePermission(ctx, "policies.manage");
+  const job = await loadJobInOrg(ctx, jobId, db);
+
+  // Enforce the budget hard-stop at approval time (state may have changed).
+  await checkBudget(ctx.organizationId, job.costMinor || 0, job.costCurrency, db);
+
+  const queued = await approveJobCore(dbJobStore(db), getJobQueue(), jobId);
+  await writeAudit(ctx, {
+    action: "job.approved",
+    resourceType: "job",
+    resourceId: jobId,
+    after: { status: queued.status },
+  });
+
+  return {
+    id: queued.id,
+    status: queued.status,
+    capabilityKind: queued.capabilityKind,
+    skillVersionId: queued.skillVersionId,
+    input: queued.input,
+    output: queued.output,
+    error: queued.error,
+    costMinor: queued.costMinor,
+    costCurrency: queued.costCurrency,
+    createdAt: queued.createdAt.toISOString(),
+    queuedAt: queued.queuedAt?.toISOString() ?? null,
+    startedAt: queued.startedAt?.toISOString() ?? null,
+    finishedAt: queued.finishedAt?.toISOString() ?? null,
   };
 }

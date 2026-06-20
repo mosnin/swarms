@@ -1,0 +1,1 @@
+ALTER TYPE "public"."policy_effect" ADD VALUE 'require_approval';

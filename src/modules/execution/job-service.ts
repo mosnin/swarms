@@ -99,6 +99,11 @@ export interface CreateJobInput {
   /** Optional caller budget cap in minor units; must cover the estimated cost. */
   budgetMinor?: number;
   currency?: string;
+  /**
+   * When true, the job is created in `awaiting_approval` and NOT enqueued —
+   * a human must approve it (policy `require_approval`). Defaults to false.
+   */
+  requireApproval?: boolean;
 }
 
 export interface CreateJobResult {
@@ -164,6 +169,7 @@ export async function createJob(
   }
 
   const now = clock.now();
+  const gated = input.requireApproval === true;
   const record: JobRecord = {
     id: newId(IdPrefix.job),
     organizationId: input.organizationId,
@@ -176,33 +182,61 @@ export async function createJob(
     input: input.input,
     output: null,
     error: null,
-    status: "queued",
+    status: gated ? "awaiting_approval" : "queued",
     priority: 0,
     attempt: 0,
     maxAttempts: 1,
     costMinor: 0,
     costCurrency: currency,
-    queuedAt: now,
+    queuedAt: gated ? null : now,
     startedAt: null,
     finishedAt: null,
     createdAt: now,
     updatedAt: now,
   };
 
-  // Persist BEFORE enqueue: the durable row is the source of truth.
+  // Persist BEFORE enqueue: the durable row is the source of truth. A gated job
+  // is persisted but never enqueued until it is approved.
   const job = await store.insert(record);
   await store.appendLog({
     id: newId(IdPrefix.executionLog),
     organizationId: job.organizationId,
     jobId: job.id,
     level: "info",
-    message: "Job created and queued",
+    message: gated ? "Job created and awaiting approval" : "Job created and queued",
     data: { skillVersionId: job.skillVersionId, estimatedCostMinor },
     loggedAt: now,
   });
-  await queue.enqueue(messageFor(job));
+  if (!gated) await queue.enqueue(messageFor(job));
 
   return { job, replay: false };
+}
+
+/** Approve a job awaiting approval: transition to queued and enqueue it. */
+export async function approveJob(
+  store: JobStore,
+  queue: JobQueue,
+  jobId: string,
+  clock: Clock = systemClock,
+): Promise<JobRecord> {
+  const job = await store.findById(jobId);
+  if (!job) throw Errors.notFound("Job not found");
+  if (job.status !== "awaiting_approval") {
+    throw Errors.conflict(`Job is ${job.status}, not awaiting approval`);
+  }
+  const now = clock.now();
+  await store.appendLog({
+    id: newId(IdPrefix.executionLog),
+    organizationId: job.organizationId,
+    jobId,
+    level: "info",
+    message: "Job approved and queued",
+    data: null,
+    loggedAt: now,
+  });
+  const queued = await store.update(jobId, { status: "queued", queuedAt: now, updatedAt: now });
+  await queue.enqueue(messageFor(queued));
+  return queued;
 }
 
 /** Cancel a non-terminal job and release its place in the lifecycle. */
