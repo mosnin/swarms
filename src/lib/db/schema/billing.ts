@@ -69,6 +69,8 @@ export const x402PaymentAttempts = pgTable(
     currency: currencyColumn().notNull(),
     scheme: varchar("scheme", { length: 64 }).notNull(),
     nonce: text("nonce").notNull(),
+    // Digest binding this payment to (org, skill version, idempotency key, price).
+    binding: varchar("binding", { length: 64 }).notNull().default(""),
     status: paymentAttemptStatus("status").notNull().default("pending"),
     challenge: jsonb("challenge"),
     proof: jsonb("proof"),
@@ -97,6 +99,7 @@ export const x402PaymentReceipts = pgTable(
     amountMinor: amountMinorColumn().notNull(),
     currency: currencyColumn().notNull(),
     txRef: text("tx_ref").notNull(),
+    binding: varchar("binding", { length: 64 }).notNull().default(""),
     providerRef: text("provider_ref"),
     breakdown: jsonb("breakdown"),
     issuedAt: timestamp("issued_at", { withTimezone: true }).notNull().defaultNow(),
@@ -105,6 +108,9 @@ export const x402PaymentReceipts = pgTable(
   (table) => [
     index("x402_receipts_job_idx").on(table.jobId),
     index("x402_receipts_attempt_idx").on(table.paymentAttemptId),
+    // A settlement reference may be recorded at most once per org (no double-spend).
+    uniqueIndex("x402_receipts_org_txref_uq").on(table.organizationId, table.txRef),
+    index("x402_receipts_binding_idx").on(table.organizationId, table.binding),
   ],
 );
 

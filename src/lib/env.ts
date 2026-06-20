@@ -38,6 +38,14 @@ export const envSchema = z.object({
     .enum(["true", "false"])
     .default("false")
     .transform((value) => value === "true"),
+
+  // x402 payment configuration. All optional so local/dev uses the mock
+  // provider; production wiring must supply these via the environment. The
+  // receiving address is NEVER hardcoded — it comes from here or not at all.
+  X402_PROVIDER: z.enum(["mock", "x402"]).default("mock"),
+  X402_NETWORK: z.string().min(1).default("base-sepolia"),
+  X402_PAY_TO_ADDRESS: z.string().min(1).optional(),
+  X402_FACILITATOR_URL: z.string().url().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
