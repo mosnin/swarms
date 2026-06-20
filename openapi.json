@@ -1,0 +1,213 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Hermes Cloud API",
+    "version": "0.1.0",
+    "description": "Paid execution layer for autonomous agents. Agents (e.g. the Hermes agent by Nous Research) rent skills, connectors, and sandboxed worker swarms. See docs/API.md."
+  },
+  "servers": [{ "url": "/", "description": "Deployment origin" }],
+  "security": [{ "bearerAuth": [] }],
+  "tags": [
+    { "name": "execution" },
+    { "name": "swarms" },
+    { "name": "connectors" },
+    { "name": "ops" }
+  ],
+  "paths": {
+    "/api/v1/execute": {
+      "post": {
+        "tags": ["execution"],
+        "summary": "Execute a skill (free path; policy + budget gated)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/ExecuteRequest" } }
+          }
+        },
+        "responses": {
+          "201": { "description": "Job created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExecuteEnvelope" } } } },
+          "402": { "description": "Budget exceeded", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } },
+          "403": { "description": "Policy denied or forbidden" },
+          "409": { "description": "Idempotency conflict" }
+        }
+      }
+    },
+    "/api/v1/execute-paid": {
+      "post": {
+        "tags": ["execution"],
+        "summary": "Execute a paid skill via x402",
+        "parameters": [
+          { "name": "X-PAYMENT", "in": "header", "required": false, "schema": { "type": "string" }, "description": "base64 JSON payment proof" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExecuteRequest" } } }
+        },
+        "responses": {
+          "201": { "description": "Paid job created" },
+          "402": { "description": "Payment required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PaymentRequiredResponse" } } } }
+        }
+      }
+    },
+    "/api/v1/jobs/{jobId}": {
+      "get": {
+        "tags": ["execution"],
+        "summary": "Get a job",
+        "parameters": [{ "name": "jobId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Job" }, "404": { "description": "Not found" } }
+      }
+    },
+    "/api/v1/jobs/{jobId}/logs": {
+      "get": {
+        "tags": ["execution"],
+        "summary": "Get job logs",
+        "parameters": [{ "name": "jobId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Logs" } }
+      }
+    },
+    "/api/v1/jobs/{jobId}/cancel": {
+      "post": {
+        "tags": ["execution"],
+        "summary": "Cancel a job",
+        "parameters": [{ "name": "jobId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Cancelled" }, "409": { "description": "Terminal job" } }
+      }
+    },
+    "/api/v1/jobs/{jobId}/approve": {
+      "post": {
+        "tags": ["execution"],
+        "summary": "Approve a job awaiting approval",
+        "parameters": [{ "name": "jobId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Queued" } }
+      }
+    },
+    "/api/v1/swarms/run": {
+      "post": {
+        "tags": ["swarms"],
+        "summary": "Run a swarm",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SwarmRunRequest" } } } },
+        "responses": { "201": { "description": "Swarm run" } }
+      }
+    },
+    "/api/v1/swarms/{swarmRunId}": {
+      "get": {
+        "tags": ["swarms"],
+        "summary": "Get a swarm run",
+        "parameters": [{ "name": "swarmRunId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Swarm run" } }
+      }
+    },
+    "/api/v1/swarms/{swarmRunId}/logs": {
+      "get": {
+        "tags": ["swarms"],
+        "summary": "Get swarm logs",
+        "parameters": [{ "name": "swarmRunId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Logs" } }
+      }
+    },
+    "/api/connectors": {
+      "get": { "tags": ["connectors"], "summary": "List connector catalog", "responses": { "200": { "description": "Connectors" } } }
+    },
+    "/api/v1/connectors/call": {
+      "post": {
+        "tags": ["connectors"],
+        "summary": "Call a connector tool (scoped)",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConnectorCallRequest" } } } },
+        "responses": { "200": { "description": "Tool result" }, "403": { "description": "Not granted / approval required" } }
+      }
+    },
+    "/api/health": { "get": { "tags": ["ops"], "summary": "Liveness", "security": [], "responses": { "200": { "description": "OK" } } } },
+    "/api/ready": { "get": { "tags": ["ops"], "summary": "Readiness", "security": [], "responses": { "200": { "description": "Ready" }, "503": { "description": "Not ready" } } } }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": { "type": "http", "scheme": "bearer", "description": "Hermes Cloud API key" }
+    },
+    "schemas": {
+      "ExecuteRequest": {
+        "type": "object",
+        "required": ["skillSlug", "input", "idempotencyKey"],
+        "properties": {
+          "skillSlug": { "type": "string" },
+          "skillVersion": { "type": "string" },
+          "input": {},
+          "idempotencyKey": { "type": "string", "minLength": 8, "maxLength": 255 },
+          "budgetMinor": { "type": "integer", "minimum": 0 },
+          "currency": { "type": "string", "minLength": 3, "maxLength": 3 },
+          "callbackUrl": { "type": "string", "format": "uri" }
+        }
+      },
+      "ExecuteResponse": {
+        "type": "object",
+        "properties": {
+          "jobId": { "type": "string" },
+          "status": { "type": "string" },
+          "paymentRequired": { "type": "boolean" },
+          "estimatedCostMinor": { "type": "integer" },
+          "currency": { "type": "string" },
+          "executionUrl": { "type": "string" },
+          "createdAt": { "type": "string" }
+        }
+      },
+      "ExecuteEnvelope": {
+        "type": "object",
+        "properties": { "data": { "$ref": "#/components/schemas/ExecuteResponse" } }
+      },
+      "PaymentRequirements": {
+        "type": "object",
+        "properties": {
+          "scheme": { "type": "string" },
+          "network": { "type": "string" },
+          "payTo": { "type": "string" },
+          "amountMinor": { "type": "integer" },
+          "currency": { "type": "string" },
+          "nonce": { "type": "string" },
+          "binding": { "type": "string" },
+          "expiresAt": { "type": "string" }
+        }
+      },
+      "PaymentRequiredResponse": {
+        "type": "object",
+        "properties": {
+          "error": { "$ref": "#/components/schemas/Error" },
+          "accepts": { "type": "array", "items": { "$ref": "#/components/schemas/PaymentRequirements" } }
+        }
+      },
+      "SwarmRunRequest": {
+        "type": "object",
+        "required": ["templateId", "objective"],
+        "properties": {
+          "templateId": { "type": "string" },
+          "objective": { "type": "string" },
+          "input": { "type": "object" },
+          "budgetMinor": { "type": "integer", "minimum": 0 },
+          "currency": { "type": "string" }
+        }
+      },
+      "ConnectorCallRequest": {
+        "type": "object",
+        "required": ["connectorSlug", "toolName"],
+        "properties": {
+          "connectorSlug": { "type": "string" },
+          "toolName": { "type": "string" },
+          "input": {},
+          "grantedScopes": { "type": "array", "items": { "type": "string" } },
+          "jobId": { "type": "string" }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" },
+          "retryable": { "type": "boolean" },
+          "details": { "type": "object" }
+        }
+      },
+      "ErrorEnvelope": {
+        "type": "object",
+        "properties": { "error": { "$ref": "#/components/schemas/Error" } }
+      }
+    }
+  }
+}
