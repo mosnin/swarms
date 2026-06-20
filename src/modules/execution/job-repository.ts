@@ -171,7 +171,7 @@ export async function resolveSkillVersion(
   skillSlug: string,
   skillVersion: string | undefined,
   db: Db = getDb(),
-): Promise<ResolvedSkillVersion & { skillName: string; riskLevel: string }> {
+): Promise<ResolvedSkillVersion & { skillName: string; riskLevel: string; creatorOrganizationId: string }> {
   // The slug is unique per org, but execution may target another org's public
   // skill — match by slug across orgs, then enforce visibility.
   const skills = await db.select().from(schema.skills).where(eq(schema.skills.slug, skillSlug));
@@ -212,6 +212,7 @@ export async function resolveSkillVersion(
     priceCurrency: chosen.priceCurrency,
     skillName: skill.name,
     riskLevel: skill.riskLevel,
+    creatorOrganizationId: skill.organizationId,
   };
 }
 
