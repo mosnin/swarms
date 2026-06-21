@@ -41,6 +41,8 @@ export const riskLevel = pgEnum("risk_level", ["low", "medium", "high", "critica
 
 export const runnerType = pgEnum("runner_type", ["mock", "http", "local_worker"]);
 
+export const reviewStatus = pgEnum("review_status", ["approved", "pending", "rejected"]);
+
 export const connectorAccountStatus = pgEnum("connector_account_status", [
   "active",
   "revoked",

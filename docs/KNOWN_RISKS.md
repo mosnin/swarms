@@ -18,6 +18,14 @@ status + evidence.
 - **Operational**: requires a container engine + a built skill-runtime image on
   the worker host.
 
+### Marketplace creator review — RESOLVED (in code)
+- Public skills start `pending` and must be `approved` (`reviewSkill`,
+  `skills.publish`) before they are listed in the marketplace or executable
+  cross-org; rejected skills are blocked. Evidence: `skill-service.ts`,
+  `POST /api/skills/[id]/review`, `tests/integration/marketplace-review.test.ts`.
+  Production note: review is org-gated here; a platform-admin review tier is the
+  full marketplace model.
+
 ### KR-2 — Mainnet x402: adapter implemented; needs a real facilitator + verification
 - **Status**: a real `X402FacilitatorProvider` is implemented (verify/settle over
   HTTP, env-driven, fails closed, tested with a mock facilitator) and wired for

@@ -50,6 +50,7 @@ export interface SkillView {
   defaultPriceMinor: number;
   priceCurrency: string;
   status: string;
+  reviewStatus: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -86,6 +87,7 @@ function toSkillView(row: SkillRow): SkillView {
     defaultPriceMinor: row.defaultPriceMinor,
     priceCurrency: row.priceCurrency,
     status: row.status,
+    reviewStatus: row.reviewStatus,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -165,11 +167,64 @@ export async function createSkill(
         requiredPermissions: sanitizePermissions(input.requiredPermissions ?? []),
         defaultPriceMinor: input.defaultPriceMinor ?? 0,
         priceCurrency: (input.priceCurrency ?? "USD").toUpperCase(),
+        // Public skills require marketplace review before listing/cross-org use.
+        reviewStatus: input.visibility === "public" ? "pending" : "approved",
       })
       .returning()
   )[0];
   if (!inserted) throw Errors.internal("Failed to create skill");
   return toSkillView(inserted);
+}
+
+/**
+ * Review a public skill for the marketplace. Approving lists it and allows
+ * cross-org execution; rejecting blocks both. Requires `skills.publish`.
+ */
+export async function reviewSkill(
+  ctx: AuthContext,
+  skillId: string,
+  decision: { approve: boolean; notes?: string },
+  db: Db = getDb(),
+): Promise<SkillView> {
+  requirePermission(ctx, "skills.publish");
+  const skill = (
+    await db.select().from(schema.skills).where(eq(schema.skills.id, skillId)).limit(1)
+  )[0];
+  if (!skill) throw Errors.notFound("Skill not found");
+  requireOrganization(ctx, skill.organizationId);
+
+  const reviewerId = ctx.actor.kind === "user" ? ctx.actor.userId : null;
+  const updated = (
+    await db
+      .update(schema.skills)
+      .set({
+        reviewStatus: decision.approve ? "approved" : "rejected",
+        reviewedByUserId: reviewerId,
+        reviewedAt: new Date(),
+        reviewNotes: decision.notes ?? null,
+      })
+      .where(eq(schema.skills.id, skillId))
+      .returning()
+  )[0];
+  if (!updated) throw Errors.internal("Failed to review skill");
+  return toSkillView(updated);
+}
+
+/** Public skills in this org that are awaiting marketplace review. */
+export async function listSkillsPendingReview(ctx: AuthContext, db: Db = getDb()): Promise<SkillView[]> {
+  requirePermission(ctx, "skills.read");
+  const rows = await db
+    .select()
+    .from(schema.skills)
+    .where(
+      and(
+        eq(schema.skills.organizationId, ctx.organizationId),
+        eq(schema.skills.visibility, "public"),
+        eq(schema.skills.reviewStatus, "pending"),
+      ),
+    )
+    .orderBy(desc(schema.skills.createdAt));
+  return rows.map(toSkillView);
 }
 
 export interface ListSkillsInput {

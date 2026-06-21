@@ -57,6 +57,13 @@
       "when": 1782001913449,
       "tag": "0007_yellow_thena",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1782007493511,
+      "tag": "0008_natural_thanos",
+      "breakpoints": true
     }
   ]
 }

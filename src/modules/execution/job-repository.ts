@@ -185,6 +185,11 @@ export async function resolveSkillVersion(
   );
   if (!skill) throw Errors.capabilityNotFound(`Skill "${skillSlug}" not found`);
 
+  // Cross-org (marketplace) execution requires an approved review.
+  if (skill.organizationId !== ctx.organizationId && skill.reviewStatus !== "approved") {
+    throw Errors.capabilityNotFound(`Skill "${skillSlug}" is not approved for marketplace use`);
+  }
+
   const versionRows = await db
     .select()
     .from(schema.skillVersions)

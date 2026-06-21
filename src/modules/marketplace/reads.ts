@@ -3,7 +3,7 @@
  * derived from the append-only ledger.
  */
 
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, or } from "drizzle-orm";
 
 import { getDb } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
@@ -25,7 +25,17 @@ export async function listMarketplaceSkills(ctx: AuthContext, db: Db = getDb()) 
       organizationId: schema.skills.organizationId,
     })
     .from(schema.skills)
-    .where(eq(schema.skills.visibility, "public"))
+    .where(
+      and(
+        eq(schema.skills.visibility, "public"),
+        // Listed when approved, or when it's the viewer's own (so creators see
+        // their pending/rejected listings).
+        or(
+          eq(schema.skills.reviewStatus, "approved"),
+          eq(schema.skills.organizationId, ctx.organizationId),
+        ),
+      ),
+    )
     .orderBy(desc(schema.skills.createdAt))
     .limit(100);
 }

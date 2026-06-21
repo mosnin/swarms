@@ -11,6 +11,7 @@ import {
   currencyColumn,
   entityStatus,
   permissionLevel,
+  reviewStatus,
   riskLevel,
   runnerType,
   skillVersionStatus,
@@ -35,6 +36,12 @@ export const skills = pgTable(
     defaultPriceMinor: amountMinorColumn("default_price_minor").notNull().default(0),
     priceCurrency: currencyColumn("price_currency").notNull().default("USD"),
     status: entityStatus("status").notNull().default("active"),
+    // Marketplace review gate: a public skill must be 'approved' before it is
+    // listed or executable by another organization.
+    reviewStatus: reviewStatus("review_status").notNull().default("approved"),
+    reviewedByUserId: text("reviewed_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    reviewNotes: text("review_notes"),
     ...timestamps,
   },
   (table) => [
