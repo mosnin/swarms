@@ -71,6 +71,13 @@
       "when": 1782063794937,
       "tag": "0009_dusty_robin_chapel",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1782079558214,
+      "tag": "0010_aromatic_vision",
+      "breakpoints": true
     }
   ]
 }

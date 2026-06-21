@@ -1,0 +1,1 @@
+ALTER TABLE "swarm_runs" ALTER COLUMN "swarm_template_id" DROP NOT NULL;
