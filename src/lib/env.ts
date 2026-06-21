@@ -61,6 +61,10 @@ export const envSchema = z.object({
   // Sandbox provider: dev stub (no isolation) or a real container engine.
   SANDBOX_PROVIDER: z.enum(["stub", "docker", "podman"]).default("stub"),
   SANDBOX_IMAGE: z.string().min(1).default("ghcr.io/hermes-cloud/skill-runtime:latest"),
+
+  // AES-256-GCM data key (base64, 32 bytes) for encrypting connector secrets at
+  // rest. Required in production; a fixed dev key is used otherwise.
+  CONNECTOR_ENCRYPTION_KEY: z.string().min(1).optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
