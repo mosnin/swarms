@@ -3,12 +3,13 @@
  * append-only ledger entries; these queries derive budget state from them.
  */
 
-import { and, eq, gte } from "drizzle-orm";
+import { and, eq, gte, type SQL } from "drizzle-orm";
 
 import { getDb } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
 import type { LedgerDirection, LedgerEntryKind } from "@/modules/billing/ledger-service";
 import { reservedMinor, type BudgetLedgerEntry } from "@/server/budget/budgetMath";
+import { isScoped, type BudgetScope } from "@/server/budget/scope";
 
 type Db = ReturnType<typeof getDb>;
 
@@ -39,6 +40,45 @@ export async function entriesForOrgSince(
         gte(schema.usageLedgerEntries.createdAt, since),
       ),
     );
+  return rows.map(toEntry);
+}
+
+/**
+ * Ledger entries for an organization since `since`, narrowed to a budget scope.
+ * Org-wide scopes use the cheap path; constrained scopes join through `jobs`
+ * (and `skill_versions` for a skill scope) so per-key / per-user / per-skill
+ * budgets are computed from the same append-only ledger.
+ */
+export async function scopedEntriesSince(
+  organizationId: string,
+  since: Date,
+  scope: BudgetScope,
+  db: Db = getDb(),
+): Promise<BudgetLedgerEntry[]> {
+  if (!isScoped(scope)) return entriesForOrgSince(organizationId, since, db);
+
+  const conds: SQL[] = [
+    eq(schema.usageLedgerEntries.organizationId, organizationId),
+    gte(schema.usageLedgerEntries.createdAt, since),
+  ];
+  if (scope.apiKeyId) conds.push(eq(schema.jobs.apiKeyId, scope.apiKeyId));
+  if (scope.userId) conds.push(eq(schema.jobs.createdByUserId, scope.userId));
+
+  const base = db
+    .select({
+      direction: schema.usageLedgerEntries.direction,
+      kind: schema.usageLedgerEntries.kind,
+      amountMinor: schema.usageLedgerEntries.amountMinor,
+    })
+    .from(schema.usageLedgerEntries)
+    .innerJoin(schema.jobs, eq(schema.usageLedgerEntries.jobId, schema.jobs.id));
+
+  const rows = scope.skillId
+    ? await base
+        .innerJoin(schema.skillVersions, eq(schema.jobs.skillVersionId, schema.skillVersions.id))
+        .where(and(...conds, eq(schema.skillVersions.skillId, scope.skillId)))
+    : await base.where(and(...conds));
+
   return rows.map(toEntry);
 }
 

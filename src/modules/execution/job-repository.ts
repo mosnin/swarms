@@ -269,8 +269,13 @@ export async function executeSkill(
   const requireApproval = decision.effect === "require_approval";
 
   // (2) Budget hard-stop check (only for paths that will actually run now).
+  // Scope context lets per-key / per-user / per-skill budgets apply.
   if (!requireApproval) {
-    await checkBudget(ctx.organizationId, resolved.priceMinor, currency, db);
+    await checkBudget(ctx.organizationId, resolved.priceMinor, currency, db, {
+      apiKeyId: ctx.actor.kind === "agent" ? ctx.actor.apiKeyId : null,
+      userId: ctx.actor.kind === "user" ? ctx.actor.userId : null,
+      skillId: resolved.skillId,
+    });
   }
 
   const result: CreateJobResult = await createJobCore(dbJobStore(db), getJobQueue(), {
@@ -438,7 +443,10 @@ export async function approveJob(
   const job = await loadJobInOrg(ctx, jobId, db);
 
   // Enforce the budget hard-stop at approval time (state may have changed).
-  await checkBudget(ctx.organizationId, job.costMinor || 0, job.costCurrency, db);
+  await checkBudget(ctx.organizationId, job.costMinor || 0, job.costCurrency, db, {
+    apiKeyId: job.apiKeyId,
+    userId: job.createdByUserId,
+  });
 
   const queued = await approveJobCore(dbJobStore(db), getJobQueue(), jobId);
   await writeAudit(ctx, {
