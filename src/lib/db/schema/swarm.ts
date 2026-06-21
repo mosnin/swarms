@@ -44,9 +44,11 @@ export const swarmRuns = pgTable(
     organizationId: text("organization_id")
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
-    swarmTemplateId: text("swarm_template_id")
-      .notNull()
-      .references(() => swarmTemplates.id, { onDelete: "restrict" }),
+    // Null for an agent-workforce swarm (tasks spawned directly by an external
+    // agent); set only for the legacy template-based path.
+    swarmTemplateId: text("swarm_template_id").references(() => swarmTemplates.id, {
+      onDelete: "restrict",
+    }),
     jobId: text("job_id").references(() => jobs.id, { onDelete: "set null" }),
     status: jobStatus("status").notNull().default("queued"),
     input: jsonb("input"),
