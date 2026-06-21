@@ -45,6 +45,7 @@ export interface JobRecord {
   idempotencyKey: string;
   inputHash: string;
   input: unknown;
+  callbackUrl: string | null;
   output: unknown;
   error: unknown;
   status: JobStatus;
@@ -99,6 +100,8 @@ export interface CreateJobInput {
   /** Optional caller budget cap in minor units; must cover the estimated cost. */
   budgetMinor?: number;
   currency?: string;
+  /** Optional webhook callback URL for job lifecycle events. */
+  callbackUrl?: string | null;
   /**
    * When true, the job is created in `awaiting_approval` and NOT enqueued —
    * a human must approve it (policy `require_approval`). Defaults to false.
@@ -180,6 +183,7 @@ export async function createJob(
     idempotencyKey: input.idempotencyKey,
     inputHash,
     input: input.input,
+    callbackUrl: input.callbackUrl ?? null,
     output: null,
     error: null,
     status: gated ? "awaiting_approval" : "queued",

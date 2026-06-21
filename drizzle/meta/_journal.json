@@ -43,6 +43,13 @@
       "when": 1781996816452,
       "tag": "0005_great_darkstar",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1782001623499,
+      "tag": "0006_clammy_smasher",
+      "breakpoints": true
     }
   ]
 }

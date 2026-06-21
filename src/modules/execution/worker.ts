@@ -14,7 +14,9 @@ import { Errors } from "@/lib/errors";
 import { isRunnerType } from "@/server/runners/runnerRegistry";
 import { commitBudget } from "@/server/budget/commitBudget";
 import { releaseBudget } from "@/server/budget/releaseBudget";
+import { logger } from "@/lib/logger";
 import { writeAuditSystem } from "@/modules/governance/audit";
+import { enqueueWebhook } from "@/modules/webhooks/webhook-service";
 import { dbJobStore } from "@/modules/execution/job-repository";
 import type { JobRecord } from "@/modules/execution/job-service";
 import {
@@ -152,6 +154,19 @@ export async function processJobInDb(
       { organizationId: job.organizationId, jobId: job.id, currency: job.costCurrency },
       db,
     ).catch(() => undefined);
+  }
+  // Emit a webhook for terminal states when the caller subscribed.
+  if (job.callbackUrl && (job.status === "succeeded" || job.status === "failed")) {
+    await enqueueWebhook(
+      {
+        organizationId: job.organizationId,
+        jobId: job.id,
+        eventType: `job.${job.status}`,
+        url: job.callbackUrl,
+        data: { status: job.status, costMinor: job.costMinor, currency: job.costCurrency },
+      },
+      db,
+    ).catch((error) => logger.error("Failed to enqueue webhook", { jobId: job.id, error }));
   }
   return job;
 }

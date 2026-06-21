@@ -45,6 +45,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       idempotencyKey: parsed.data.idempotencyKey,
       budgetMinor: parsed.data.budgetMinor,
       currency: parsed.data.currency,
+      callbackUrl: parsed.data.callbackUrl,
     });
     return ok(response, 201);
   });

@@ -1,38 +1,69 @@
 # Webhooks
 
-> Status: **placeholder / not yet delivered.** This documents the intended
-> contract so integrators can plan; delivery is not implemented (see
-> [`KNOWN_RISKS.md`](./KNOWN_RISKS.md)).
+> Status: **implemented** (signed, retried, at-least-once). Per-org secret
+> rotation is future work (a single configured signing secret is used today).
 
-## Intent
+## Subscribing
 
-`POST /api/v1/execute` accepts an optional `callbackUrl`. When webhook delivery
-is implemented, Hermes Cloud will POST job lifecycle events to that URL so agents
-do not have to poll.
+Pass `callbackUrl` on `POST /api/v1/execute`. When the job reaches a terminal
+state, Hermes Cloud delivers a signed event to that URL.
 
-## Planned event shape
+## Event shape
+
+The body is **canonical JSON** (keys sorted recursively, so the signed bytes are
+stable regardless of property order):
 
 ```json
 {
-  "type": "job.succeeded",
+  "data": { "status": "succeeded", "costMinor": 200, "currency": "USD" },
   "jobId": "job_...",
-  "organizationId": "org_...",
-  "status": "succeeded",
   "occurredAt": "2026-...",
-  "data": { "costMinor": 200, "currency": "USD" }
+  "organizationId": "org_...",
+  "type": "job.succeeded"
 }
 ```
 
-Planned event types mirror audit actions: `job.succeeded`, `job.failed`,
-`job.cancelled`, `payment.verified`, `swarm.completed`.
+Event types today: `job.succeeded`, `job.failed`. (More — `payment.verified`,
+`swarm.completed` — can be added via `enqueueWebhook`.)
 
-## Planned security
+## Headers
 
-- Signed with an HMAC over the body using a per-org webhook secret
-  (`X-Hermes-Signature`).
-- At-least-once delivery with retries + exponential backoff.
-- Consumers must verify the signature and treat delivery as idempotent (dedupe
-  on `jobId` + `type`).
+| Header | Value |
+|---|---|
+| `X-Hermes-Event` | the event type (e.g. `job.succeeded`) |
+| `X-Hermes-Signature` | `HMAC-SHA256(secret, body)` as hex |
 
-Until implemented, use `GET /api/v1/jobs/{jobId}` / `streamJobLogs` to observe
-completion.
+## Verifying (consumer)
+
+```ts
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+function verify(secret: string, rawBody: string, signature: string): boolean {
+  const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
+  const a = Buffer.from(expected), b = Buffer.from(signature);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+```
+
+Verify over the **raw body bytes** you receive. Treat delivery as idempotent
+(dedupe on `jobId` + `type`); retries can re-deliver.
+
+## Delivery semantics
+
+- **Durable outbox**: events are written to `webhook_deliveries` and delivered by
+  the worker, so a delivery is never lost if the consumer is briefly down.
+- **At-least-once** with bounded exponential backoff (`maxAttempts` = 5); after
+  the last attempt the delivery is marked `failed` with `lastError`.
+- **10s timeout** per attempt; non-2xx is a retryable failure.
+
+## Configuration
+
+| Var | Notes |
+|---|---|
+| `WEBHOOK_SIGNING_SECRET` | HMAC secret (≥16 chars). Required in production; a fixed dev secret is used otherwise. |
+
+## Not yet
+
+- Per-org signing secrets + rotation (single shared secret today).
+- Event types beyond job terminal states wired into all flows.
+- A management UI for endpoints/secrets.

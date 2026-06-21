@@ -51,6 +51,7 @@ function toJobRecord(row: JobRow): JobRecord {
     idempotencyKey: row.idempotencyKey,
     inputHash: row.inputHash,
     input: row.input,
+    callbackUrl: row.callbackUrl,
     output: row.output,
     error: row.error,
     status: row.status as JobStatus,
@@ -105,6 +106,7 @@ export function dbJobStore(db: Db = getDb()): JobStore {
             idempotencyKey: record.idempotencyKey,
             inputHash: record.inputHash,
             input: record.input,
+            callbackUrl: record.callbackUrl,
             status: record.status,
             priority: record.priority,
             attempt: record.attempt,
@@ -227,6 +229,7 @@ export interface ExecuteRequest {
   idempotencyKey: string;
   budgetMinor?: number;
   currency?: string;
+  callbackUrl?: string;
 }
 
 export interface ExecuteResponse {
@@ -287,6 +290,7 @@ export async function executeSkill(
     idempotencyKey: request.idempotencyKey,
     budgetMinor: request.budgetMinor,
     currency,
+    callbackUrl: request.callbackUrl,
     requireApproval,
   });
 

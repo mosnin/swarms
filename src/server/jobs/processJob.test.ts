@@ -64,6 +64,7 @@ function queuedJob(): JobRecord {
     idempotencyKey: "idem-key-proc",
     inputHash: "hash",
     input: { url: "https://example.com" },
+    callbackUrl: null,
     output: null,
     error: null,
     status: "queued",

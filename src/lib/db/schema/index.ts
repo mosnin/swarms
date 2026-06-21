@@ -7,3 +7,4 @@ export * from "@/lib/db/schema/execution";
 export * from "@/lib/db/schema/billing";
 export * from "@/lib/db/schema/governance";
 export * from "@/lib/db/schema/swarm";
+export * from "@/lib/db/schema/webhooks";

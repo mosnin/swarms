@@ -35,6 +35,7 @@ export const jobs = pgTable(
     idempotencyKey: varchar("idempotency_key", { length: 255 }).notNull(),
     inputHash: varchar("input_hash", { length: 64 }).notNull(),
     input: jsonb("input").notNull(),
+    callbackUrl: text("callback_url"),
     output: jsonb("output"),
     error: jsonb("error"),
     status: jobStatus("status").notNull().default("queued"),

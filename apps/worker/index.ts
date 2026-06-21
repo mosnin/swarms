@@ -14,6 +14,7 @@
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { claimAndProcessJobs, reapExpiredJobs } from "@/modules/execution/worker";
+import { deliverPendingWebhooks } from "@/modules/webhooks/webhook-service";
 
 const POLL_INTERVAL_MS = Number(process.env.WORKER_POLL_INTERVAL_MS ?? 1000);
 const BATCH_SIZE = Number(process.env.WORKER_BATCH_SIZE ?? 5);
@@ -31,6 +32,10 @@ async function tick(): Promise<void> {
     // Multi-worker safe claim (SELECT ... FOR UPDATE SKIP LOCKED).
     const processed = await claimAndProcessJobs(undefined, BATCH_SIZE);
     if (processed > 0) logger.info("Worker processed jobs", { processed });
+
+    // Deliver any pending webhooks (signed, retried).
+    const delivered = await deliverPendingWebhooks();
+    if (delivered > 0) logger.info("Worker delivered webhooks", { delivered });
 
     // Periodically reap jobs whose worker died mid-run.
     const now = Date.now();

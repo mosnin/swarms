@@ -49,6 +49,10 @@ export const envSchema = z.object({
 
   // Marketplace platform fee in basis points (1/10000). Default 20%.
   PLATFORM_FEE_BPS: z.coerce.number().int().min(0).max(10_000).default(2000),
+
+  // HMAC secret for signing outbound webhooks. Consumers verify with the same
+  // secret. Optional in dev (a fixed dev secret is used); set in production.
+  WEBHOOK_SIGNING_SECRET: z.string().min(16).optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
