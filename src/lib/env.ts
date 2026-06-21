@@ -57,6 +57,10 @@ export const envSchema = z.object({
 
   // Rate-limit backend: in-process (single instance) or shared Postgres.
   RATE_LIMIT_BACKEND: z.enum(["memory", "postgres"]).default("memory"),
+
+  // Sandbox provider: dev stub (no isolation) or a real container engine.
+  SANDBOX_PROVIDER: z.enum(["stub", "docker", "podman"]).default("stub"),
+  SANDBOX_IMAGE: z.string().min(1).default("ghcr.io/hermes-cloud/skill-runtime:latest"),
 });
 
 export type Env = z.infer<typeof envSchema>;

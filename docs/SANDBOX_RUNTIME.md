@@ -11,8 +11,14 @@
 | Piece | File | Notes |
 |---|---|---|
 | Provider interface | `src/server/sandbox/types.ts` | `createSandbox`, `uploadSkillBundle`, `runCommand`, `readFile`, `writeFile`, `collectArtifacts`, `terminateSandbox` |
+| **Container provider** | `src/server/sandbox/dockerSandboxProvider.ts` | **real isolation**: `--network=none`, `--read-only`, tmpfs workdir, `--memory`/`--cpus`/`--pids-limit`, `--cap-drop=ALL`, `--security-opt=no-new-privileges`, non-root user, empty env (no host secrets). `isProductionSafe = true`. Enabled via `SANDBOX_PROVIDER=docker\|podman`. |
 | Dev stub | `src/server/sandbox/localStubSandboxProvider.ts` | `isProductionSafe = false`; `runCommand` throws |
-| Selector (fails closed) | `src/server/sandbox/sandboxProvider.ts` | refuses in production; dev stub only when explicitly enabled |
+| Selector | `src/server/sandbox/sandboxProvider.ts` | uses the container provider when configured; else the dev stub (refused in production) |
+
+The container provider is a genuine isolation boundary suitable for semi-trusted
+code. For **fully untrusted multi-tenant** code, a microVM (Firecracker) or
+gVisor is stronger and recommended — the same provider interface accepts such an
+adapter without changing call sites.
 
 Today's runners are `mock` (deterministic), `http` (calls a vetted external
 endpoint with timeout), and `local_worker` (disabled stub). None execute

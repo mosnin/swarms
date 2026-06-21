@@ -6,14 +6,17 @@ status + evidence.
 
 ## Critical (block the corresponding launch level)
 
-### KR-1 — No production-safe sandbox for untrusted code
-- **Impact**: untrusted third-party skill code cannot be run safely.
-- **Status**: interface + dev stub only; stub refuses to execute; selector fails
-  closed in production. Evidence: `src/server/sandbox/*`, `docs/SANDBOX_RUNTIME.md`.
-- **Blocks**: public marketplace (Phase 22).
-- **Fix**: implement a microVM/gVisor/remote-exec provider meeting all
-  requirements in SANDBOX_RUNTIME.md; pass an isolation test suite. Requires real
-  infrastructure — cannot be done honestly in this repo alone.
+### KR-1 — Sandbox: container provider shipped; microVM recommended for fully untrusted code
+- **Status**: a **real container sandbox** (`DockerSandboxProvider`) is
+  implemented and selectable via `SANDBOX_PROVIDER=docker|podman` — no network,
+  read-only root, tmpfs workdir, dropped caps, no-new-privileges, non-root,
+  enforced cpu/mem/pids/time, no host secrets. `isProductionSafe = true`.
+  Evidence: `src/server/sandbox/dockerSandboxProvider.ts` + tests.
+- **Residual**: containers share the host kernel; for **fully untrusted
+  multi-tenant** marketplace code a microVM (Firecracker) / gVisor is stronger.
+  The provider interface accepts such an adapter unchanged.
+- **Operational**: requires a container engine + a built skill-runtime image on
+  the worker host.
 
 ### KR-2 — Mainnet x402 not production-hardened
 - **Impact**: real-money settlement is not verified end-to-end.
