@@ -13,6 +13,15 @@ import * as schema from "@/lib/db/schema";
 
 let client: ReturnType<typeof postgres> | undefined;
 let db: PostgresJsDatabase<typeof schema> | undefined;
+let testOverride: PostgresJsDatabase<typeof schema> | undefined;
+
+/**
+ * Test seam: route handlers call {@link getDb} internally, so integration tests
+ * inject their in-process database here. No effect in production.
+ */
+export function __setTestDb(override: PostgresJsDatabase<typeof schema> | undefined): void {
+  testOverride = override;
+}
 
 function getClient(): ReturnType<typeof postgres> {
   if (!client) {
@@ -26,6 +35,7 @@ function getClient(): ReturnType<typeof postgres> {
 }
 
 export function getDb(): PostgresJsDatabase<typeof schema> {
+  if (testOverride) return testOverride;
   if (!db) {
     db = drizzle(getClient(), { schema });
   }

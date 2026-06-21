@@ -57,6 +57,8 @@ function toReceipt(row: ReceiptRow): PaymentReceiptRecord {
 export function dbPaymentStore(db: Db = getDb()): PaymentStore {
   return {
     async insertAttempt(record: PaymentAttemptRecord) {
+      // One attempt per (org, idempotencyKey): a 402 challenge creates it pending,
+      // settlement upserts it to settled (and records the proof).
       const row = (
         await db
           .insert(schema.x402PaymentAttempts)
@@ -75,9 +77,21 @@ export function dbPaymentStore(db: Db = getDb()): PaymentStore {
             proof: record.proof ?? null,
             providerRef: record.providerRef,
           })
+          .onConflictDoUpdate({
+            target: [schema.x402PaymentAttempts.organizationId, schema.x402PaymentAttempts.idempotencyKey],
+            set: {
+              status: record.status,
+              nonce: record.nonce,
+              binding: record.binding,
+              scheme: record.scheme,
+              proof: record.proof ?? null,
+              providerRef: record.providerRef,
+              settledAt: record.status === "settled" ? new Date() : null,
+            },
+          })
           .returning()
       )[0];
-      if (!row) throw Errors.internal("Failed to insert payment attempt");
+      if (!row) throw Errors.internal("Failed to upsert payment attempt");
       return { ...record, id: row.id };
     },
     async insertReceipt(record: PaymentReceiptRecord) {
