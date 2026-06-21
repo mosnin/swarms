@@ -18,6 +18,9 @@ export function SpawnForm() {
   const [task, setTask] = useState("");
   const [context, setContext] = useState("");
   const [envText, setEnvText] = useState("");
+  const [fileName, setFileName] = useState("");
+  const [fileContent, setFileContent] = useState("");
+  const [mcpText, setMcpText] = useState("");
   const [budgetMinor, setBudgetMinor] = useState("120");
   const [result, setResult] = useState<SpawnResult | null>(null);
   const [logs, setLogs] = useState<string[] | null>(null);
@@ -33,6 +36,16 @@ export function SpawnForm() {
     return out;
   }
 
+  /** One MCP server per line: `name url [token]`. */
+  function parseMcp(): Array<{ name: string; url: string; token?: string }> {
+    const out: Array<{ name: string; url: string; token?: string }> = [];
+    for (const line of mcpText.split("\n")) {
+      const [name, url, token] = line.trim().split(/\s+/);
+      if (name && url) out.push({ name, url, ...(token ? { token } : {}) });
+    }
+    return out;
+  }
+
   async function spawn() {
     setBusy(true);
     setError(null);
@@ -40,6 +53,8 @@ export function SpawnForm() {
     setLogs(null);
     try {
       const env = parseEnv();
+      const mcpServers = parseMcp();
+      const files = fileName.trim() && fileContent ? { [fileName.trim()]: fileContent } : undefined;
       const res = await fetch("/api/v1/spawn", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -48,6 +63,8 @@ export function SpawnForm() {
           resources: {
             context: context || undefined,
             env: Object.keys(env).length ? env : undefined,
+            files,
+            mcpServers: mcpServers.length ? mcpServers : undefined,
           },
           budgetMinor: Number.parseInt(budgetMinor, 10) || undefined,
           idempotencyKey: `spawn-${crypto.randomUUID()}`,
@@ -78,7 +95,7 @@ export function SpawnForm() {
             value={task}
             onChange={(e) => setTask(e.target.value)}
             rows={4}
-            placeholder="e.g. Summarize the attached notes and draft three follow-up tasks."
+            placeholder="e.g. Read spec.md, then use the github MCP server to open a matching issue."
             className="w-full rounded-md border px-3 py-2 text-sm"
           />
         </label>
@@ -97,10 +114,44 @@ export function SpawnForm() {
         </label>
 
         <label className="block space-y-1">
+          <span className="text-sm font-medium">Files</span>
+          <span className="block text-xs text-muted-foreground">
+            A file the worker can read with its <code>read_file</code> tool.
+          </span>
+          <input
+            value={fileName}
+            onChange={(e) => setFileName(e.target.value)}
+            placeholder="spec.md"
+            className="w-full rounded-md border px-3 py-2 font-mono text-xs"
+          />
+          <textarea
+            value={fileContent}
+            onChange={(e) => setFileContent(e.target.value)}
+            rows={3}
+            placeholder="File contents…"
+            className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+          />
+        </label>
+
+        <label className="block space-y-1">
+          <span className="text-sm font-medium">MCP servers</span>
+          <span className="block text-xs text-muted-foreground">
+            One per line: <code>name url [token]</code>. The worker can call each as a real tool.
+          </span>
+          <textarea
+            value={mcpText}
+            onChange={(e) => setMcpText(e.target.value)}
+            rows={2}
+            placeholder={"github https://mcp.example/github tok_..."}
+            className="w-full rounded-md border px-3 py-2 font-mono text-xs"
+          />
+        </label>
+
+        <label className="block space-y-1">
           <span className="text-sm font-medium">Resources (env / secrets)</span>
           <span className="block text-xs text-muted-foreground">
             KEY=value per line. Handed to the worker so it has the same access you do. Encrypted at
-            rest, injected only into the sandbox.
+            rest, decrypted only server-side for this run.
           </span>
           <textarea
             value={envText}
@@ -114,7 +165,7 @@ export function SpawnForm() {
         <label className="block space-y-1">
           <span className="text-sm font-medium">GPU budget (minor units)</span>
           <span className="block text-xs text-muted-foreground">
-            A hard ceiling on GPU time. The agent physically cannot spend more.
+            A hard ceiling on compute. The agent physically cannot spend more.
           </span>
           <input
             value={budgetMinor}
@@ -133,7 +184,7 @@ export function SpawnForm() {
       <div className="space-y-4">
         {!result && (
           <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
-            Spawn an agent and its result + GPU cost will appear here.
+            Spawn an agent and its result + cost will appear here.
           </div>
         )}
         {result && (
@@ -145,11 +196,12 @@ export function SpawnForm() {
                 <dd className="font-mono text-xs">{result.jobId}</dd>
                 <dt className="text-muted-foreground">Model</dt>
                 <dd className="font-mono text-xs">{result.model}</dd>
-                <dt className="text-muted-foreground">GPU ceiling</dt>
+                <dt className="text-muted-foreground">Compute ceiling</dt>
                 <dd>{result.maxGpuSeconds}s</dd>
                 <dt className="text-muted-foreground">Inherited</dt>
                 <dd className="text-xs">
                   {result.resources.envKeys.length} secrets · {result.resources.fileCount} files ·{" "}
+                  {result.resources.mcpServers.length} MCP ·{" "}
                   {result.resources.hasContext ? "context" : "no context"}
                 </dd>
               </dl>
