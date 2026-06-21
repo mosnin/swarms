@@ -230,7 +230,11 @@ export async function claimAndProcessJobs(db: Db = getDb(), batchSize = 5): Prom
     RETURNING id
   `);
 
-  const ids = (claimed as unknown as Array<{ id: string }>).map((r) => r.id);
+  // Normalize across drivers: postgres-js returns an array; pglite returns { rows }.
+  const claimedRows = (
+    Array.isArray(claimed) ? claimed : (claimed as { rows?: unknown[] }).rows ?? []
+  ) as Array<{ id: string }>;
+  const ids = claimedRows.map((r) => r.id);
   let processed = 0;
   for (const id of ids) {
     await processJobInDb(id, db, { preClaimed: true });

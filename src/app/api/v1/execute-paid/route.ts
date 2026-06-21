@@ -28,7 +28,7 @@ const body = z.object({
 export async function POST(request: NextRequest): Promise<Response> {
   return route(async () => {
     const ctx = await authenticateRequest(request);
-    enforceRateLimit(ctx, "executePaid");
+    await enforceRateLimit(ctx, "executePaid");
     const json = await request.json().catch(() => null);
     const parsed = body.safeParse(json);
     if (!parsed.success) {

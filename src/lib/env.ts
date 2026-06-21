@@ -53,6 +53,9 @@ export const envSchema = z.object({
   // HMAC secret for signing outbound webhooks. Consumers verify with the same
   // secret. Optional in dev (a fixed dev secret is used); set in production.
   WEBHOOK_SIGNING_SECRET: z.string().min(16).optional(),
+
+  // Rate-limit backend: in-process (single instance) or shared Postgres.
+  RATE_LIMIT_BACKEND: z.enum(["memory", "postgres"]).default("memory"),
 });
 
 export type Env = z.infer<typeof envSchema>;
