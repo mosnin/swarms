@@ -5,12 +5,14 @@
  */
 
 import { Errors } from "@/lib/errors";
+import { AgentRunner } from "@/server/runners/agentRunner";
 import { HttpRunner } from "@/server/runners/httpRunner";
 import { LocalWorkerRunner } from "@/server/runners/localWorkerRunner";
 import { MockRunner } from "@/server/runners/mockRunner";
 import type { Runner, RunnerType } from "@/server/runners/types";
 
 const REGISTRY: Record<RunnerType, Runner> = {
+  agent: new AgentRunner(),
   mock: new MockRunner(),
   http: new HttpRunner(),
   local_worker: new LocalWorkerRunner(),
@@ -23,5 +25,5 @@ export function getRunner(type: RunnerType): Runner {
 }
 
 export function isRunnerType(value: unknown): value is RunnerType {
-  return value === "mock" || value === "http" || value === "local_worker";
+  return value === "agent" || value === "mock" || value === "http" || value === "local_worker";
 }

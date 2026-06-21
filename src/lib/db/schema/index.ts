@@ -9,3 +9,4 @@ export * from "@/lib/db/schema/governance";
 export * from "@/lib/db/schema/swarm";
 export * from "@/lib/db/schema/webhooks";
 export * from "@/lib/db/schema/ratelimit";
+export * from "@/lib/db/schema/resources";

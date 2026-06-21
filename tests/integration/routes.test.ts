@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
 
-import * as schema from "@/lib/db/schema";
 import { __setTestDb } from "@/lib/db";
 import { SESSION_USER_HEADER } from "@/modules/identity/session";
 import { LocalQueue } from "@/server/queue/localQueue";
@@ -9,47 +8,11 @@ import { setJobQueue } from "@/server/queue/queue";
 import { setRateLimiter, InMemoryRateLimiter } from "@/server/ratelimit/tokenBucket";
 import { createTestDb, seedOrg, type TestDb } from "./harness";
 
-import { POST as executePost } from "@/app/api/v1/execute/route";
+import { POST as spawnPost } from "@/app/api/v1/spawn/route";
 import { POST as apiKeysPost, GET as apiKeysGet } from "@/app/api/api-keys/route";
 
-const manifest = {
-  name: "Echo",
-  version: "1.0.0",
-  description: "",
-  inputSchema: { type: "object" },
-  outputSchema: { type: "object" },
-  permissions: [],
-  riskLevel: "low",
-  estimatedCostMinor: 0,
-  estimatedDurationMs: 1,
-  maxRuntimeMs: 5000,
-  supportsParallelism: false,
-};
-
-async function publishSkill(db: TestDb, organizationId: string) {
-  const skill = (
-    await db
-      .insert(schema.skills)
-      .values({ organizationId, slug: "echo", name: "Echo", visibility: "private" })
-      .returning()
-  )[0]!;
-  await db.insert(schema.skillVersions).values({
-    skillId: skill.id,
-    organizationId,
-    version: "1.0.0",
-    status: "published",
-    publishedAt: new Date(),
-    manifest,
-    inputSchema: manifest.inputSchema,
-    outputSchema: manifest.outputSchema,
-    runnerType: "mock",
-    priceMinor: 0,
-    priceCurrency: "USD",
-  });
-}
-
 function req(body: unknown, headers: Record<string, string> = {}): NextRequest {
-  return new NextRequest("http://test.local/api/v1/execute", {
+  return new NextRequest("http://test.local/api/v1/spawn", {
     method: "POST",
     headers: { "content-type": "application/json", ...headers },
     body: JSON.stringify(body),
@@ -66,7 +29,6 @@ describe("integration: HTTP route handlers", () => {
     ({ db } = await createTestDb());
     __setTestDb(db as never);
     ({ userId } = await seedOrg(db));
-    await publishSkill(db, (await db.select().from(schema.organizations))[0]!.id);
   });
   afterEach(() => {
     __setTestDb(undefined);
@@ -74,32 +36,40 @@ describe("integration: HTTP route handlers", () => {
   });
 
   it("401 when unauthenticated", async () => {
-    const res = await executePost(req({ skillSlug: "echo", input: {}, idempotencyKey: "k-00000001" }));
+    const res = await spawnPost(req({ task: "do a thing", idempotencyKey: "k-00000001" }));
     expect(res.status).toBe(401);
-    const body = await res.json();
-    expect(body.error.code).toBe("UNAUTHORIZED");
+    expect((await res.json()).error.code).toBe("UNAUTHORIZED");
   });
 
   it("400 on invalid body (bad idempotency key)", async () => {
-    const res = await executePost(req({ skillSlug: "echo", input: {}, idempotencyKey: "x" }, { [SESSION_USER_HEADER]: userId }));
+    const res = await spawnPost(req({ task: "do a thing", idempotencyKey: "x" }, { [SESSION_USER_HEADER]: userId }));
     expect(res.status).toBe(400);
     expect((await res.json()).error.code).toBe("VALIDATION");
   });
 
-  it("201 on a valid authenticated execute", async () => {
-    const res = await executePost(
-      req({ skillSlug: "echo", input: {}, idempotencyKey: "good-key-0001" }, { [SESSION_USER_HEADER]: userId }),
+  it("400 on an empty task", async () => {
+    const res = await spawnPost(req({ task: "", idempotencyKey: "good-key-0001" }, { [SESSION_USER_HEADER]: userId }));
+    expect(res.status).toBe(400);
+  });
+
+  it("201 spawns an agent and reports the inherited resources + GPU ceiling", async () => {
+    const res = await spawnPost(
+      req(
+        {
+          task: "Summarize the notes",
+          resources: { context: "background", env: { TOKEN: "secret" } },
+          budgetMinor: 200,
+          idempotencyKey: "good-key-0002",
+        },
+        { [SESSION_USER_HEADER]: userId },
+      ),
     );
     expect(res.status).toBe(201);
     const body = await res.json();
     expect(body.data.status).toBe("queued");
-  });
-
-  it("404 capability not found for an unknown skill", async () => {
-    const res = await executePost(
-      req({ skillSlug: "nope", input: {}, idempotencyKey: "good-key-0002" }, { [SESSION_USER_HEADER]: userId }),
-    );
-    expect(res.status).toBe(404);
+    expect(body.data.maxGpuSeconds).toBeGreaterThan(0);
+    expect(body.data.resources.envKeys).toContain("TOKEN");
+    expect(body.data.resources.hasContext).toBe(true);
   });
 
   it("api-keys: create returns plaintext once, list never includes it", async () => {

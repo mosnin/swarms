@@ -9,9 +9,7 @@ import { and, eq } from "drizzle-orm";
 
 import { getDb } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
-import { env } from "@/lib/env";
 import { Errors } from "@/lib/errors";
-import { recordSkillRevenue } from "@/modules/marketplace/revenue";
 import { appendEntry } from "@/modules/billing/ledger-service";
 import { dbLedgerStore } from "@/modules/billing/ledger-repository";
 import {
@@ -220,7 +218,13 @@ export async function executePaidSkill(
     organizationId: ctx.organizationId,
     createdByUserId: ctx.actor.kind === "user" ? ctx.actor.userId : null,
     apiKeyId: ctx.actor.kind === "agent" ? ctx.actor.apiKeyId : null,
-    skillVersion: resolved,
+    capability: {
+      kind: "skill",
+      skillVersionId: resolved.id,
+      inputSchema: resolved.inputSchema,
+      priceMinor: resolved.priceMinor,
+      priceCurrency: resolved.priceCurrency,
+    },
     input: request.input,
     idempotencyKey: request.idempotencyKey,
     currency,
@@ -243,20 +247,6 @@ export async function executePaidSkill(
       refType: "payment_receipt",
       refId: receipt.id,
     });
-    // Marketplace revenue: split the payment into platform fee + creator earning
-    // on the creator's ledger (no-op for first-party skills).
-    await recordSkillRevenue(
-      {
-        creatorOrganizationId: resolved.creatorOrganizationId,
-        executingOrganizationId: ctx.organizationId,
-        jobId: job.id,
-        skillVersionId: resolved.id,
-        grossMinor: receipt.amountMinor,
-        currency,
-        feeBps: env.PLATFORM_FEE_BPS,
-      },
-      db,
-    );
     await writeAudit(ctx, {
       action: "job.created",
       resourceType: "job",

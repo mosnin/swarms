@@ -27,7 +27,6 @@ import {
   type JobRecord,
   type JobStatus,
   type JobStore,
-  type ResolvedSkillVersion,
 } from "@/modules/execution/job-service";
 import { canViewSkill, type SkillVisibility } from "@/modules/catalog/visibility";
 import { checkBudget } from "@/server/budget/checkBudget";
@@ -48,6 +47,9 @@ function toJobRecord(row: JobRow): JobRecord {
     apiKeyId: row.apiKeyId,
     capabilityKind: row.capabilityKind as JobRecord["capabilityKind"],
     skillVersionId: row.skillVersionId,
+    task: row.task,
+    resourceBundleId: row.resourceBundleId,
+    model: row.model,
     idempotencyKey: row.idempotencyKey,
     inputHash: row.inputHash,
     input: row.input,
@@ -103,6 +105,9 @@ export function dbJobStore(db: Db = getDb()): JobStore {
             apiKeyId: record.apiKeyId,
             capabilityKind: record.capabilityKind,
             skillVersionId: record.skillVersionId,
+            task: record.task,
+            resourceBundleId: record.resourceBundleId,
+            model: record.model,
             idempotencyKey: record.idempotencyKey,
             inputHash: record.inputHash,
             input: record.input,
@@ -173,7 +178,16 @@ export async function resolveSkillVersion(
   skillSlug: string,
   skillVersion: string | undefined,
   db: Db = getDb(),
-): Promise<ResolvedSkillVersion & { skillName: string; riskLevel: string; creatorOrganizationId: string }> {
+): Promise<{
+  id: string;
+  skillId: string;
+  inputSchema: unknown;
+  priceMinor: number;
+  priceCurrency: string;
+  skillName: string;
+  riskLevel: string;
+  creatorOrganizationId: string;
+}> {
   // The slug is unique per org, but execution may target another org's public
   // skill — match by slug across orgs, then enforce visibility.
   const skills = await db.select().from(schema.skills).where(eq(schema.skills.slug, skillSlug));
@@ -213,7 +227,6 @@ export async function resolveSkillVersion(
   return {
     id: chosen.id,
     skillId: chosen.skillId,
-    status: "published",
     inputSchema: chosen.inputSchema,
     priceMinor: chosen.priceMinor,
     priceCurrency: chosen.priceCurrency,
@@ -290,7 +303,13 @@ export async function executeSkill(
     organizationId: ctx.organizationId,
     createdByUserId: ctx.actor.kind === "user" ? ctx.actor.userId : null,
     apiKeyId: ctx.actor.kind === "agent" ? ctx.actor.apiKeyId : null,
-    skillVersion: resolved,
+    capability: {
+      kind: "skill",
+      skillVersionId: resolved.id,
+      inputSchema: resolved.inputSchema,
+      priceMinor: resolved.priceMinor,
+      priceCurrency: resolved.priceCurrency,
+    },
     input: request.input,
     idempotencyKey: request.idempotencyKey,
     budgetMinor: request.budgetMinor,

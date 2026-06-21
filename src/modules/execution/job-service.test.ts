@@ -7,7 +7,7 @@ import {
   type JobLogRecord,
   type JobRecord,
   type JobStore,
-  type ResolvedSkillVersion,
+  type ResolvedCapability,
 } from "@/modules/execution/job-service";
 import type { JobMessage, JobQueue } from "@/server/queue/types";
 
@@ -59,12 +59,24 @@ class SpyQueue implements JobQueue {
 
 const clock = fixedClock(new Date("2026-02-01T00:00:00Z"));
 
-function publishedVersion(overrides: Partial<ResolvedSkillVersion> = {}): ResolvedSkillVersion {
+function skillCapability(overrides: Partial<ResolvedCapability> = {}): ResolvedCapability {
   return {
-    id: "skv_1",
-    skillId: "skl_1",
-    status: "published",
+    kind: "skill",
+    skillVersionId: "skv_1",
     inputSchema: { type: "object", required: ["url"], properties: { url: { type: "string" } } },
+    priceMinor: 200,
+    priceCurrency: "USD",
+    ...overrides,
+  };
+}
+
+function agentCapability(overrides: Partial<ResolvedCapability> = {}): ResolvedCapability {
+  return {
+    kind: "agent",
+    skillVersionId: null,
+    task: "summarize the report",
+    resourceBundleId: "rsb_1",
+    model: "claude-haiku-4-5",
     priceMinor: 200,
     priceCurrency: "USD",
     ...overrides,
@@ -76,7 +88,7 @@ function baseInput() {
     organizationId: "org_1",
     createdByUserId: null,
     apiKeyId: "key_1",
-    skillVersion: publishedVersion(),
+    capability: skillCapability(),
     input: { url: "https://example.com" },
     idempotencyKey: "idem-key-0001",
   };
@@ -134,15 +146,28 @@ describe("createJob", () => {
     ).rejects.toMatchObject({ code: "VALIDATION" });
   });
 
-  it("refuses to run an unpublished version", async () => {
+  it("creates an agent job and carries its task/model/resource bundle", async () => {
+    const { job } = await createJob(
+      store,
+      queue,
+      { ...baseInput(), capability: agentCapability(), input: { task: "summarize the report" } },
+      clock,
+    );
+    expect(job.capabilityKind).toBe("agent");
+    expect(job.task).toBe("summarize the report");
+    expect(job.model).toBe("claude-haiku-4-5");
+    expect(job.resourceBundleId).toBe("rsb_1");
+  });
+
+  it("rejects an agent spawn with an empty task", async () => {
     await expect(
       createJob(
         store,
         queue,
-        { ...baseInput(), skillVersion: publishedVersion({ status: "draft" }) },
+        { ...baseInput(), capability: agentCapability({ task: "  " }), input: {} },
         clock,
       ),
-    ).rejects.toMatchObject({ code: "CAPABILITY_NOT_FOUND" });
+    ).rejects.toMatchObject({ code: "VALIDATION" });
   });
 
   it("rejects a budget below the estimated cost", async () => {

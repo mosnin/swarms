@@ -4,15 +4,11 @@ export const dynamic = "force-dynamic";
 
 const NAV = [
   { href: "/dashboard", label: "Overview" },
-  { href: "/skills", label: "Skills" },
-  { href: "/jobs", label: "Jobs" },
-  { href: "/swarms", label: "Swarms" },
-  { href: "/connectors", label: "Connectors" },
-  { href: "/marketplace", label: "Marketplace" },
-  { href: "/creator/revenue", label: "Creator revenue" },
+  { href: "/spawn", label: "Spawn agent" },
+  { href: "/jobs", label: "Agent runs" },
   { href: "/approvals", label: "Approvals" },
+  { href: "/usage", label: "Usage & GPU spend" },
   { href: "/payments", label: "Payments" },
-  { href: "/usage", label: "Usage" },
   { href: "/audit", label: "Audit" },
   { href: "/settings/budgets", label: "Budgets" },
   { href: "/settings/policies", label: "Policies" },

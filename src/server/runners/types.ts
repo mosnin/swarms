@@ -6,7 +6,7 @@
  * never executes arbitrary code itself.
  */
 
-export type RunnerType = "mock" | "http" | "local_worker";
+export type RunnerType = "agent" | "mock" | "http" | "local_worker";
 
 export interface RunnerContext {
   jobId: string;

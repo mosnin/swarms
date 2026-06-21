@@ -47,6 +47,7 @@ export const IdPrefix = {
   budget: "bdg",
   policyRule: "pol",
   swarmTemplate: "swt",
+  resourceBundle: "rsb",
   swarmRun: "swr",
   swarmAgent: "swa",
   webhookDelivery: "whd",

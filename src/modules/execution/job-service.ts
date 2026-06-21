@@ -40,8 +40,14 @@ export interface JobRecord {
   organizationId: string;
   createdByUserId: string | null;
   apiKeyId: string | null;
-  capabilityKind: "skill" | "swarm" | "connector";
+  capabilityKind: "agent" | "skill" | "swarm" | "connector";
   skillVersionId: string | null;
+  /** Agent task instruction (capabilityKind = "agent"). */
+  task: string | null;
+  /** Encrypted resource bundle handed to the spawned agent. */
+  resourceBundleId: string | null;
+  /** Model the spawned agent runs on. */
+  model: string | null;
   idempotencyKey: string;
   inputHash: string;
   input: unknown;
@@ -80,12 +86,23 @@ export interface JobStore {
   listLogs(jobId: string): Promise<JobLogRecord[]>;
 }
 
-/** Minimal capability descriptor the core needs to create + price a job. */
-export interface ResolvedSkillVersion {
-  id: string;
-  skillId: string;
-  status: "draft" | "published" | "deprecated" | "yanked";
-  inputSchema: unknown;
+/**
+ * What the job will run. The engine is capability-agnostic: an `agent` job runs
+ * a sandboxed worker agent on a task with an inherited resource bundle; a `skill`
+ * job runs a pinned capability (legacy/internal). Pricing is an up-front estimate
+ * (GPU/compute for agents); the worker records actual metered cost.
+ */
+export interface ResolvedCapability {
+  kind: "agent" | "skill";
+  /** skill version id (skill jobs) or null (agent jobs). */
+  skillVersionId: string | null;
+  /** Optional input schema to validate against (skill jobs). */
+  inputSchema?: unknown;
+  /** Agent task + execution descriptor (agent jobs). */
+  task?: string | null;
+  resourceBundleId?: string | null;
+  model?: string | null;
+  /** Estimated cost in minor units (GPU/compute estimate for agents). */
   priceMinor: number;
   priceCurrency: string;
 }
@@ -94,7 +111,7 @@ export interface CreateJobInput {
   organizationId: string;
   createdByUserId: string | null;
   apiKeyId: string | null;
-  skillVersion: ResolvedSkillVersion;
+  capability: ResolvedCapability;
   input: unknown;
   idempotencyKey: string;
   /** Optional caller budget cap in minor units; must cover the estimated cost. */
@@ -133,15 +150,19 @@ export async function createJob(
   input: CreateJobInput,
   clock: Clock = systemClock,
 ): Promise<CreateJobResult> {
-  // A published version is required to execute.
-  if (input.skillVersion.status !== "published") {
-    throw Errors.capabilityNotFound("Skill version is not published");
+  const cap = input.capability;
+  if (cap.kind === "agent") {
+    if (!cap.task || cap.task.trim().length === 0) {
+      throw Errors.validation("An agent spawn requires a non-empty task");
+    }
+  } else {
+    assertValidInput(input.input, cap.inputSchema);
   }
 
-  assertValidInput(input.input, input.skillVersion.inputSchema);
-
   const inputHash = requestHash({
-    skillVersionId: input.skillVersion.id,
+    kind: cap.kind,
+    skillVersionId: cap.skillVersionId,
+    task: cap.task ?? null,
     input: input.input,
   });
 
@@ -156,8 +177,8 @@ export async function createJob(
     return { job: existing, replay: true };
   }
 
-  const estimatedCostMinor = input.skillVersion.priceMinor;
-  const currency = input.currency ?? input.skillVersion.priceCurrency;
+  const estimatedCostMinor = cap.priceMinor;
+  const currency = input.currency ?? cap.priceCurrency;
 
   if (input.budgetMinor !== undefined) {
     if (!Number.isInteger(input.budgetMinor) || input.budgetMinor < 0) {
@@ -178,8 +199,11 @@ export async function createJob(
     organizationId: input.organizationId,
     createdByUserId: input.createdByUserId,
     apiKeyId: input.apiKeyId,
-    capabilityKind: "skill",
-    skillVersionId: input.skillVersion.id,
+    capabilityKind: cap.kind,
+    skillVersionId: cap.skillVersionId,
+    task: cap.task ?? null,
+    resourceBundleId: cap.resourceBundleId ?? null,
+    model: cap.model ?? null,
     idempotencyKey: input.idempotencyKey,
     inputHash,
     input: input.input,
@@ -207,8 +231,8 @@ export async function createJob(
     organizationId: job.organizationId,
     jobId: job.id,
     level: "info",
-    message: gated ? "Job created and awaiting approval" : "Job created and queued",
-    data: { skillVersionId: job.skillVersionId, estimatedCostMinor },
+    message: gated ? "Agent spawn awaiting approval" : "Agent spawned and queued",
+    data: { capabilityKind: job.capabilityKind, estimatedCostMinor },
     loggedAt: now,
   });
   if (!gated) await queue.enqueue(messageFor(job));

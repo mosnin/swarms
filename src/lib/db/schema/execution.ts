@@ -28,10 +28,14 @@ export const jobs = pgTable(
       onDelete: "set null",
     }),
     apiKeyId: text("api_key_id").references(() => apiKeys.id, { onDelete: "set null" }),
-    capabilityKind: varchar("capability_kind", { length: 16 }).notNull(), // skill | swarm | connector
+    capabilityKind: varchar("capability_kind", { length: 16 }).notNull(), // agent | skill | swarm
     skillVersionId: text("skill_version_id").references(() => skillVersions.id, {
       onDelete: "set null",
     }),
+    // Agent labor: the task to perform, the inherited resource bundle, and model.
+    task: text("task"),
+    resourceBundleId: text("resource_bundle_id"),
+    model: varchar("model", { length: 96 }),
     idempotencyKey: varchar("idempotency_key", { length: 255 }).notNull(),
     inputHash: varchar("input_hash", { length: 64 }).notNull(),
     input: jsonb("input").notNull(),

@@ -6,22 +6,32 @@ import { Errors } from "@/lib/errors";
 import { idempotencyKeySchema } from "@/lib/idempotency";
 import { requireOrganization } from "@/modules/identity/access-control";
 import { authenticateRequest } from "@/modules/identity/service";
-import { executeSkill } from "@/modules/execution/job-repository";
+import { spawnAgent } from "@/modules/agents/spawn-service";
 import { enforceRateLimit } from "@/server/ratelimit/enforce";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const executeBody = z.object({
+const resourcesSchema = z
+  .object({
+    env: z.record(z.string()).optional(),
+    files: z.record(z.string()).optional(),
+    mcpServers: z
+      .array(z.object({ name: z.string(), url: z.string().url(), token: z.string().optional() }))
+      .optional(),
+    context: z.string().optional(),
+  })
+  .optional();
+
+const body = z.object({
   organizationId: z.string().optional(),
-  skillSlug: z.string().min(1).max(96),
-  skillVersion: z.string().max(32).optional(),
-  input: z.unknown(),
-  idempotencyKey: idempotencyKeySchema,
+  task: z.string().min(1).max(20_000),
+  resources: resourcesSchema,
+  model: z.string().max(96).optional(),
   budgetMinor: z.number().int().nonnegative().optional(),
   currency: z.string().length(3).optional(),
+  idempotencyKey: idempotencyKeySchema,
   callbackUrl: z.string().url().optional(),
-  metadata: z.record(z.unknown()).optional(),
 });
 
 export async function POST(request: NextRequest): Promise<Response> {
@@ -29,22 +39,21 @@ export async function POST(request: NextRequest): Promise<Response> {
     const ctx = await authenticateRequest(request);
     await enforceRateLimit(ctx, "execute");
     const json = await request.json().catch(() => null);
-    const parsed = executeBody.safeParse(json);
+    const parsed = body.safeParse(json);
     if (!parsed.success) {
       throw Errors.validation("Invalid request body", {
         issues: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`),
       });
     }
-    // If the caller names an organization, it must be their own.
     if (parsed.data.organizationId) requireOrganization(ctx, parsed.data.organizationId);
 
-    const response = await executeSkill(ctx, {
-      skillSlug: parsed.data.skillSlug,
-      skillVersion: parsed.data.skillVersion,
-      input: parsed.data.input,
-      idempotencyKey: parsed.data.idempotencyKey,
+    const response = await spawnAgent(ctx, {
+      task: parsed.data.task,
+      resources: parsed.data.resources,
+      model: parsed.data.model,
       budgetMinor: parsed.data.budgetMinor,
       currency: parsed.data.currency,
+      idempotencyKey: parsed.data.idempotencyKey,
       callbackUrl: parsed.data.callbackUrl,
     });
     return ok(response, 201);

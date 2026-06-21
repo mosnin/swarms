@@ -18,6 +18,7 @@ import { logger } from "@/lib/logger";
 import { metrics } from "@/lib/metrics";
 import { writeAuditSystem } from "@/modules/governance/audit";
 import { enqueueWebhook } from "@/modules/webhooks/webhook-service";
+import { openResourceBundle } from "@/modules/resources/resource-bundle";
 import { dbJobStore } from "@/modules/execution/job-repository";
 import type { JobRecord } from "@/modules/execution/job-service";
 import {
@@ -91,6 +92,34 @@ function dbWorkerRunStore(db: Db): WorkerRunStore {
 }
 
 async function resolveExecution(db: Db, job: JobRecord): Promise<ResolvedExecution | null> {
+  // Agent labor: open the inherited resource bundle and run the agent runtime,
+  // hard-capped at the budgeted GPU seconds.
+  if (job.capabilityKind === "agent") {
+    const input = (job.input ?? {}) as {
+      maxGpuSeconds?: number;
+      rateMinorPerSecond?: number;
+      currency?: string;
+    };
+    const maxGpuSeconds = typeof input.maxGpuSeconds === "number" ? input.maxGpuSeconds : 60;
+    const rate = typeof input.rateMinorPerSecond === "number" ? input.rateMinorPerSecond : 2;
+    const resources = job.resourceBundleId
+      ? await openResourceBundle(job.organizationId, job.resourceBundleId, db).catch(() => ({}))
+      : {};
+    return {
+      runnerType: "agent",
+      runnerConfig: {
+        task: job.task ?? "",
+        model: job.model ?? "claude-haiku-4-5",
+        resources,
+        maxGpuSeconds,
+        rateMinorPerSecond: rate,
+      },
+      maxRuntimeMs: Math.min(600_000, maxGpuSeconds * 1000 + 5_000),
+      priceMinor: maxGpuSeconds * rate,
+      currency: job.costCurrency || input.currency || "USD",
+    };
+  }
+
   if (!job.skillVersionId) return null;
   const version = (
     await db
