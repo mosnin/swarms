@@ -66,12 +66,18 @@ export const envSchema = z.object({
   // resource bundles at rest. Required in production; a fixed dev key otherwise.
   CONNECTOR_ENCRYPTION_KEY: z.string().min(1).optional(),
 
-  // Spawned-agent runtime: deterministic mock (dev/test) or a real agent on
-  // OpenRouter (DeepSeek v4) driven by the OpenAI Agents SDK.
-  AGENT_RUNTIME: z.enum(["mock", "openrouter"]).default("mock"),
+  // Spawned-agent runtime: deterministic mock (dev/test), the in-process
+  // OpenAI Agents SDK harness (openrouter), or that same harness running inside
+  // a Modal sandbox (modal) — the one production compute provider.
+  AGENT_RUNTIME: z.enum(["mock", "openrouter", "modal"]).default("mock"),
   OPENROUTER_API_KEY: z.string().min(1).optional(),
   OPENROUTER_BASE_URL: z.string().url().default("https://openrouter.ai/api/v1"),
   AGENT_DEFAULT_MODEL: z.string().min(1).default("deepseek/deepseek-chat-v4"),
+
+  // Modal compute: the deployed web endpoint that runs the agent harness in a
+  // sandbox, and its bearer token. Required when AGENT_RUNTIME=modal.
+  MODAL_RUN_URL: z.string().url().optional(),
+  MODAL_TOKEN: z.string().min(1).optional(),
 
   // GPU compute pricing for agent labor (integer minor units per GPU-second).
   GPU_RATE_MINOR_PER_SECOND: z.coerce.number().int().nonnegative().default(2),

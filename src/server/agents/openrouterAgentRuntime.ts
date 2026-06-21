@@ -15,6 +15,7 @@
 
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
+import { getModalRuntimeFromEnv } from "@/server/agents/modalAgentRuntime";
 import { MockAgentRuntime } from "@/server/agents/mockAgentRuntime";
 import {
   buildResourceTools,
@@ -144,6 +145,11 @@ let runtime: AgentRuntime | undefined;
 
 export function getAgentRuntime(): AgentRuntime {
   if (runtime) return runtime;
+  if (env.AGENT_RUNTIME === "modal") {
+    // The one production compute provider: the harness runs in a Modal sandbox.
+    runtime = getModalRuntimeFromEnv();
+    return runtime;
+  }
   if (env.AGENT_RUNTIME === "openrouter") {
     if (!env.OPENROUTER_API_KEY) {
       // Fail closed rather than silently degrade to the mock.
