@@ -1,0 +1,11 @@
+node_modules
+.next
+.git
+backups
+**/*.test.ts
+tests
+playwright-report
+test-results
+.env
+.env.*
+npm-debug.log
