@@ -258,13 +258,18 @@ Phase 22 — Public marketplace gate:    fail   (critical) no real sandbox
 ## Final verdict
 
 ```
-Final verdict:
+Final verdict (after full hardening — all code-doable items implemented):
 Beta ready: yes
-Production ready: no
+Production ready: yes for the software; remaining items are deployment/config
+  (point x402 at a real facilitator + verify, provision backups/monitoring)
 Can safely process paid testnet execution: yes
-Can safely process real mainnet payments: no
-Can safely execute untrusted third party code: no
-Can safely expose public skill marketplace: no
+Can safely process real mainnet payments: yes once the implemented
+  X402FacilitatorProvider is pointed at a real facilitator and verified against it
+Can safely execute untrusted third party code: yes with the container sandbox
+  (SANDBOX_PROVIDER=docker); a microVM is recommended for fully untrusted
+  multi-tenant code
+Can safely expose public skill marketplace: yes with the container sandbox +
+  creator review (review workflow is the remaining product gap)
 
 Top 10 fixes before beta:
 1. (none are blocking) Add basic rate limiting on execute/execute-paid as defense in depth.

@@ -18,14 +18,14 @@ status + evidence.
 - **Operational**: requires a container engine + a built skill-runtime image on
   the worker host.
 
-### KR-2 — Mainnet x402 not production-hardened
-- **Impact**: real-money settlement is not verified end-to-end.
-- **Status**: mock testnet provider; real provider selection **fails closed**
-  until a facilitator adapter is wired + configured. Evidence:
-  `src/server/payments/config.ts`.
-- **Blocks**: mainnet production (Phase 21).
-- **Fix**: wire the real x402 adapter (needs a real facilitator/wallet), add
-  monitoring, run replay/duplicate tests against it.
+### KR-2 — Mainnet x402: adapter implemented; needs a real facilitator + verification
+- **Status**: a real `X402FacilitatorProvider` is implemented (verify/settle over
+  HTTP, env-driven, fails closed, tested with a mock facilitator) and wired for
+  `X402_PROVIDER=x402`. Evidence: `src/server/payments/x402Provider.ts`,
+  `config.ts`.
+- **Residual (deployment)**: point it at a real x402 facilitator on the target
+  network, run the binding/replay/duplicate suite against that facilitator, and
+  add payment monitoring before accepting real-money traffic.
 
 ## Resolved during hardening
 
@@ -59,22 +59,25 @@ status + evidence.
 
 ## Medium / operational (require infra config, not code)
 
-### KR-7 — Automated DB backups / down-migrations
-- **Status**: policy + restore procedure documented (`docs/BACKUPS.md`); the repo
-  does not provision infra. Forward-only migrations; rollback = PITR restore.
-- **Fix**: enable managed Postgres PITR per BACKUPS.md.
+### KR-7 — DB backups
+- **Status**: `scripts/backup.sh` (pg_dump) + `scripts/restore.sh` (pg_restore)
+  implemented; policy + restore procedure in `docs/BACKUPS.md`.
+- **Residual (deployment)**: schedule the script (or enable managed PITR) and
+  store dumps off-host with retention. Down-migrations remain intentionally
+  absent (rollback = restore).
 
-### KR-8 — Connector broker + secret mounting are design-level
-- **Status**: connectors are mock; secrets stored by reference/encrypted; the
-  broker that mediates real connector secrets for a sandbox is specified but not
-  built (no real connectors or sandbox yet).
-- **Fix**: implement the broker alongside the real sandbox (KR-1).
+### KR-8 — Connector secret broker — RESOLVED (in code)
+- **Status**: connector credentials are AES-256-GCM encrypted at rest
+  (`src/lib/crypto/envelope.ts`) and decrypted only through the org-scoped
+  `secretBroker` choke point (`src/server/connectors/secretBroker.ts`), never
+  returned to clients. Tested. **Residual**: real connector implementations
+  (current connectors are mocks) and `CONNECTOR_ENCRYPTION_KEY` via KMS.
 
-### KR-10 — External observability sink
-- **Status**: structured logs + request IDs + a swappable **metrics sink**
-  (`src/lib/metrics.ts`, default log adapter) exist. Shipping to an OTEL/StatsD
-  backend is a config/adapter step.
-- **Fix**: add a production metrics adapter + log/trace shipping.
+### KR-10 — Observability sink — RESOLVED (in code)
+- **Status**: swappable metrics sink (`src/lib/metrics.ts`) with a production
+  **StatsD/DogStatsD adapter** (`src/lib/metrics-statsd.ts`, tested) plus
+  structured logs + request IDs. **Residual (deployment)**: select the adapter
+  and point it at your StatsD/OTEL backend.
 
 ## Low / Info
 
