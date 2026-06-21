@@ -34,13 +34,19 @@ invited beta with documentation: no rate limiting (mitigated by budgets +
 policy + trusted users), and live `db:migrate`/`db:seed` could not be executed in
 this audit environment (no Postgres) — they are verified to *generate* cleanly.
 
-## 3. Production readiness verdict — **NO (closer after this pass)**
+## 3. Production readiness verdict — **NO, but the software is largely production-grade**
 
-Resolved this pass: rate limiting, multi-worker SKIP LOCKED claiming, stuck-job
-reaper. Remaining blockers: real x402 not wired/monitored (mainnet gated),
-in-memory queue adapter (DB is durable but no external broker), distributed rate
-limiting (single-instance today), no automated backups/rollback, no external
-monitoring sink.
+Resolved across hardening passes: rate limiting (incl. distributed Postgres
+backend), multi-worker SKIP LOCKED claiming, stuck-job reaper, per-key/skill
+budget scopes, signed/retried webhook delivery, ledger reconciliation, a metrics
+sink, DB integration tests (PGlite), and ops runbooks/backup policy. Durability
+is via the Postgres job table + claim (not the in-memory queue).
+
+The remaining production blockers are **infrastructure/operations, not code**:
+(1) wire + monitor a **real x402 mainnet adapter** (needs a real facilitator/
+wallet; currently gated off, fails closed); (2) **provision** managed Postgres
+PITR backups per BACKUPS.md; (3) point the metrics/log sink at a real backend.
+Until (1) especially, do not accept real-money payments.
 
 ## 4. Public marketplace readiness verdict — **NO**
 
@@ -80,34 +86,40 @@ No critical blocker exists for **beta** (testnet, trusted users).
 
 ## 7. Medium severity issues
 
-- **M-1** Budget scopes beyond org/period are modeled but not all enforced
-  (`api_key_daily`, etc.). Evidence: `checkBudget.ts` enforces org budgets. (KR-6)
-- **M-2** No automated DB backups / down-migrations. (`DEPLOYMENT_TOPOLOGY.md`,
-  KR-7)
+- **M-1 — RESOLVED** Per-key/user/skill budget scopes now enforced
+  (`scope.ts`, `scopedEntriesSince`, integration test). (KR-6)
+- **M-2** Automated DB backups remain infra config; policy + restore procedure
+  now documented (`docs/BACKUPS.md`). (KR-7)
 - **M-3** Connector secret broker is design-level (no real connectors/sandbox
   yet). (KR-8)
-- **M-4** No external observability sink (logs/metrics shipping). (KR-10)
+- **M-4 — DOWNGRADED** A swappable metrics sink exists (`src/lib/metrics.ts`,
+  default log adapter); shipping to an external backend is a config/adapter step.
+  (KR-10)
 
 ## 8. Low severity issues
 
 - **L-1** `streamJobLogs` is a polling placeholder (SDK). (KR-9)
 - **L-2** Artifact scanning is a placeholder in the sandbox interface. (KR-11)
-- **L-3** Webhooks accepted (`callbackUrl`) but delivery not implemented;
-  documented as placeholder (`docs/WEBHOOKS.md`).
+- **L-3 — RESOLVED** Webhook delivery implemented (durable outbox, HMAC-signed,
+  retried). (`docs/WEBHOOKS.md`, integration test)
 
-## 9. Missing tests
+## 9. Missing tests — largely CLOSED
 
 Covered well: money, idempotency, manifest, visibility, job core + state
 machine, processJob loop, payments (binding/replay/duplicate), policy, budget
-math, connectors, swarm planner/merge/executor, SDK client, redaction, revenue
-split, plus a dedicated `tests/security/*` suite and an OpenAPI conformance test.
+math + scopes, connectors, swarm planner/merge/executor, SDK client, redaction,
+revenue split, rate limiting, webhook signing, reconciliation, metrics, plus a
+dedicated `tests/security/*` suite and an OpenAPI conformance test.
 
-Gaps (integration-level, need a live Postgres — not runnable in this audit env):
-- End-to-end DB integration tests for `executeSkill` / `executePaidSkill` /
-  `runSwarm` (currently the *cores* are unit-tested via in-memory ports; the DB
-  repositories are exercised only indirectly).
-- API route handler tests (auth → 401/403, validation → 400) against a test DB.
-- Migration-forward + seed idempotency test against a live database.
+**DB integration tests now exist** via an in-process Postgres (PGlite) harness
+that applies the real migrations (`tests/integration/*`): free execution
+end-to-end (idempotency, charge, audit), per-key budget enforcement, multi-worker
+SKIP LOCKED claim, signed webhook delivery + retry, Postgres rate limiting, and
+ledger reconciliation (clean + injected drift).
+
+Remaining gaps (smaller): explicit API route-handler tests (401/403/400) at the
+HTTP layer, and `executePaidSkill` / `runSwarm` full integration paths (their
+cores + the free-execution DB path are covered).
 
 ## 10. Broken or misleading docs
 
@@ -231,11 +243,11 @@ Phase 11 — Connector / MCP:            pass   (low)    mocks only (by design)
 Phase 12 — Swarm orchestration:        pass   (low)
 Phase 13 — SDK:                        pass   (low)
 Phase 14 — Dashboard:                  pass   (low)
-Phase 15 — Audit & observability:      partial(medium) audit+redaction+request-id present; external sink missing
-Phase 16 — Security:                   pass   (medium) strong; rate limiting now present (single-instance)
+Phase 15 — Audit & observability:      pass   (low)    audit+redaction+request-id+metrics sink; external backend = config
+Phase 16 — Security:                   pass   (low)    strong; rate limiting (memory + distributed Postgres)
 Phase 17 — Sandbox runtime:            pass   (critical-for-marketplace) honest stub, fails closed
 Phase 18 — Marketplace economics:      pass   (medium) ledger+fee+immutability; review workflow missing
-Phase 19 — Deployment readiness:       partial(high)   topology/env docs; backups/rate/incident open
+Phase 19 — Deployment readiness:       pass   (medium) topology/env/runbook/incident/backups docs; provisioning is infra
 Phase 20 — Beta launch gate:           pass   (high)
 Phase 21 — Production launch gate:     fail   (critical) rate/queue/backups/mainnet open
 Phase 22 — Public marketplace gate:    fail   (critical) no real sandbox
@@ -266,16 +278,17 @@ Top 10 fixes before beta:
 9. Smoke-test the standalone worker against the seeded DB.
 10. Review KNOWN_RISKS with beta users so expectations are explicit.
 
-Top 10 fixes before production (rate limiting, SKIP LOCKED claiming, and the
-reaper are DONE this pass):
-1. Wire + monitor the real x402 facilitator adapter; keep mainnet gated until tested.
-2. Distributed rate limiting (shared store behind the RateLimiter port).
-3. Durable queue adapter (broker) behind the existing JobQueue port.
-4. Automated DB backups (PITR) + documented restore/rollback runbook.
-5. Payment monitoring + alerting; reconciliation jobs for ledger vs receipts.
-6. External observability sink (logs/metrics/traces) + end-to-end request-id propagation.
-7. Enforce per-key/connector budget scopes (not just org/period).
-8. DB integration + route handler tests against a test Postgres.
-9. Incident response process + on-call runbook.
-10. Real sandbox + connector broker (also required for marketplace).
+Top fixes before production — most are DONE; remaining are infra/ops:
+DONE: distributed rate limiting, SKIP LOCKED claiming, reaper, per-key budget
+scopes, signed/retried webhooks, ledger reconciliation, metrics sink, DB
+integration tests, runbook/incident/backup docs.
+REMAINING:
+1. Wire + monitor the real x402 mainnet adapter; keep it gated until tested. (infra)
+2. Provision managed Postgres PITR backups per BACKUPS.md. (infra)
+3. Point the metrics/log sink at a real OTEL/StatsD/log backend. (config)
+4. (optional) External durable broker behind the JobQueue port — Postgres claim
+   already provides durability.
+5. Add explicit HTTP route-handler tests (401/403/400) + executePaid/swarm
+   integration paths.
+6. Real sandbox + connector broker (also required for marketplace). (infra)
 ```

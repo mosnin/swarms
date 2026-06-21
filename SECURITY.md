@@ -50,7 +50,10 @@ See [`docs/SECURITY_MODEL.md`](./docs/SECURITY_MODEL.md) and
 | Budget + policy enforcement | ✅ |
 | Secret redaction | ✅ |
 | Worker separation | ✅ (multi-worker SKIP LOCKED claiming + reaper) |
-| Rate limiting on paid/job endpoints | ✅ token bucket (single-instance; distributed needs shared store) |
+| Rate limiting on paid/job endpoints | ✅ token bucket + distributed Postgres backend |
+| Per-key / per-skill budget scopes | ✅ enforced |
+| Signed webhook delivery (HMAC) | ✅ durable outbox, retried |
+| Ledger reconciliation | ✅ owner endpoint + tests |
 | Real sandbox for untrusted code | ❌ not yet — public marketplace blocked |
 | Mainnet payments | ❌ gated off |
 
