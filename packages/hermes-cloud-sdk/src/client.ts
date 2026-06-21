@@ -13,14 +13,16 @@ import {
   jobLogSchema,
   jobSchema,
   paymentRequirementsSchema,
+  spawnResponseSchema,
   swarmRunSchema,
   type ExecutePaidResult,
-  type ExecuteResponse,
   type ExecuteSkillParams,
   type Job,
   type JobLog,
   type PaymentSigner,
   type RunSwarmParams,
+  type SpawnAgentParams,
+  type SpawnResponse,
   type SwarmRun,
 } from "./types";
 
@@ -50,15 +52,19 @@ export class HermesCloudClient {
     this.timeoutMs = options.timeoutMs ?? 30_000;
   }
 
-  /* --------------------------- skills --------------------------- */
+  /* ------------------------- agent labor ------------------------ */
 
-  async executeSkill(params: ExecuteSkillParams): Promise<ExecuteResponse> {
-    const data = await this.request("/api/v1/execute", {
+  /**
+   * Spawn a sandboxed worker agent to do a task, handing it the inherited
+   * resources (env/secrets, files, MCP tools, context). The budget is a hard
+   * GPU-time ceiling — the worker cannot overspend.
+   */
+  async spawnAgent(params: SpawnAgentParams): Promise<SpawnResponse> {
+    return this.request("/api/v1/spawn", {
       method: "POST",
       body: params,
-      schema: executeResponseSchema,
+      schema: spawnResponseSchema,
     });
-    return data;
   }
 
   /**

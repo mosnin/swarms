@@ -19,30 +19,33 @@ function client(fetchImpl: typeof fetch) {
   });
 }
 
-describe("HermesCloudClient.executeSkill", () => {
-  it("posts with bearer auth and returns the parsed response", async () => {
+describe("HermesCloudClient.spawnAgent", () => {
+  it("posts to /spawn with bearer auth and returns the parsed response", async () => {
     const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       expect((init?.headers as Record<string, string>).authorization).toBe("Bearer hc_live_secret");
       return jsonResponse({
         data: {
           jobId: "job_1",
           status: "queued",
-          paymentRequired: false,
-          estimatedCostMinor: 200,
+          model: "claude-haiku-4-5",
+          maxGpuSeconds: 60,
+          estimatedCostMinor: 120,
           currency: "USD",
+          resources: { envKeys: ["TOKEN"], fileCount: 0, mcpServers: [], hasContext: true },
           executionUrl: "/api/v1/jobs/job_1",
           createdAt: "2026-01-01T00:00:00Z",
         },
       });
     });
-    const res = await client(fetchMock as unknown as typeof fetch).executeSkill({
-      skillSlug: "web-summarize",
-      input: { url: "https://x.com" },
+    const res = await client(fetchMock as unknown as typeof fetch).spawnAgent({
+      task: "Summarize the notes",
+      resources: { env: { TOKEN: "x" }, context: "bg" },
       idempotencyKey: "idem-123456",
     });
     expect(res.jobId).toBe("job_1");
-    const calledUrl = String(fetchMock.mock.calls[0]?.[0]);
-    expect(calledUrl).toBe("https://cloud.test/api/v1/execute");
+    expect(res.maxGpuSeconds).toBe(60);
+    expect(res.resources.envKeys).toContain("TOKEN");
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("https://cloud.test/api/v1/spawn");
   });
 
   it("maps a non-2xx response to a typed HermesCloudError", async () => {
@@ -50,9 +53,8 @@ describe("HermesCloudClient.executeSkill", () => {
       jsonResponse({ error: { code: "VALIDATION", message: "bad input", retryable: false } }, 400),
     );
     await expect(
-      client(fetchMock as unknown as typeof fetch).executeSkill({
-        skillSlug: "x",
-        input: {},
+      client(fetchMock as unknown as typeof fetch).spawnAgent({
+        task: "x",
         idempotencyKey: "idem-123456",
       }),
     ).rejects.toBeInstanceOf(HermesCloudError);

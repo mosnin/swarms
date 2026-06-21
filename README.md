@@ -1,58 +1,51 @@
 # Hermes Cloud
 
-A paid **execution layer** for autonomous agents — an _Agent Capability Cloud_.
-The local Hermes agent calls this platform to rent **skills**, **connectors**,
-and sandboxed **agent workers (swarms)**. The platform meters execution,
-enforces budgets and policies, stores audit logs, and charges for usage through
-**x402**.
+**An on-demand labor force for AI agents.** Your agent spawns sandboxed worker
+agents to do basic tasks — handing them the same resources it has (secrets,
+files, MCP tools, context). They run on GPU rented by the second and paid for
+with x402, and a budget is a hard ceiling so they can't overspend.
 
-## Documentation
+```ts
+import { HermesCloudClient, generateIdempotencyKey, budget } from "@hermes-cloud/sdk";
 
-- [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — binding technical plan.
-- [`docs/PRODUCT_SPEC.md`](./docs/PRODUCT_SPEC.md) — product definition & scope.
-- [`docs/SECURITY_MODEL.md`](./docs/SECURITY_MODEL.md) — trust boundaries & risks.
-- [`docs/IMPLEMENTATION_SEQUENCE.md`](./docs/IMPLEMENTATION_SEQUENCE.md) — build order.
-- [`CLAUDE.md`](./CLAUDE.md) — repository engineering standards.
+const client = new HermesCloudClient({ baseUrl, apiKey });
 
-## Tech stack
-
-Next.js (App Router) · TypeScript (strict) · Tailwind + shadcn/ui · Zod ·
-Drizzle ORM + Postgres · Vitest · Playwright · ESLint · Prettier.
-
-## Getting started
-
-```bash
-npm install
-cp .env.example .env.local   # then fill in DATABASE_URL
-npm run dev
+const run = await client.spawnAgent({
+  task: "Read the notes and draft three follow-up tasks.",
+  resources: { context: "Q3 planning notes", env: { NOTION_TOKEN } },
+  idempotencyKey: generateIdempotencyKey(),
+  ...budget(200), // hard GPU-time ceiling
+});
 ```
 
-The app **fails fast** at startup if required environment variables (see
-`.env.example`) are missing or malformed.
+## Why it matters
 
-## Scripts
+A spawned worker with no context and no resources can't do anything. Hermes
+Cloud's defining feature is **resource inheritance**: the worker gets what your
+agent has, so it can actually do the work — in isolation, metered, and within a
+budget it cannot exceed.
 
-| Command               | Description                 |
-| --------------------- | --------------------------- |
-| `npm run dev`         | Start the dev server        |
-| `npm run build`       | Production build            |
-| `npm run start`       | Run the production server   |
-| `npm run lint`        | ESLint                      |
-| `npm run format`      | Prettier (write)            |
-| `npm run typecheck`   | `tsc --noEmit`              |
-| `npm run test`        | Vitest unit tests           |
-| `npm run test:e2e`    | Playwright end-to-end tests |
-| `npm run db:generate` | Generate Drizzle migrations |
-| `npm run db:migrate`  | Apply Drizzle migrations    |
+## Run it
 
-## Health & readiness
+```bash
+docker compose up --build      # postgres + web (control plane) + worker
+# open http://localhost:3000  → "Spawn an agent"
+```
 
-- `GET /api/health` — liveness (no dependency checks).
-- `GET /api/ready` — readiness (verifies Postgres connectivity; 503 when down).
+Local dev: `npm run dev` (web) and `npm run worker` (worker), with a Postgres
+`DATABASE_URL`.
 
-## Foundation primitives (`src/lib`)
+## Docs
 
-`env` (validated config) · `result` (typed `Result<T,E>`) · `errors` (typed
-taxonomy) · `logger` (structured + secret redaction) · `authz` (scope checks) ·
-`idempotency` (key validation + request hashing) · `money` (integer minor units
-only) · `time` (UTC + testable clock).
+- [Product spec](docs/PRODUCT_SPEC.md) · [Architecture](docs/ARCHITECTURE.md) ·
+  [Security model](docs/SECURITY_MODEL.md)
+- [Sandbox runtime](docs/SANDBOX_RUNTIME.md) · [x402 payments](docs/X402_PAYMENT_INTEGRATION.md)
+- [Worker runtime](docs/WORKER_RUNTIME.md) · [Deployment](docs/DEPLOYMENT_TOPOLOGY.md) ·
+  [Known risks](docs/KNOWN_RISKS.md)
+
+## Status
+
+Engine, sandbox, payments, budgets/policy, audit, SDK, and the spawn flow are
+implemented and tested (in-process Postgres integration tests). The agent runtime
+ships a deterministic mock for dev/test and an Anthropic-backed runtime gated by
+`AGENT_RUNTIME=anthropic`. See [docs/KNOWN_RISKS.md](docs/KNOWN_RISKS.md).

@@ -1,9 +1,9 @@
 /**
- * Example: the Hermes agent (Nous Research) executes a free skill and streams
- * its logs. Run with real env: HERMES_CLOUD_URL + HERMES_CLOUD_API_KEY.
+ * Example: spawn a sandboxed worker agent, hand it your resources, watch it work.
+ * Run with env: HERMES_CLOUD_URL + HERMES_CLOUD_API_KEY.
  */
 
-import { HermesCloudClient, generateIdempotencyKey } from "@hermes-cloud/sdk";
+import { HermesCloudClient, generateIdempotencyKey, budget } from "@hermes-cloud/sdk";
 
 async function main(): Promise<void> {
   const client = new HermesCloudClient({
@@ -11,19 +11,23 @@ async function main(): Promise<void> {
     apiKey: process.env.HERMES_CLOUD_API_KEY ?? "",
   });
 
-  const job = await client.executeSkill({
-    skillSlug: "web-summarize",
-    input: { url: "https://example.com" },
+  const spawned = await client.spawnAgent({
+    task: "Read the notes and draft three follow-up tasks.",
+    resources: {
+      context: "The notes are about Q3 planning.",
+      env: { NOTION_TOKEN: process.env.NOTION_TOKEN ?? "" },
+    },
     idempotencyKey: generateIdempotencyKey(),
+    ...budget(200),
   });
-  console.log("created job", job.jobId, job.status);
+  console.log("spawned agent", spawned.jobId, "GPU ceiling", spawned.maxGpuSeconds + "s");
+  console.log("inherited:", spawned.resources);
 
-  for await (const log of client.streamJobLogs(job.jobId)) {
+  for await (const log of client.streamJobLogs(spawned.jobId)) {
     console.log(`[${log.level}] ${log.message}`);
   }
-
-  const final = await client.getJob(job.jobId);
-  console.log("final status", final.status, "output:", final.output);
+  const final = await client.getJob(spawned.jobId);
+  console.log("result:", final.output);
 }
 
 main().catch((err) => {

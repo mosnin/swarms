@@ -27,6 +27,30 @@ export interface RunSwarmParams {
   currency?: string;
 }
 
+/** Resources the parent agent hands to the spawned worker (it inherits these). */
+export interface SpawnResources {
+  /** Environment variables / secrets the worker needs. */
+  env?: Record<string, string>;
+  /** Files for the worker's workspace (path -> contents). */
+  files?: Record<string, string>;
+  /** MCP servers (inherited tool access). */
+  mcpServers?: Array<{ name: string; url: string; token?: string }>;
+  /** Background/context so the worker isn't starting blind. */
+  context?: string;
+}
+
+export interface SpawnAgentParams {
+  /** What the worker agent should do. */
+  task: string;
+  resources?: SpawnResources;
+  model?: string;
+  /** Hard budget ceiling in minor units (caps GPU time). */
+  budgetMinor?: number;
+  currency?: string;
+  idempotencyKey: string;
+  callbackUrl?: string;
+}
+
 /* ----------------------------- responses ---------------------------- */
 
 export const executeResponseSchema = z.object({
@@ -39,6 +63,24 @@ export const executeResponseSchema = z.object({
   createdAt: z.string(),
 });
 export type ExecuteResponse = z.infer<typeof executeResponseSchema>;
+
+export const spawnResponseSchema = z.object({
+  jobId: z.string(),
+  status: z.string(),
+  model: z.string(),
+  maxGpuSeconds: z.number(),
+  estimatedCostMinor: z.number(),
+  currency: z.string(),
+  resources: z.object({
+    envKeys: z.array(z.string()),
+    fileCount: z.number(),
+    mcpServers: z.array(z.string()),
+    hasContext: z.boolean(),
+  }),
+  executionUrl: z.string(),
+  createdAt: z.string(),
+});
+export type SpawnResponse = z.infer<typeof spawnResponseSchema>;
 
 export const jobSchema = z.object({
   id: z.string(),

@@ -8,6 +8,9 @@ export { HermesCloudClient, type HermesCloudClientOptions } from "./client";
 export { HermesCloudError, HermesNetworkError, type HermesErrorShape } from "./errors";
 export { generateIdempotencyKey, toMinorUnits, budget } from "./idempotency";
 export type {
+  SpawnAgentParams,
+  SpawnResources,
+  SpawnResponse,
   ExecuteSkillParams,
   RunSwarmParams,
   ExecuteResponse,
