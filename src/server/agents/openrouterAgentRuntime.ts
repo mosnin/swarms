@@ -4,8 +4,10 @@
  * The spawned worker agent runs on a DeepSeek model served through OpenRouter
  * (an OpenAI-compatible API). The OpenAI Agents SDK (`@openai/agents`) runs the
  * agent loop; we point its OpenAI client at OpenRouter and use the chat
- * completions API. The worker is given the parent's inherited context + tools as
- * instructions. GPU seconds are estimated from output tokens + latency.
+ * completions API. The parent's inherited resources (files + MCP servers) are
+ * wired in as REAL callable tools (see resourceToolset), so the worker can
+ * actually read those files and invoke those servers — not just be told they
+ * exist. GPU seconds are estimated from output tokens + latency.
  *
  * The SDK call is behind an injectable executor so the runtime is unit-testable
  * without network/keys; the mock runtime remains the default for dev/test.
@@ -14,6 +16,11 @@
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { MockAgentRuntime } from "@/server/agents/mockAgentRuntime";
+import {
+  buildResourceTools,
+  type McpTransport,
+  type ResourceTool,
+} from "@/server/agents/resourceToolset";
 import type { AgentRunInput, AgentRunResult, AgentRuntime } from "@/server/agents/types";
 
 export interface AgentExecution {
@@ -26,6 +33,8 @@ export type AgentExecutor = (params: {
   task: string;
   model: string;
   maxRuntimeMs: number;
+  /** Real callable tools built from the parent's inherited resources. */
+  tools: ResourceTool[];
 }) => Promise<AgentExecution>;
 
 let configured = false;
@@ -35,6 +44,7 @@ async function openRouterExecutor(params: {
   system: string;
   task: string;
   model: string;
+  tools: ResourceTool[];
 }): Promise<AgentExecution> {
   const agents = await import("@openai/agents");
   const { OpenAI } = await import("openai");
@@ -50,12 +60,27 @@ async function openRouterExecutor(params: {
     configured = true;
   }
 
+  // Wire the inherited resources in as REAL callable tools on the agent, so the
+  // worker can actually read the parent's files and invoke its MCP servers.
+  const sdkTools = params.tools.map((t) =>
+    agents.tool({
+      name: t.name,
+      description: t.description,
+      parameters: t.parameters as never,
+      execute: async (args: unknown) => {
+        const out = await t.execute((args ?? {}) as Record<string, unknown>);
+        return typeof out === "string" ? out : JSON.stringify(out);
+      },
+    }),
+  );
+
   const agent = new agents.Agent({
     name: "swarm-worker",
     instructions: params.system,
     model: params.model,
+    tools: sdkTools,
   });
-  const result = await agents.run(agent, params.task, { maxTurns: 6 } as never);
+  const result = await agents.run(agent, params.task, { maxTurns: 8 } as never);
   const out = (result as { finalOutput?: unknown }).finalOutput;
   const text = typeof out === "string" ? out : JSON.stringify(out ?? "");
   return { text, outputTokens: Math.max(1, Math.ceil(text.length / 4)) };
@@ -64,15 +89,21 @@ async function openRouterExecutor(params: {
 export class OpenRouterAgentRuntime implements AgentRuntime {
   readonly kind = "openrouter";
 
-  constructor(private readonly executor: AgentExecutor = openRouterExecutor) {}
+  constructor(
+    private readonly executor: AgentExecutor = openRouterExecutor,
+    private readonly mcpTransport?: McpTransport,
+  ) {}
 
   async run(input: AgentRunInput): Promise<AgentRunResult> {
     const start = Date.now();
-    const tools = (input.resources.mcpServers ?? []).map((s) => s.name);
+    const tools = buildResourceTools(input.resources, { mcpTransport: this.mcpTransport });
+    const toolNames = tools.map((t) => t.name);
     const system = [
       "You are a spawned worker agent doing a focused task for a parent agent.",
       input.resources.context ? `Context from the parent agent:\n${input.resources.context}` : "",
-      tools.length ? `Tools available to you (MCP): ${tools.join(", ")}.` : "",
+      toolNames.length
+        ? `You can call these inherited tools to get what you need: ${toolNames.join(", ")}. Use them rather than guessing.`
+        : "",
       "Do the task and return a concise, structured result.",
     ]
       .filter(Boolean)
@@ -84,6 +115,7 @@ export class OpenRouterAgentRuntime implements AgentRuntime {
         task: input.task,
         model: input.model,
         maxRuntimeMs: input.maxRuntimeMs,
+        tools,
       });
       const elapsedMs = Date.now() - start;
       const gpuSeconds = Math.max(1, Math.ceil(outputTokens / 50) + Math.round(elapsedMs / 1000));

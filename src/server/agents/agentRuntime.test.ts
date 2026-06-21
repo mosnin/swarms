@@ -53,4 +53,36 @@ describe("OpenRouterAgentRuntime (OpenAI Agents SDK → DeepSeek via OpenRouter)
     expect(out.ok).toBe(false);
     if (!out.ok) expect(out.error.message).toContain("429");
   });
+
+  it("gives the worker REAL callable tools for inherited files and MCP servers", async () => {
+    const withFiles: AgentRunInput = {
+      ...input,
+      resources: {
+        ...input.resources,
+        files: { "spec.md": "build the thing" },
+      },
+    };
+    // A stub MCP transport standing in for the inherited server.
+    const mcpTransport = async () => ({ ok: true as const, content: { answer: 42 } });
+
+    // Fake executor that behaves like the agent loop: it actually invokes the
+    // tools it was handed (read_file + the inherited MCP server) and folds their
+    // real outputs into its final answer. This proves inheritance is callable,
+    // not just described.
+    const executor: AgentExecutor = async (p) => {
+      const readFile = p.tools.find((t) => t.name === "read_file")!;
+      const mcp = p.tools.find((t) => t.name === "mcp_notion")!;
+      const file = (await readFile.execute({ path: "spec.md" })) as { contents: string };
+      const remote = (await mcp.execute({ tool: "compute", arguments: {} })) as { answer: number };
+      return { text: `${file.contents}:${remote.answer}`, outputTokens: 50 };
+    };
+
+    const out = await new OpenRouterAgentRuntime(executor, mcpTransport).run(withFiles);
+    expect(out.ok).toBe(true);
+    if (out.ok) {
+      // The agent's answer contains data only obtainable by actually calling the
+      // inherited file tool and the inherited MCP server.
+      expect((out.result as { output: string }).output).toBe("build the thing:42");
+    }
+  });
 });
