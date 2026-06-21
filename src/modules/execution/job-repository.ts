@@ -1,6 +1,6 @@
 /**
  * Postgres-backed {@link JobStore} adapter plus the request-facing orchestration
- * for the Hermes execution API. The orchestration layer is where auth guards,
+ * for the Swarms execution API. The orchestration layer is where auth guards,
  * capability resolution, budget reservation (append-only ledger hold), audit
  * writes, and queueing are composed around the storage-agnostic core in
  * `job-service.ts`.

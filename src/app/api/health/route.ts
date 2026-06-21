@@ -13,7 +13,7 @@ export function GET(): NextResponse {
   return NextResponse.json(
     {
       status: "ok",
-      service: "hermes-cloud",
+      service: "swarms",
       time: new Date().toISOString(),
       uptimeSeconds: Math.round(process.uptime()),
     },

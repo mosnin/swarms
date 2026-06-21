@@ -1,6 +1,6 @@
 # Security
 
-Hermes Cloud is infrastructure for autonomous, paid agent execution. It handles
+Swarms is infrastructure for autonomous, paid agent execution. It handles
 organization-scoped data, API keys, paid x402 usage, connector permissions, and
 (in future) untrusted code. We treat it as security-sensitive.
 

@@ -1,4 +1,4 @@
-# Hermes Cloud — standalone worker (separate process from the web control plane).
+# Swarms — standalone worker (separate process from the web control plane).
 FROM node:20-slim
 WORKDIR /app
 ENV NODE_ENV=production

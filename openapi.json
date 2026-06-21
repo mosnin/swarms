@@ -1,9 +1,9 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Hermes Cloud API",
+    "title": "Swarms API",
     "version": "0.1.0",
-    "description": "Paid execution layer for autonomous agents. Agents (e.g. the Hermes agent by Nous Research) rent skills, connectors, and sandboxed worker swarms. See docs/API.md."
+    "description": "Paid execution layer for autonomous agents. Agents spawn sandboxed worker agents that inherit their context, secrets, files, and tools, metered per GPU-second. See docs/API.md."
   },
   "servers": [{ "url": "/", "description": "Deployment origin" }],
   "security": [{ "bearerAuth": [] }],
@@ -121,7 +121,7 @@
   },
   "components": {
     "securitySchemes": {
-      "bearerAuth": { "type": "http", "scheme": "bearer", "description": "Hermes Cloud API key" }
+      "bearerAuth": { "type": "http", "scheme": "bearer", "description": "Swarms API key" }
     },
     "schemas": {
       "ExecuteRequest": {

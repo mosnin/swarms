@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Operational procedures for running Hermes Cloud. Companion to
+Operational procedures for running Swarms. Companion to
 [`DEPLOYMENT_TOPOLOGY.md`](./DEPLOYMENT_TOPOLOGY.md) and
 [`INCIDENT_RESPONSE.md`](./INCIDENT_RESPONSE.md).
 
@@ -9,7 +9,7 @@ Operational procedures for running Hermes Cloud. Companion to
 | Service | Start | Health |
 |---|---|---|
 | Web (control plane) | `npm run start` (after `npm run build`) | `GET /api/health`, `GET /api/ready` |
-| Worker | `npm run worker` | logs "Hermes Cloud worker starting"; processes queued jobs |
+| Worker | `npm run worker` | logs "Swarms worker starting"; processes queued jobs |
 
 Both require `DATABASE_URL`. The worker also honors `WORKER_POLL_INTERVAL_MS`,
 `WORKER_BATCH_SIZE`, `WORKER_REAP_INTERVAL_MS`, `WORKER_MAX_RUN_MS`.

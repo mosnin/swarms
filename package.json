@@ -1,8 +1,8 @@
 {
-  "name": "hermes-cloud",
+  "name": "swarms",
   "version": "0.1.0",
   "private": true,
-  "description": "Hermes Cloud — a paid execution layer for autonomous agents (Agent Capability Cloud).",
+  "description": "Swarms — a paid execution layer for autonomous agents (Agent Capability Cloud).",
   "engines": {
     "node": ">=20"
   },

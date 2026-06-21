@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { parseEnv } from "@/lib/env";
 
 const validSource = {
-  DATABASE_URL: "postgres://user:pass@localhost:5432/hermes",
+  DATABASE_URL: "postgres://user:pass@localhost:5432/swarms",
 };
 
 describe("parseEnv", () => {

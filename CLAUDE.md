@@ -1,6 +1,6 @@
-# Hermes Cloud — Repository Standards
+# Swarms — Repository Standards
 
-Hermes Cloud is a paid **execution layer** for autonomous agents (an *Agent
+Swarms is a paid **execution layer** for autonomous agents (an *Agent
 Capability Cloud*). Read the design docs before changing anything:
 
 - [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — binding technical plan.

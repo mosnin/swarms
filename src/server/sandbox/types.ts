@@ -1,6 +1,6 @@
 /**
  * Sandbox provider abstraction. A sandbox is the isolated environment in which
- * an untrusted skill's own code would run. Hermes Cloud defines the interface
+ * an untrusted skill's own code would run. Swarms defines the interface
  * and ships only a **development stub** today — there is no production-safe
  * sandbox in this repo, and no path executes arbitrary third-party code.
  *

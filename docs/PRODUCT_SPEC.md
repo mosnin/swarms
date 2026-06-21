@@ -1,8 +1,8 @@
-# Hermes Cloud — Product Spec
+# Swarms — Product Spec
 
 ## What it is
 
-**An on-demand labor force for AI agents.** Your agent calls Hermes Cloud to
+**An on-demand labor force for AI agents.** Your agent calls Swarms to
 spawn sandboxed worker agents that do basic tasks for it. The workers run on GPU
 rented by the second and paid for with x402.
 

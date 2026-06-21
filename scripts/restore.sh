@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Hermes Cloud — Postgres restore from a logical backup.
+# Swarms — Postgres restore from a logical backup.
 #
 # Restores a pg_dump custom-format file produced by scripts/backup.sh into a
 # TARGET database. This is destructive to the target; restore into a scratch
@@ -8,7 +8,7 @@
 # See docs/INCIDENT_RESPONSE.md.
 #
 # Usage:
-#   TARGET_DATABASE_URL=postgres://... ./scripts/restore.sh path/to/hermes_*.dump
+#   TARGET_DATABASE_URL=postgres://... ./scripts/restore.sh path/to/swarms_*.dump
 #
 set -euo pipefail
 

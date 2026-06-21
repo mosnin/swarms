@@ -1,5 +1,5 @@
 /**
- * Hermes Cloud standalone worker.
+ * Swarms standalone worker.
  *
  * Runs as its OWN process — separate from the Next.js control plane. It polls
  * Postgres (the system of record) for queued jobs and processes them through the
@@ -53,7 +53,7 @@ async function tick(): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  logger.info("Hermes Cloud worker starting", {
+  logger.info("Swarms worker starting", {
     env: env.NODE_ENV,
     pollIntervalMs: POLL_INTERVAL_MS,
     batchSize: BATCH_SIZE,

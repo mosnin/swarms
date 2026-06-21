@@ -1,7 +1,7 @@
 # Sandbox Runtime
 
 > **Honest status: there is NO production-safe sandbox in this repository.**
-> Hermes Cloud ships a sandbox *interface* and a clearly-labeled development
+> Swarms ships a sandbox *interface* and a clearly-labeled development
 > *stub* that performs no isolation and refuses to execute commands. No code path
 > runs untrusted third-party skill code. Public marketplace execution of
 > untrusted code is therefore **blocked** until a real sandbox exists.

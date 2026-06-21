@@ -1,6 +1,6 @@
 # Incident Response
 
-Lightweight incident process for Hermes Cloud. Scope: a paid agent-execution
+Lightweight incident process for Swarms. Scope: a paid agent-execution
 platform handling org-scoped data, API keys, and (testnet) payments.
 
 ## Severity

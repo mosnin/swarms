@@ -7,7 +7,7 @@
 import { randomUUID } from "node:crypto";
 
 /** Generate a fresh idempotency key (URL-safe, matches the server key rules). */
-export function generateIdempotencyKey(prefix = "hermes"): string {
+export function generateIdempotencyKey(prefix = "swarms"): string {
   return `${prefix}-${randomUUID()}`;
 }
 

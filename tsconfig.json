@@ -19,7 +19,7 @@
     "plugins": [{ "name": "next" }],
     "paths": {
       "@/*": ["./src/*"],
-      "@hermes-cloud/sdk": ["./packages/hermes-cloud-sdk/src/index.ts"]
+      "@swarms/sdk": ["./packages/swarms-sdk/src/index.ts"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],

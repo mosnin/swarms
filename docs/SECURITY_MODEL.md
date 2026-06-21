@@ -1,8 +1,8 @@
-# Hermes Cloud — Security Model
+# Swarms — Security Model
 
 > Status: Draft v0.1. Companion to [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 
-Hermes Cloud executes work on behalf of autonomous agents and moves money. It
+Swarms executes work on behalf of autonomous agents and moves money. It
 is, by design, a high-value target: it holds credentials, runs agent-directed
 workloads, and authorizes spend. This document defines the trust boundaries,
 controls, and the residual risks we accept.
@@ -24,7 +24,7 @@ and data never execute with platform privileges.
 
 ## 2. Authentication
 
-- **Machine callers (Hermes):** API keys. Stored only as a salted hash +
+- **Machine callers (agents):** API keys. Stored only as a salted hash +
   short prefix for lookup. Keys carry scopes and an expiry; rotation and
   revocation are first-class.
 - **Human operators (console):** session-based auth, separate from API keys.

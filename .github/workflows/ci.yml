@@ -47,4 +47,4 @@ jobs:
           SKIP_ENV_VALIDATION: "true"
 
       - name: Build SDK (standalone)
-        run: cd packages/hermes-cloud-sdk && npx tsc -p tsconfig.json
+        run: cd packages/swarms-sdk && npx tsc -p tsconfig.json

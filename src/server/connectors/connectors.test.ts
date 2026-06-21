@@ -52,7 +52,7 @@ describe("mock connector callTool", () => {
   const ctx = { organizationId: "org_1", grantedScopes: ["search"] };
 
   it("returns deterministic output for a granted call", async () => {
-    const res = await webSearchMock.callTool("search", { query: "hermes" }, ctx);
+    const res = await webSearchMock.callTool("search", { query: "swarms" }, ctx);
     expect(res.ok).toBe(true);
     if (res.ok) expect(res.output).toMatchObject({ results: expect.any(Array) });
   });

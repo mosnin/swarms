@@ -5,11 +5,11 @@
  */
 
 import {
-  HermesCloudClient,
+  SwarmsClient,
   generateIdempotencyKey,
   type PaymentRequirements,
   type PaymentSigner,
-} from "@hermes-cloud/sdk";
+} from "@swarms/sdk";
 
 // DEV STAND-IN: encodes a mock proof. Replace with a real x402 wallet signer.
 const mockSigner: PaymentSigner = {
@@ -25,9 +25,9 @@ const mockSigner: PaymentSigner = {
 };
 
 async function main(): Promise<void> {
-  const client = new HermesCloudClient({
-    baseUrl: process.env.HERMES_CLOUD_URL ?? "http://localhost:3000",
-    apiKey: process.env.HERMES_CLOUD_API_KEY ?? "",
+  const client = new SwarmsClient({
+    baseUrl: process.env.SWARMS_URL ?? "http://localhost:3000",
+    apiKey: process.env.SWARMS_API_KEY ?? "",
   });
 
   const result = await client.executePaidSkill(

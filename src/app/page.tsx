@@ -4,7 +4,7 @@ export default function Home() {
   return (
     <main className="mx-auto flex min-h-screen max-w-3xl flex-col justify-center px-6 py-16">
       <p className="mb-3 text-sm font-medium uppercase tracking-wide text-muted-foreground">
-        Hermes Cloud
+        Swarms
       </p>
       <h1 className="text-4xl font-bold leading-tight sm:text-5xl">
         An on-demand labor force for your AI agent.

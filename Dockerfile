@@ -1,4 +1,4 @@
-# Hermes Cloud — web control plane (Next.js).
+# Swarms — web control plane (Next.js).
 FROM node:20-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./

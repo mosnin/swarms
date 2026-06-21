@@ -1,13 +1,13 @@
 /**
- * HermesCloudClient — the Node-first client the Hermes agent (Nous Research) and
- * other autonomous agents use to call Hermes Cloud. The API key is sent as a
+ * SwarmsClient — the Node-first client that autonomous AI agents and
+ * other autonomous agents use to call Swarms. The API key is sent as a
  * Bearer token and is never logged. All responses are validated against the
  * shared Zod schemas.
  */
 
 import { z } from "zod";
 
-import { HermesCloudError, HermesNetworkError, type HermesErrorShape } from "./errors";
+import { SwarmsError, SwarmsNetworkError, type SwarmsErrorShape } from "./errors";
 import {
   executeResponseSchema,
   jobLogSchema,
@@ -28,7 +28,7 @@ import {
 
 type FetchLike = typeof fetch;
 
-export interface HermesCloudClientOptions {
+export interface SwarmsClientOptions {
   baseUrl: string;
   apiKey: string;
   /** Override the fetch implementation (tests / custom transports). */
@@ -37,13 +37,13 @@ export interface HermesCloudClientOptions {
   timeoutMs?: number;
 }
 
-export class HermesCloudClient {
+export class SwarmsClient {
   private readonly baseUrl: string;
   private readonly apiKey: string;
   private readonly doFetch: FetchLike;
   private readonly timeoutMs: number;
 
-  constructor(options: HermesCloudClientOptions) {
+  constructor(options: SwarmsClientOptions) {
     if (!options.baseUrl) throw new Error("baseUrl is required");
     if (!options.apiKey) throw new Error("apiKey is required");
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
@@ -103,7 +103,7 @@ export class HermesCloudClient {
       const requirements = paymentRequirementsSchema.parse(accepts[0]);
       return { kind: "payment_required", requirements };
     }
-    if (!res.ok) throw new HermesCloudError(res.status, (json.error as HermesErrorShape) ?? { code: "UNKNOWN", message: "error" });
+    if (!res.ok) throw new SwarmsError(res.status, (json.error as SwarmsErrorShape) ?? { code: "UNKNOWN", message: "error" });
     return { kind: "ok", response: executeResponseSchema.parse(json.data) };
   }
 
@@ -188,7 +188,7 @@ export class HermesCloudClient {
     });
     const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
     if (!res.ok) {
-      throw new HermesCloudError(res.status, (json.error as HermesErrorShape) ?? { code: "UNKNOWN", message: "Request failed" });
+      throw new SwarmsError(res.status, (json.error as SwarmsErrorShape) ?? { code: "UNKNOWN", message: "Request failed" });
     }
     return opts.schema.parse(json.data);
   }
@@ -200,7 +200,7 @@ export class HermesCloudClient {
       return await this.doFetch(url, { ...init, signal: controller.signal });
     } catch (error) {
       // Never include headers (and therefore the API key) in the error.
-      throw new HermesNetworkError(`Request to ${url} failed`, error);
+      throw new SwarmsNetworkError(`Request to ${url} failed`, error);
     } finally {
       clearTimeout(timer);
     }

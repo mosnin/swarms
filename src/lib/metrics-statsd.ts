@@ -21,7 +21,7 @@ export class StatsdMetrics implements Metrics {
   private readonly send: StatsdSend;
 
   constructor(opts: { host?: string; port?: number; prefix?: string; send?: StatsdSend } = {}) {
-    const prefix = opts.prefix ?? "hermes";
+    const prefix = opts.prefix ?? "swarms";
     if (opts.send) {
       this.send = (p) => opts.send!(`${prefix}.${p}`);
     } else {

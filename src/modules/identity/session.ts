@@ -8,10 +8,10 @@
  * membership + role) happens in `service.ts`.
  */
 
-export const SESSION_COOKIE = "hermes_session";
-export const SESSION_USER_HEADER = "x-hermes-user-id";
-export const ACTIVE_ORG_COOKIE = "hermes_active_org";
-export const ACTIVE_ORG_HEADER = "x-hermes-org-id";
+export const SESSION_COOKIE = "swarms_session";
+export const SESSION_USER_HEADER = "x-swarms-user-id";
+export const ACTIVE_ORG_COOKIE = "swarms_active_org";
+export const ACTIVE_ORG_HEADER = "x-swarms-org-id";
 
 export interface SessionRef {
   /** The authenticated user id. */

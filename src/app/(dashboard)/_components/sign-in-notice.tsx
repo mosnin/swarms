@@ -6,7 +6,7 @@ export function SignInNotice() {
       <p className="mt-2 text-sm text-muted-foreground">
         No active session was found. In local development, set{" "}
         <code className="rounded bg-muted px-1">DEV_AUTH_USER_EMAIL</code> in{" "}
-        <code>.env.local</code> or send an <code>x-hermes-user-id</code> header.
+        <code>.env.local</code> or send an <code>x-swarms-user-id</code> header.
       </p>
     </div>
   );

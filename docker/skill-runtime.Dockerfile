@@ -1,4 +1,4 @@
-# Hermes Cloud — skill runtime image (the SANDBOX_IMAGE the container sandbox runs).
+# Swarms — skill runtime image (the SANDBOX_IMAGE the container sandbox runs).
 #
 # A minimal, non-root base for executing a skill bundle inside the hardened
 # container created by DockerSandboxProvider (no network, read-only root, tmpfs

@@ -1,4 +1,4 @@
-# Hermes Cloud — Data Model
+# Swarms — Data Model
 
 > Status: v0.1 — implemented. Companion to [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 > Source of truth: the Drizzle schema under `src/lib/db/schema/`. Migrations in

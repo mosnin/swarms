@@ -1,4 +1,4 @@
-# Hermes Cloud
+# Swarms
 
 **An on-demand labor force for AI agents.** Your agent spawns sandboxed worker
 agents to do basic tasks — handing them the same resources it has (secrets,
@@ -6,9 +6,9 @@ files, MCP tools, context). They run on GPU rented by the second and paid for
 with x402, and a budget is a hard ceiling so they can't overspend.
 
 ```ts
-import { HermesCloudClient, generateIdempotencyKey, budget } from "@hermes-cloud/sdk";
+import { SwarmsClient, generateIdempotencyKey, budget } from "@swarms/sdk";
 
-const client = new HermesCloudClient({ baseUrl, apiKey });
+const client = new SwarmsClient({ baseUrl, apiKey });
 
 const run = await client.spawnAgent({
   task: "Read the notes and draft three follow-up tasks.",
@@ -20,8 +20,8 @@ const run = await client.spawnAgent({
 
 ## Why it matters
 
-A spawned worker with no context and no resources can't do anything. Hermes
-Cloud's defining feature is **resource inheritance**: the worker gets what your
+A spawned worker with no context and no resources can't do anything. Swarms'
+defining feature is **resource inheritance**: the worker gets what your
 agent has, so it can actually do the work — in isolation, metered, and within a
 budget it cannot exceed.
 

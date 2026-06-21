@@ -1,11 +1,7 @@
-# Hermes Agent Integration
+# Agent Integration
 
-How an autonomous agent — the **Hermes agent (Nous Research)** or any Node agent —
-integrates with Hermes Cloud.
-
-> Hermes Cloud is the platform. "Hermes" (the agent) refers to Nous Research's
-> Hermes agent, the primary client. The SDK is a generic client; no affiliation
-> is implied.
+How an autonomous AI agent integrates with Swarms to spawn sandboxed worker
+agents that inherit its context, secrets, files, and tools.
 
 ## 1. Get an API key
 
@@ -16,17 +12,17 @@ In the dashboard, create a key scoped to the permissions the agent needs
 ## 2. Install the SDK
 
 ```bash
-npm install @hermes-cloud/sdk zod
+npm install @swarms/sdk zod
 ```
 
 ## 3. Execute a skill
 
 ```ts
-import { HermesCloudClient, generateIdempotencyKey, budget } from "@hermes-cloud/sdk";
+import { SwarmsClient, generateIdempotencyKey, budget } from "@swarms/sdk";
 
-const client = new HermesCloudClient({
-  baseUrl: process.env.HERMES_CLOUD_URL!,
-  apiKey: process.env.HERMES_CLOUD_API_KEY!,
+const client = new SwarmsClient({
+  baseUrl: process.env.SWARMS_URL!,
+  apiKey: process.env.SWARMS_API_KEY!,
 });
 
 const job = await client.executeSkill({

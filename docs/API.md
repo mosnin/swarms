@@ -1,4 +1,4 @@
-# Hermes Cloud API
+# Swarms API
 
 Base URL: your deployment origin (e.g. `https://cloud.example.com`).
 All bodies are JSON. All responses use a standard envelope.
@@ -7,8 +7,8 @@ All bodies are JSON. All responses use a standard envelope.
 
 Two principals:
 
-- **Agent (API key)** — `Authorization: Bearer hc_live_...`. Used by the Hermes
-  agent (Nous Research) and other agents for the `/api/v1/*` surface.
+- **Agent (API key)** — `Authorization: Bearer hk_live_...`. Used by your
+  autonomous AI agent for the `/api/v1/*` surface.
 - **Human session** — dashboard/cookie (and a dev email fallback outside prod).
 
 Keys are created in the dashboard (`POST /api/api-keys`), shown once, hashed at
@@ -53,7 +53,7 @@ payment to the key so retries never double-charge.
   "skillSlug": "web-summarize",
   "skillVersion": "1.0.0",
   "input": { "url": "https://example.com" },
-  "idempotencyKey": "hermes-...",
+  "idempotencyKey": "swarms-...",
   "budgetMinor": 500,
   "currency": "USD"
 }

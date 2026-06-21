@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Hermes Cloud",
+  title: "Swarms",
   description: "A paid execution layer for autonomous agents — Agent Capability Cloud.",
 };
 

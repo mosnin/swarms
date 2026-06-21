@@ -49,12 +49,12 @@ async function seed(): Promise<void> {
   const user = await upsertReturning(
     "user",
     async () =>
-      (await db.select().from(schema.users).where(eq(schema.users.email, "demo@hermes.cloud")))[0],
+      (await db.select().from(schema.users).where(eq(schema.users.email, "demo@swarms.cloud")))[0],
     async () =>
       (
         await db
           .insert(schema.users)
-          .values({ email: "demo@hermes.cloud", name: "Demo User" })
+          .values({ email: "demo@swarms.cloud", name: "Demo User" })
           .onConflictDoNothing()
           .returning()
       )[0],

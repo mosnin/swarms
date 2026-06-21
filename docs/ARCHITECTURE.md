@@ -1,10 +1,10 @@
-# Hermes Cloud — Architecture
+# Swarms — Architecture
 
 > Status: Draft v0.1 — technical plan. No product code implemented yet.
 > Owner: Platform Engineering. Last updated: 2026-06-20.
 
-Hermes Cloud is a paid **execution layer** for autonomous agents — an
-*Agent Capability Cloud*. The local Hermes agent calls this platform to rent
+Swarms is a paid **execution layer** for autonomous agents — an
+*Agent Capability Cloud*. Your local AI agent calls this platform to spawn
 **skills**, **connectors**, and sandboxed **agent workers (swarms)**. The
 platform meters execution, enforces budgets and policies, stores audit logs,
 and charges for usage through **x402**.
@@ -24,7 +24,7 @@ This document is the binding technical plan. It must stay consistent with:
 
 ```
         ┌──────────────────────────────────────────────────────────────┐
-        │                        Hermes Cloud                           │
+        │                        Swarms                           │
         │                                                                │
  Intent │   ┌──────────┐   ┌────────────┐   ┌──────────┐   ┌─────────┐  │
 ────────┼──▶│  API /   │──▶│ Capability │──▶│ Policy + │──▶│   Job   │  │
@@ -50,7 +50,7 @@ This document is the binding technical plan. It must stay consistent with:
 5. **Workers perform the job in isolated sandboxes**, never inside a Next.js
    request handler.
 6. **The platform records logs, cost, outputs, and receipts.**
-7. **Hermes receives structured results** — typed payload, cost, receipt id,
+7. **Your agent receives structured results** — typed payload, cost, receipt id,
    and audit reference.
 
 ### 1.2 Architectural principles
@@ -275,7 +275,7 @@ submit intent
 [settle]    capture reservation → ledger entries → receipt
    │           state=succeeded|failed; release/capture hold accordingly
    ▼
-return structured result to Hermes
+return structured result to your agent
 ```
 
 Guarantees:

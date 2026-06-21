@@ -1,11 +1,11 @@
 /**
- * @hermes-cloud/sdk — TypeScript client for Hermes Cloud, the paid execution
- * layer that the Hermes agent (Nous Research) and other autonomous agents call
+ * @swarms/sdk — TypeScript client for Swarms, the paid execution
+ * layer that autonomous AI agents call
  * to rent skills, connectors, and sandboxed worker swarms.
  */
 
-export { HermesCloudClient, type HermesCloudClientOptions } from "./client";
-export { HermesCloudError, HermesNetworkError, type HermesErrorShape } from "./errors";
+export { SwarmsClient, type SwarmsClientOptions } from "./client";
+export { SwarmsError, SwarmsNetworkError, type SwarmsErrorShape } from "./errors";
 export { generateIdempotencyKey, toMinorUnits, budget } from "./idempotency";
 export type {
   SpawnAgentParams,

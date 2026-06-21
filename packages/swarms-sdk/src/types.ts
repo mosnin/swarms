@@ -1,5 +1,5 @@
 /**
- * Request/response types and Zod schemas. Response schemas mirror the Hermes
+ * Request/response types and Zod schemas. Response schemas mirror the Swarms
  * Cloud control-plane API so the SDK validates what it receives and fails loudly
  * if the server contract drifts.
  */

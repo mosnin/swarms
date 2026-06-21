@@ -1,4 +1,4 @@
-# Hermes Cloud — Implementation Sequence
+# Swarms — Implementation Sequence
 
 > Status: Draft v0.1. Companion to [`ARCHITECTURE.md`](./ARCHITECTURE.md),
 > [`PRODUCT_SPEC.md`](./PRODUCT_SPEC.md), and

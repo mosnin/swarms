@@ -77,7 +77,7 @@ export class DockerSandboxProvider implements SandboxProvider {
   }
 
   async createSandbox(spec: SandboxSpec): Promise<SandboxHandle> {
-    const name = `hermes_${spec.jobId}`;
+    const name = `swarm_${spec.jobId}`;
     const args = [
       "run",
       "-d",

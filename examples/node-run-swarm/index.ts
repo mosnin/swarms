@@ -2,12 +2,12 @@
  * Example: launch a competitor-research swarm and print the rolled-up result.
  */
 
-import { HermesCloudClient, budget } from "@hermes-cloud/sdk";
+import { SwarmsClient, budget } from "@swarms/sdk";
 
 async function main(): Promise<void> {
-  const client = new HermesCloudClient({
-    baseUrl: process.env.HERMES_CLOUD_URL ?? "http://localhost:3000",
-    apiKey: process.env.HERMES_CLOUD_API_KEY ?? "",
+  const client = new SwarmsClient({
+    baseUrl: process.env.SWARMS_URL ?? "http://localhost:3000",
+    apiKey: process.env.SWARMS_API_KEY ?? "",
   });
 
   const run = await client.runSwarm({

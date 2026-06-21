@@ -6,7 +6,7 @@
 ## Subscribing
 
 Pass `callbackUrl` on `POST /api/v1/execute`. When the job reaches a terminal
-state, Hermes Cloud delivers a signed event to that URL.
+state, Swarms delivers a signed event to that URL.
 
 ## Event shape
 
@@ -30,8 +30,8 @@ Event types today: `job.succeeded`, `job.failed`. (More — `payment.verified`,
 
 | Header | Value |
 |---|---|
-| `X-Hermes-Event` | the event type (e.g. `job.succeeded`) |
-| `X-Hermes-Signature` | `HMAC-SHA256(secret, body)` as hex |
+| `X-Swarms-Event` | the event type (e.g. `job.succeeded`) |
+| `X-Swarms-Signature` | `HMAC-SHA256(secret, body)` as hex |
 
 ## Verifying (consumer)
 

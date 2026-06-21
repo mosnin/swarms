@@ -21,7 +21,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     <div className="flex min-h-screen">
       <aside className="w-60 shrink-0 border-r bg-muted/30 p-4">
         <Link href="/dashboard" className="mb-6 block text-lg font-bold">
-          Hermes Cloud
+          Swarms
         </Link>
         <nav className="space-y-1">
           {NAV.map((item) => (

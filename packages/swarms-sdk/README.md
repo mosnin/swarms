@@ -1,17 +1,13 @@
-# @hermes-cloud/sdk
+# @swarms/sdk
 
-TypeScript client for **Hermes Cloud** — the paid execution layer that the
-**Hermes agent (Nous Research)** and other autonomous agents call to rent
-skills, connectors, and sandboxed worker swarms on demand.
-
-> Hermes Cloud is the cloud platform. "Hermes" (the agent) refers to Nous
-> Research's Hermes agent, the primary client of this API. This SDK is a generic
-> client any Node agent can use; it implies no affiliation or endorsement.
+TypeScript client for **Swarms** — the on-demand execution layer that
+autonomous AI agents call to spawn sandboxed worker agents that inherit
+their context, secrets, files, and tools, and pay per GPU-second.
 
 ## Install
 
 ```bash
-npm install @hermes-cloud/sdk zod
+npm install @swarms/sdk zod
 ```
 
 Node ≥ 20 (uses the global `fetch`). The API key is sent as a Bearer token and
@@ -20,11 +16,11 @@ is never logged.
 ## Usage
 
 ```ts
-import { HermesCloudClient, generateIdempotencyKey, budget } from "@hermes-cloud/sdk";
+import { SwarmsClient, generateIdempotencyKey, budget } from "@swarms/sdk";
 
-const client = new HermesCloudClient({
-  baseUrl: process.env.HERMES_CLOUD_URL!,
-  apiKey: process.env.HERMES_CLOUD_API_KEY!,
+const client = new SwarmsClient({
+  baseUrl: process.env.SWARMS_URL!,
+  apiKey: process.env.SWARMS_API_KEY!,
 });
 
 // Free execution
@@ -63,7 +59,7 @@ const run = await client.runSwarm({
 | `runSwarm` / `getSwarmRun` | `POST /api/v1/swarms/run`, `GET /api/v1/swarms/:id` |
 
 Helpers: `generateIdempotencyKey()`, `toMinorUnits()`, `budget()`. Errors are
-typed (`HermesCloudError`, `HermesNetworkError`). All responses are validated
+typed (`SwarmsError`, `SwarmsNetworkError`). All responses are validated
 with Zod against the server contract.
 
 ## Payments

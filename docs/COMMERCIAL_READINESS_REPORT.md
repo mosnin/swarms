@@ -1,6 +1,6 @@
 # Commercial Readiness Report
 
-Companion to [`AUDIT_REPORT.md`](./AUDIT_REPORT.md). Summarizes where Hermes Cloud
+Companion to [`AUDIT_REPORT.md`](./AUDIT_REPORT.md). Summarizes where Swarms
 stands commercially and what each launch level still needs.
 
 ## Scorecard

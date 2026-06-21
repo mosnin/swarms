@@ -5,7 +5,7 @@ test("liveness endpoint reports ok", async ({ request }) => {
   expect(res.status()).toBe(200);
   const body = await res.json();
   expect(body.status).toBe("ok");
-  expect(body.service).toBe("hermes-cloud");
+  expect(body.service).toBe("swarms");
 });
 
 test("readiness endpoint responds with a status", async ({ request }) => {

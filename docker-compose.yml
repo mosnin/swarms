@@ -4,15 +4,15 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: hermes
-      POSTGRES_PASSWORD: hermes
-      POSTGRES_DB: hermes
+      POSTGRES_USER: swarms
+      POSTGRES_PASSWORD: swarms
+      POSTGRES_DB: swarms
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U hermes"]
+      test: ["CMD-SHELL", "pg_isready -U swarms"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -22,7 +22,7 @@ services:
       context: .
       dockerfile: Dockerfile
     environment:
-      DATABASE_URL: postgres://hermes:hermes@postgres:5432/hermes
+      DATABASE_URL: postgres://swarms:swarms@postgres:5432/swarms
       NODE_ENV: production
       WEBHOOK_SIGNING_SECRET: change-me-in-production-please
       CONNECTOR_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
@@ -39,7 +39,7 @@ services:
       context: .
       dockerfile: Dockerfile.worker
     environment:
-      DATABASE_URL: postgres://hermes:hermes@postgres:5432/hermes
+      DATABASE_URL: postgres://swarms:swarms@postgres:5432/swarms
       NODE_ENV: production
       WEBHOOK_SIGNING_SECRET: change-me-in-production-please
       CONNECTOR_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=

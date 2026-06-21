@@ -1,6 +1,6 @@
 # Threat Model
 
-Scope: the Hermes Cloud control plane (Next.js), the worker, Postgres, the x402
+Scope: the Swarms control plane (Next.js), the worker, Postgres, the x402
 payment path, connectors, and the (future) sandbox. Below, each actor/threat
 lists the mitigation and its status, with evidence.
 

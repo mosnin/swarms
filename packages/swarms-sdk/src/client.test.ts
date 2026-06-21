@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { HermesCloudClient } from "./client";
-import { HermesCloudError, HermesNetworkError } from "./errors";
+import { SwarmsClient } from "./client";
+import { SwarmsError, SwarmsNetworkError } from "./errors";
 import { budget, generateIdempotencyKey, toMinorUnits } from "./idempotency";
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -12,14 +12,14 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 function client(fetchImpl: typeof fetch) {
-  return new HermesCloudClient({
+  return new SwarmsClient({
     baseUrl: "https://cloud.test/",
     apiKey: "hc_live_secret",
     fetch: fetchImpl,
   });
 }
 
-describe("HermesCloudClient.spawnAgent", () => {
+describe("SwarmsClient.spawnAgent", () => {
   it("posts to /spawn with bearer auth and returns the parsed response", async () => {
     const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       expect((init?.headers as Record<string, string>).authorization).toBe("Bearer hc_live_secret");
@@ -48,7 +48,7 @@ describe("HermesCloudClient.spawnAgent", () => {
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe("https://cloud.test/api/v1/spawn");
   });
 
-  it("maps a non-2xx response to a typed HermesCloudError", async () => {
+  it("maps a non-2xx response to a typed SwarmsError", async () => {
     const fetchMock = vi.fn(async () =>
       jsonResponse({ error: { code: "VALIDATION", message: "bad input", retryable: false } }, 400),
     );
@@ -57,11 +57,11 @@ describe("HermesCloudClient.spawnAgent", () => {
         task: "x",
         idempotencyKey: "idem-123456",
       }),
-    ).rejects.toBeInstanceOf(HermesCloudError);
+    ).rejects.toBeInstanceOf(SwarmsError);
   });
 });
 
-describe("HermesCloudClient.executePaidSkill", () => {
+describe("SwarmsClient.executePaidSkill", () => {
   const params = { skillSlug: "premium", input: {}, idempotencyKey: "idem-pay-123" };
   const requirements = {
     scheme: "x402-mock",
@@ -118,7 +118,7 @@ describe("transport safety", () => {
       await client(fetchMock as unknown as typeof fetch).getJob("job_1");
       throw new Error("should have thrown");
     } catch (err) {
-      expect(err).toBeInstanceOf(HermesNetworkError);
+      expect(err).toBeInstanceOf(SwarmsNetworkError);
       expect((err as Error).message).not.toContain("hc_live_secret");
     }
   });

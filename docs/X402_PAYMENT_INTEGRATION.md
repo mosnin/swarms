@@ -46,6 +46,6 @@ server ──verify + settle + bind receipt to job────▶ 201 { jobId, .
 
 ## SDK
 
-`HermesCloudClient.executePaidSkill(params, { signer })` handles the 402
+`SwarmsClient.executePaidSkill(params, { signer })` handles the 402
 challenge/retry. Implement `PaymentSigner.sign(requirements) -> string`
 (base64 proof). The SDK never holds wallet keys.

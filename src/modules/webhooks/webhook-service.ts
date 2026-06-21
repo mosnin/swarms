@@ -14,8 +14,8 @@ import { signWebhook, webhookSecret } from "@/modules/webhooks/signing";
 
 type Db = ReturnType<typeof getDb>;
 
-export const SIGNATURE_HEADER = "x-hermes-signature";
-export const EVENT_HEADER = "x-hermes-event";
+export const SIGNATURE_HEADER = "x-swarms-signature";
+export const EVENT_HEADER = "x-swarms-event";
 
 export interface WebhookEventInput {
   organizationId: string;

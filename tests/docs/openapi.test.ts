@@ -19,7 +19,7 @@ const spec = JSON.parse(readFileSync(specPath, "utf8")) as {
 describe("openapi.json", () => {
   it("is a valid OpenAPI 3.x document with info + paths", () => {
     expect(spec.openapi).toMatch(/^3\./);
-    expect(spec.info.title).toBe("Hermes Cloud API");
+    expect(spec.info.title).toBe("Swarms API");
     expect(Object.keys(spec.paths).length).toBeGreaterThan(5);
   });
 

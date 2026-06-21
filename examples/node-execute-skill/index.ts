@@ -1,14 +1,14 @@
 /**
  * Example: spawn a sandboxed worker agent, hand it your resources, watch it work.
- * Run with env: HERMES_CLOUD_URL + HERMES_CLOUD_API_KEY.
+ * Run with env: SWARMS_URL + SWARMS_API_KEY.
  */
 
-import { HermesCloudClient, generateIdempotencyKey, budget } from "@hermes-cloud/sdk";
+import { SwarmsClient, generateIdempotencyKey, budget } from "@swarms/sdk";
 
 async function main(): Promise<void> {
-  const client = new HermesCloudClient({
-    baseUrl: process.env.HERMES_CLOUD_URL ?? "http://localhost:3000",
-    apiKey: process.env.HERMES_CLOUD_API_KEY ?? "",
+  const client = new SwarmsClient({
+    baseUrl: process.env.SWARMS_URL ?? "http://localhost:3000",
+    apiKey: process.env.SWARMS_API_KEY ?? "",
   });
 
   const spawned = await client.spawnAgent({

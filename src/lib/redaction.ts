@@ -11,7 +11,7 @@ const SENSITIVE_KEY_RE =
 // Values that look like secrets even under an innocuous key.
 const SECRET_VALUE_RES: RegExp[] = [
   /\bBearer\s+[A-Za-z0-9._\-]+/gi,
-  /\bhc_(live|test)_[A-Za-z0-9]+/g, // Hermes Cloud API keys
+  /\bhc_(live|test)_[A-Za-z0-9]+/g, // Swarms API keys
   /\bsk-[A-Za-z0-9]{16,}/g, // generic provider keys
 ];
 

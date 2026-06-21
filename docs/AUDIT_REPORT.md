@@ -1,4 +1,4 @@
-# Hermes Cloud — Comprehensive Readiness Audit Report
+# Swarms — Comprehensive Readiness Audit Report
 
 Audit pack: `hermes_cloud_comprehensive_readiness_audit.md` v1.0
 Date: 2026-06-20 · Branch: `claude/sharp-faraday-aiypkr` · Commit: see PR #1
@@ -12,7 +12,7 @@ as production-ready.
 
 ## 1. Executive verdict
 
-Hermes Cloud is a **coherent, well-architected paid agent-execution platform**
+Swarms is a **coherent, well-architected paid agent-execution platform**
 that has reached **paid private beta** quality on testnet. The full core loop —
 authn/authz → policy → budget → (x402) payment → idempotent job → out-of-process
 worker → usage ledger → audit — is implemented, wired into the real execution
@@ -168,7 +168,7 @@ once; receipts redacted on render. No cross-org leakage path found.
 
 ## 16. SDK concerns
 
-`@hermes-cloud/sdk` builds independently (emits JS + d.ts), typed client, Zod
+`@swarms/sdk` builds independently (emits JS + d.ts), typed client, Zod
 response validation, typed errors, never logs the API key (transport-safety
 test), idempotency + budget helpers, x402 signer adapter, examples compile.
 Matches real routes (verified against `openapi.json` + route files).
@@ -197,7 +197,7 @@ Matches real routes (verified against `openapi.json` + route files).
 - Sandbox: `src/server/sandbox/*`
 - Marketplace: `src/modules/marketplace/*`
 - Worker app: `apps/worker/index.ts`
-- SDK: `packages/hermes-cloud-sdk/**`
+- SDK: `packages/swarms-sdk/**`
 - Routes: `src/app/api/**`; Dashboard: `src/app/(dashboard)/**`
 - Tests: `src/**/*.test.ts`, `tests/security/*`, `tests/docs/openapi.test.ts`
 - Docs: `docs/*.md`, `SECURITY.md`, `openapi.json`

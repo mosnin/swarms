@@ -18,7 +18,7 @@ describe("redact", () => {
     expect(out.note).toBe(`use ${REDACTED} to auth`);
   });
 
-  it("masks Hermes Cloud API keys embedded in strings", () => {
+  it("masks Swarms API keys embedded in strings", () => {
     expect(redact("key is hc_live_ZZZ999")).toBe(`key is ${REDACTED}`);
   });
 
