@@ -26,8 +26,10 @@ export default async function JobsPage() {
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-2xl font-bold">Jobs</h1>
-        <p className="text-sm text-muted-foreground">Executions created by your agents and members.</p>
+        <h1 className="text-2xl font-bold">Agent runs</h1>
+        <p className="text-sm text-muted-foreground">
+          Sandboxed worker agents spawned by your agents and members.
+        </p>
       </header>
 
       <div className="rounded-lg border">
