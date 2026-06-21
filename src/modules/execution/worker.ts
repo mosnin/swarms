@@ -15,6 +15,7 @@ import { isRunnerType } from "@/server/runners/runnerRegistry";
 import { commitBudget } from "@/server/budget/commitBudget";
 import { releaseBudget } from "@/server/budget/releaseBudget";
 import { logger } from "@/lib/logger";
+import { metrics } from "@/lib/metrics";
 import { writeAuditSystem } from "@/modules/governance/audit";
 import { enqueueWebhook } from "@/modules/webhooks/webhook-service";
 import { dbJobStore } from "@/modules/execution/job-repository";
@@ -148,6 +149,9 @@ export async function processJobInDb(
   opts: { preClaimed?: boolean } = {},
 ): Promise<JobRecord> {
   const job = await processJob(deps(db, WORKER_ID), jobId, opts);
+  if (job.status === "succeeded" || job.status === "failed") {
+    metrics().increment("jobs.processed", 1, { status: job.status });
+  }
   // A failed job never charges; release its reservation hold.
   if (job.status === "failed") {
     await releaseBudget(
