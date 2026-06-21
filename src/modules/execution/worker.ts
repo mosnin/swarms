@@ -132,7 +132,7 @@ function deps(db: Db, workerId: string): ProcessDeps {
         resourceType: "job",
         resourceId: job.id,
         after: { costMinor, currency },
-      });
+      }, db);
     },
   };
 }
@@ -258,7 +258,7 @@ export async function reapExpiredJobs(db: Db = getDb(), maxRunMs = 120_000): Pro
       resourceType: "job",
       resourceId: job.id,
       after: { reason: "lease_expired" },
-    });
+    }, db);
   }
   return stuck.length;
 }

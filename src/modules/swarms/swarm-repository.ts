@@ -116,7 +116,7 @@ export async function runSwarm(
     resourceType: "swarm_run",
     resourceId: run.id,
     after: { templateId: template.id, agents: planned.length },
-  });
+  }, db);
 
   const runChild = async (agent: PlannedAgent, index: number): Promise<ChildOutcome> => {
     const agentRow = (

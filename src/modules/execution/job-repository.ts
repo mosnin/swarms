@@ -263,7 +263,7 @@ export async function executeSkill(
       resourceType: "skill_version",
       resourceId: resolved.id,
       after: { reason: decision.reason },
-    });
+    }, db);
     throw Errors.policyDenied(decision.reason, { rule: decision.matchedRule?.name });
   }
   const requireApproval = decision.effect === "require_approval";
@@ -293,7 +293,7 @@ export async function executeSkill(
         resourceType: "job",
         resourceId: result.job.id,
         after: { reason: decision.reason },
-      });
+      }, db);
     } else {
       await reserveBudget(
         {
@@ -310,7 +310,7 @@ export async function executeSkill(
       resourceType: "job",
       resourceId: result.job.id,
       after: { skillSlug: request.skillSlug, status: result.job.status },
-    });
+    }, db);
   }
 
   return {
@@ -409,7 +409,7 @@ export async function cancelJob(
     resourceType: "job",
     resourceId: jobId,
     after: { status: cancelled.status },
-  });
+  }, db);
 
   return {
     id: cancelled.id,
@@ -446,7 +446,7 @@ export async function approveJob(
     resourceType: "job",
     resourceId: jobId,
     after: { status: queued.status },
-  });
+  }, db);
 
   return {
     id: queued.id,

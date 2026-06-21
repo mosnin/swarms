@@ -186,7 +186,7 @@ export async function executePaidSkill(
       resourceType: "skill_version",
       resourceId: resolved.id,
       after: { amountMinor: binding.amountMinor, currency },
-    });
+    }, db);
     return { kind: "payment_required", requirements };
   }
 
@@ -198,7 +198,7 @@ export async function executePaidSkill(
       resourceType: "payment_receipt",
       resourceId: receipt.id,
       after: { amountMinor: receipt.amountMinor, currency, txRef: receipt.txRef },
-    });
+    }, db);
   }
 
   // Create the job (idempotent on the same key) and bind the receipt to it.
@@ -248,7 +248,7 @@ export async function executePaidSkill(
       resourceType: "job",
       resourceId: job.id,
       after: { skillSlug: request.skillSlug, paid: true },
-    });
+    }, db);
   }
 
   return {
