@@ -46,6 +46,7 @@ export const envSchema = z.object({
   X402_NETWORK: z.string().min(1).default("base-sepolia"),
   X402_PAY_TO_ADDRESS: z.string().min(1).optional(),
   X402_FACILITATOR_URL: z.string().url().optional(),
+  X402_ASSET: z.string().min(1).optional(),
 
   // Marketplace platform fee in basis points (1/10000). Default 20%.
   PLATFORM_FEE_BPS: z.coerce.number().int().min(0).max(10_000).default(2000),

@@ -8,6 +8,7 @@
 import { env } from "@/lib/env";
 import { Errors } from "@/lib/errors";
 import { MockPaymentProvider } from "@/server/payments/mockProvider";
+import { X402FacilitatorProvider } from "@/server/payments/x402Provider";
 import type { PaymentProvider } from "@/server/payments/types";
 
 let provider: PaymentProvider | undefined;
@@ -20,9 +21,13 @@ export function getPaymentProvider(): PaymentProvider {
     if (!env.X402_PAY_TO_ADDRESS || !env.X402_FACILITATOR_URL) {
       throw Errors.config("x402 provider selected but X402_PAY_TO_ADDRESS/FACILITATOR_URL are unset");
     }
-    // The concrete x402/EVM adapter is wired here once the facilitator deps are
-    // installed; until then we fail closed rather than silently using the mock.
-    throw Errors.config("Real x402 provider adapter is not yet wired in this build");
+    provider = new X402FacilitatorProvider({
+      facilitatorUrl: env.X402_FACILITATOR_URL,
+      payTo: env.X402_PAY_TO_ADDRESS,
+      network: env.X402_NETWORK,
+      asset: env.X402_ASSET,
+    });
+    return provider;
   }
 
   // Mock provider. In production this is refused (payments must be real).
