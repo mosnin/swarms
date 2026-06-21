@@ -66,11 +66,12 @@ export const envSchema = z.object({
   // resource bundles at rest. Required in production; a fixed dev key otherwise.
   CONNECTOR_ENCRYPTION_KEY: z.string().min(1).optional(),
 
-  // Spawned-agent runtime: deterministic mock (dev/test) or a real Claude model.
-  AGENT_RUNTIME: z.enum(["mock", "anthropic"]).default("mock"),
-  ANTHROPIC_API_KEY: z.string().min(1).optional(),
-  ANTHROPIC_BASE_URL: z.string().url().default("https://api.anthropic.com"),
-  AGENT_DEFAULT_MODEL: z.string().min(1).default("claude-haiku-4-5"),
+  // Spawned-agent runtime: deterministic mock (dev/test) or a real agent on
+  // OpenRouter (DeepSeek v4) driven by the OpenAI Agents SDK.
+  AGENT_RUNTIME: z.enum(["mock", "openrouter"]).default("mock"),
+  OPENROUTER_API_KEY: z.string().min(1).optional(),
+  OPENROUTER_BASE_URL: z.string().url().default("https://openrouter.ai/api/v1"),
+  AGENT_DEFAULT_MODEL: z.string().min(1).default("deepseek/deepseek-chat-v4"),
 
   // GPU compute pricing for agent labor (integer minor units per GPU-second).
   GPU_RATE_MINOR_PER_SECOND: z.coerce.number().int().nonnegative().default(2),

@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 const body = z.object({
   templateId: z.string().min(1),
   objective: z.string().min(1).max(2000),
-  input: z.record(z.unknown()).optional(),
+  input: z.record(z.string(), z.unknown()).optional(),
   budgetMinor: z.number().int().nonnegative().optional(),
   currency: z.string().length(3).optional(),
 });

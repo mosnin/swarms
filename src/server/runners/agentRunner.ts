@@ -5,7 +5,7 @@
  * overspend). Runs only in the worker.
  */
 
-import { getAgentRuntime } from "@/server/agents/anthropicAgentRuntime";
+import { getAgentRuntime } from "@/server/agents/openrouterAgentRuntime";
 import type { ResourceBundle } from "@/modules/resources/resource-bundle";
 import type { Runner, RunnerContext, RunnerOutcome } from "@/server/runners/types";
 

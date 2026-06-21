@@ -22,7 +22,7 @@ const body = z.object({
   input: z.unknown(),
   idempotencyKey: idempotencyKeySchema,
   currency: z.string().length(3).optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 export async function POST(request: NextRequest): Promise<Response> {

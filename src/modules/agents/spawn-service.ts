@@ -66,7 +66,7 @@ export async function spawnAgent(
   // Fallbacks: Zod defaults don't apply under SKIP_ENV_VALIDATION (build/test).
   const currency = request.currency ?? env.GPU_RATE_CURRENCY ?? "USD";
   const rate = env.GPU_RATE_MINOR_PER_SECOND ?? 2;
-  const model = request.model ?? env.AGENT_DEFAULT_MODEL ?? "claude-haiku-4-5";
+  const model = request.model ?? env.AGENT_DEFAULT_MODEL ?? "deepseek/deepseek-chat-v4";
   const resources = request.resources ?? {};
 
   // Budget is a HARD GPU-time ceiling. Without a budget, a default estimate.

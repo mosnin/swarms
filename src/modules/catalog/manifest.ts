@@ -26,7 +26,7 @@ const VERSION_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
  * compiled by the worker. Empty objects are allowed (an unconstrained schema).
  */
 const jsonSchemaObject = z
-  .record(z.unknown())
+  .record(z.string(), z.unknown())
   .refine((value) => value !== null && !Array.isArray(value), "must be a JSON object");
 
 export const manifestSchema = z

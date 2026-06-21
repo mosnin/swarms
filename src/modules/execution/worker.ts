@@ -109,7 +109,7 @@ async function resolveExecution(db: Db, job: JobRecord): Promise<ResolvedExecuti
       runnerType: "agent",
       runnerConfig: {
         task: job.task ?? "",
-        model: job.model ?? "claude-haiku-4-5",
+        model: job.model ?? "deepseek/deepseek-chat-v4",
         resources,
         maxGpuSeconds,
         rateMinorPerSecond: rate,

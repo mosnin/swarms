@@ -62,7 +62,7 @@ facilitator env-gated).
 |---|---|
 | Spawn entry point | `src/modules/agents/spawn-service.ts` |
 | Resource inheritance (encrypt/decrypt) | `src/modules/resources/resource-bundle.ts` |
-| Agent runtime (mock + Anthropic) | `src/server/agents/*` |
+| Agent runtime (mock + OpenRouter/DeepSeek via OpenAI Agents SDK) | `src/server/agents/*` |
 | Sandbox (container isolation) | `src/server/sandbox/*` |
 | Job engine / worker | `src/modules/execution/*`, `src/server/jobs/*` |
 | Budgets / policy / ledger / x402 | `src/server/budget/*`, `src/server/policy/*`, `src/modules/billing/*` |

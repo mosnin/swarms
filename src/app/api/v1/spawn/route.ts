@@ -14,8 +14,8 @@ export const dynamic = "force-dynamic";
 
 const resourcesSchema = z
   .object({
-    env: z.record(z.string()).optional(),
-    files: z.record(z.string()).optional(),
+    env: z.record(z.string(), z.string()).optional(),
+    files: z.record(z.string(), z.string()).optional(),
     mcpServers: z
       .array(z.object({ name: z.string(), url: z.string().url(), token: z.string().optional() }))
       .optional(),

@@ -12,7 +12,7 @@ import type { Runner, RunnerContext, RunnerOutcome } from "@/server/runners/type
 const configSchema = z.object({
   url: z.string().url(),
   method: z.enum(["POST", "PUT"]).default("POST"),
-  headers: z.record(z.string()).optional(),
+  headers: z.record(z.string(), z.string()).optional(),
 });
 
 export class HttpRunner implements Runner {
