@@ -32,8 +32,9 @@ export class AgentRunner implements Runner {
     });
 
     // Charge for metered GPU seconds, hard-capped at the budgeted ceiling.
-    const billedSeconds = Math.min(outcome.gpuSeconds, config.maxGpuSeconds);
-    const costMinor = billedSeconds * config.rateMinorPerSecond;
+    // Clamp to a non-negative integer — money is integer minor units.
+    const billedSeconds = Math.max(0, Math.min(outcome.gpuSeconds, config.maxGpuSeconds));
+    const costMinor = Math.max(0, Math.floor(billedSeconds * config.rateMinorPerSecond));
     const logs = outcome.logs.map((l) => ({ level: l.level, message: l.message, data: l.data }));
 
     if (outcome.ok) {

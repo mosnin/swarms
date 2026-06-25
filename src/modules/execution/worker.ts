@@ -97,8 +97,16 @@ async function resolveExecution(db: Db, job: JobRecord): Promise<ResolvedExecuti
       rateMinorPerSecond?: number;
       currency?: string;
     };
-    const maxGpuSeconds = typeof input.maxGpuSeconds === "number" ? input.maxGpuSeconds : 60;
-    const rate = typeof input.rateMinorPerSecond === "number" ? input.rateMinorPerSecond : 2;
+    // Clamp to non-negative integers: cost is money in minor units, so a
+    // negative or fractional rate/seconds must never reach the ledger.
+    const maxGpuSeconds = Math.max(
+      0,
+      Math.floor(typeof input.maxGpuSeconds === "number" ? input.maxGpuSeconds : 60),
+    );
+    const rate = Math.max(
+      0,
+      Math.floor(typeof input.rateMinorPerSecond === "number" ? input.rateMinorPerSecond : 2),
+    );
     const resources = job.resourceBundleId
       ? await openResourceBundle(job.organizationId, job.resourceBundleId, db).catch(() => ({}))
       : {};
@@ -256,7 +264,10 @@ export async function claimAndProcessJobs(db: Db = getDb(), batchSize = 5): Prom
  * worker likely died), releasing any outstanding budget hold so reservations
  * are never stuck. Returns the number reaped.
  */
-export async function reapExpiredJobs(db: Db = getDb(), maxRunMs = 120_000): Promise<number> {
+// Default lease horizon exceeds the maximum permitted job runtime (600s, see
+// resolveExecution) plus a margin, so a legitimately long-running job on a live
+// worker is never reaped mid-flight.
+export async function reapExpiredJobs(db: Db = getDb(), maxRunMs = 660_000): Promise<number> {
   const cutoff = new Date(Date.now() - maxRunMs);
   const stuck = await db
     .select({
@@ -267,15 +278,23 @@ export async function reapExpiredJobs(db: Db = getDb(), maxRunMs = 120_000): Pro
     .from(schema.jobs)
     .where(and(eq(schema.jobs.status, "running"), lt(schema.jobs.startedAt, cutoff)));
 
+  let reaped = 0;
   for (const job of stuck) {
-    await db
+    // Guard the transition: only fail a job that is STILL running. A job that
+    // finished between the select and this update must not be flipped from
+    // succeeded/failed back to failed (and its budget must not be re-released).
+    const updated = await db
       .update(schema.jobs)
       .set({
         status: "failed",
         error: { code: "LEASE_EXPIRED", message: "Worker lease expired; job reaped" },
         finishedAt: new Date(),
       })
-      .where(eq(schema.jobs.id, job.id));
+      .where(and(eq(schema.jobs.id, job.id), eq(schema.jobs.status, "running")))
+      .returning({ id: schema.jobs.id });
+    if (updated.length === 0) continue; // finished concurrently — leave it alone
+
+    reaped += 1;
     await releaseBudget(
       { organizationId: job.organizationId, jobId: job.id, currency: job.costCurrency },
       db,
@@ -287,5 +306,5 @@ export async function reapExpiredJobs(db: Db = getDb(), maxRunMs = 120_000): Pro
       after: { reason: "lease_expired" },
     }, db);
   }
-  return stuck.length;
+  return reaped;
 }

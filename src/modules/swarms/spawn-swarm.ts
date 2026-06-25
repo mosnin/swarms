@@ -86,11 +86,23 @@ export async function spawnSwarm(
   const model = request.model ?? env.AGENT_DEFAULT_MODEL ?? "deepseek/deepseek-chat-v4";
   const resources = request.resources ?? {};
 
-  // Split the aggregate budget evenly into a hard per-worker GPU ceiling.
-  const perWorkerMinor =
-    request.budgetMinor && request.budgetMinor > 0
-      ? Math.max(rate, Math.floor(request.budgetMinor / tasks.length))
-      : DEFAULT_GPU_SECONDS_PER_WORKER * rate;
+  // Split the aggregate budget evenly into a hard per-worker GPU ceiling. The
+  // per-worker floor must NOT be bumped up to `rate` — doing so makes the
+  // aggregate exceed the caller's budgetMinor (a silent over-charge). Instead,
+  // a budget that can't fund one GPU-second per worker is rejected up front so
+  // the workforce total is always <= budgetMinor.
+  let perWorkerMinor: number;
+  if (request.budgetMinor && request.budgetMinor > 0) {
+    perWorkerMinor = Math.floor(request.budgetMinor / tasks.length);
+    if (perWorkerMinor < rate) {
+      throw Errors.budgetExceeded(
+        "budgetMinor is too low to fund one GPU-second per worker",
+        { budgetMinor: request.budgetMinor, workers: tasks.length, minPerWorkerMinor: rate },
+      );
+    }
+  } else {
+    perWorkerMinor = DEFAULT_GPU_SECONDS_PER_WORKER * rate;
+  }
   const maxGpuSecondsPerWorker = rate > 0 ? Math.max(1, Math.floor(perWorkerMinor / rate)) : DEFAULT_GPU_SECONDS_PER_WORKER;
   const aggregateMinor = perWorkerMinor * tasks.length;
 

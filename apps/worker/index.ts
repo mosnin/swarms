@@ -19,7 +19,9 @@ import { deliverPendingWebhooks } from "@/modules/webhooks/webhook-service";
 const POLL_INTERVAL_MS = Number(process.env.WORKER_POLL_INTERVAL_MS ?? 1000);
 const BATCH_SIZE = Number(process.env.WORKER_BATCH_SIZE ?? 5);
 const REAP_EVERY_MS = Number(process.env.WORKER_REAP_INTERVAL_MS ?? 30_000);
-const MAX_RUN_MS = Number(process.env.WORKER_MAX_RUN_MS ?? 120_000);
+// Must exceed the maximum permitted job runtime (600s) so live long jobs are
+// not reaped while still executing on a healthy worker.
+const MAX_RUN_MS = Number(process.env.WORKER_MAX_RUN_MS ?? 660_000);
 
 let running = true;
 let inFlight = false;

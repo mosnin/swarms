@@ -17,7 +17,8 @@ const SECRET_VALUE_RES: RegExp[] = [
 
 export const REDACTED = "[REDACTED]";
 
-function redactString(value: string): string {
+/** Mask secret-shaped substrings (bearer tokens, API keys) inside a string. */
+export function redactString(value: string): string {
   let out = value;
   for (const re of SECRET_VALUE_RES) out = out.replace(re, REDACTED);
   return out;

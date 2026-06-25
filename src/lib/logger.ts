@@ -5,6 +5,7 @@
  */
 
 import { isAppError } from "@/lib/errors";
+import { redactString } from "@/lib/redaction";
 
 export const LOG_LEVELS = ["debug", "info", "warn", "error"] as const;
 export type LogLevel = (typeof LOG_LEVELS)[number];
@@ -48,6 +49,9 @@ function isSensitiveKey(key: string): boolean {
  * depth is bounded to avoid pathological structures.
  */
 export function redact(value: unknown, seen = new WeakSet<object>(), depth = 0): unknown {
+  // Mask secret-shaped values (bearer tokens, API keys) even under innocuous
+  // keys — key-name matching alone is not enough.
+  if (typeof value === "string") return redactString(value);
   if (value === null || typeof value !== "object") return value;
   if (depth >= MAX_DEPTH) return "[TRUNCATED]";
   if (seen.has(value as object)) return "[CIRCULAR]";
@@ -60,7 +64,7 @@ export function redact(value: unknown, seen = new WeakSet<object>(), depth = 0):
   if (value instanceof Error) {
     return {
       name: value.name,
-      message: value.message,
+      message: redactString(value.message),
       ...(isAppError(value) ? { code: value.code } : {}),
     };
   }

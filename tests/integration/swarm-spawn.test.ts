@@ -82,4 +82,19 @@ describe("integration: spawn a workforce (swarm of agents)", () => {
       spawnSwarm(ctx, { tasks: ["   "], idempotencyKey: "swarm-int-0003" }, db),
     ).rejects.toThrow(/at least one task/i);
   });
+
+  it("rejects a budget too low to fund the workforce instead of over-charging", async () => {
+    const { organizationId, userId } = await seedOrg(db, "org-swarm4");
+    const ctx = userContext({ organizationId, userId, membershipId: "m", role: "owner" });
+    // rate is 2/sec; 4 workers need >= 8 minor units. A budget of 4 can fund
+    // only floor(4/4)=1 < 2 per worker — must be rejected, never silently
+    // bumped to 2/worker (which would charge 8 > the stated budget of 4).
+    await expect(
+      spawnSwarm(
+        ctx,
+        { tasks: ["a", "b", "c", "d"], budgetMinor: 4, idempotencyKey: "swarm-int-0004" },
+        db,
+      ),
+    ).rejects.toMatchObject({ code: "BUDGET_EXCEEDED" });
+  });
 });
