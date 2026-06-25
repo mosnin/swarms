@@ -59,21 +59,9 @@ class SpyQueue implements JobQueue {
 
 const clock = fixedClock(new Date("2026-02-01T00:00:00Z"));
 
-function skillCapability(overrides: Partial<ResolvedCapability> = {}): ResolvedCapability {
-  return {
-    kind: "skill",
-    skillVersionId: "skv_1",
-    inputSchema: { type: "object", required: ["url"], properties: { url: { type: "string" } } },
-    priceMinor: 200,
-    priceCurrency: "USD",
-    ...overrides,
-  };
-}
-
 function agentCapability(overrides: Partial<ResolvedCapability> = {}): ResolvedCapability {
   return {
     kind: "agent",
-    skillVersionId: null,
     task: "summarize the report",
     resourceBundleId: "rsb_1",
     model: "claude-haiku-4-5",
@@ -88,8 +76,8 @@ function baseInput() {
     organizationId: "org_1",
     createdByUserId: null,
     apiKeyId: "key_1",
-    capability: skillCapability(),
-    input: { url: "https://example.com" },
+    capability: agentCapability(),
+    input: { task: "summarize the report" },
     idempotencyKey: "idem-key-0001",
   };
 }
@@ -138,12 +126,6 @@ describe("createJob", () => {
         clock,
       ),
     ).rejects.toMatchObject({ code: "IDEMPOTENCY_CONFLICT" });
-  });
-
-  it("rejects input that violates the skill input schema", async () => {
-    await expect(
-      createJob(store, queue, { ...baseInput(), input: { notUrl: 1 } }, clock),
-    ).rejects.toMatchObject({ code: "VALIDATION" });
   });
 
   it("creates an agent job and carries its task/model/resource bundle", async () => {

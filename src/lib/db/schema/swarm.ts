@@ -5,7 +5,6 @@ import { index, jsonb, pgTable, text, timestamp, varchar } from "drizzle-orm/pg-
 
 import { idFactory, IdPrefix } from "@/lib/ids";
 import { organizations } from "@/lib/db/schema/identity";
-import { skillVersions } from "@/lib/db/schema/catalog";
 import { jobs } from "@/lib/db/schema/execution";
 import { amountMinorColumn, currencyColumn, jobStatus, timestamps } from "@/lib/db/schema/_shared";
 
@@ -40,9 +39,6 @@ export const swarmAgents = pgTable(
       .notNull()
       .references(() => swarmRuns.id, { onDelete: "cascade" }),
     role: varchar("role", { length: 64 }).notNull(),
-    skillVersionId: text("skill_version_id").references(() => skillVersions.id, {
-      onDelete: "set null",
-    }),
     jobId: text("job_id").references(() => jobs.id, { onDelete: "set null" }),
     status: jobStatus("status").notNull().default("queued"),
     input: jsonb("input"),

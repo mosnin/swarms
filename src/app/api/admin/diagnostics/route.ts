@@ -27,12 +27,11 @@ export async function GET(request: NextRequest): Promise<Response> {
     const db = getDb();
     const org = ctx.organizationId;
 
-    const [jobs, succeeded, failed, queued, skills, auditEvents] = await Promise.all([
+    const [jobs, succeeded, failed, queued, auditEvents] = await Promise.all([
       db.select({ c: count() }).from(schema.jobs).where(eq(schema.jobs.organizationId, org)),
       db.select({ c: count() }).from(schema.jobs).where(and(eq(schema.jobs.organizationId, org), eq(schema.jobs.status, "succeeded"))),
       db.select({ c: count() }).from(schema.jobs).where(and(eq(schema.jobs.organizationId, org), eq(schema.jobs.status, "failed"))),
       db.select({ c: count() }).from(schema.jobs).where(and(eq(schema.jobs.organizationId, org), eq(schema.jobs.status, "queued"))),
-      db.select({ c: count() }).from(schema.skills).where(eq(schema.skills.organizationId, org)),
       db.select({ c: count() }).from(schema.auditEvents).where(eq(schema.auditEvents.organizationId, org)),
     ]);
 
@@ -46,7 +45,6 @@ export async function GET(request: NextRequest): Promise<Response> {
           failed: failed[0]?.c ?? 0,
           queued: queued[0]?.c ?? 0,
         },
-        skills: skills[0]?.c ?? 0,
         auditEvents: auditEvents[0]?.c ?? 0,
       }),
     );

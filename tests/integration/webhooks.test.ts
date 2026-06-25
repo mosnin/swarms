@@ -2,8 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 
 import * as schema from "@/lib/db/schema";
-import { userContext } from "@/modules/identity/access-control";
-import { executeSkill } from "@/modules/execution/job-repository";
 import { processJobInDb } from "@/modules/execution/worker";
 import {
   deliverPendingWebhooks,
@@ -13,43 +11,7 @@ import {
 import { verifyWebhook, webhookSecret } from "@/modules/webhooks/signing";
 import { LocalQueue } from "@/server/queue/localQueue";
 import { setJobQueue } from "@/server/queue/queue";
-import { createTestDb, seedOrg, type TestDb } from "./harness";
-
-const manifest = {
-  name: "Echo",
-  version: "1.0.0",
-  description: "",
-  inputSchema: { type: "object" },
-  outputSchema: { type: "object" },
-  permissions: [],
-  riskLevel: "low",
-  estimatedCostMinor: 0,
-  estimatedDurationMs: 1,
-  maxRuntimeMs: 5000,
-  supportsParallelism: false,
-};
-
-async function publishSkill(db: TestDb, organizationId: string) {
-  const skill = (
-    await db
-      .insert(schema.skills)
-      .values({ organizationId, slug: "echo", name: "Echo", visibility: "private" })
-      .returning()
-  )[0]!;
-  await db.insert(schema.skillVersions).values({
-    skillId: skill.id,
-    organizationId,
-    version: "1.0.0",
-    status: "published",
-    publishedAt: new Date(),
-    manifest,
-    inputSchema: manifest.inputSchema,
-    outputSchema: manifest.outputSchema,
-    runnerType: "mock",
-    priceMinor: 0,
-    priceCurrency: "USD",
-  });
-}
+import { createTestDb, enqueueAgentJob, seedOrg, type TestDb } from "./harness";
 
 describe("integration: webhook delivery", () => {
   let db: TestDb;
@@ -61,19 +23,13 @@ describe("integration: webhook delivery", () => {
 
   it("enqueues a signed job.succeeded webhook and delivers it", async () => {
     const { organizationId, userId } = await seedOrg(db);
-    await publishSkill(db, organizationId);
-    const ctx = userContext({ organizationId, userId, membershipId: "m", role: "owner" });
 
-    const res = await executeSkill(
-      ctx,
-      {
-        skillSlug: "echo",
-        input: {},
-        idempotencyKey: "wh-key-0001",
-        callbackUrl: "https://hook.test/endpoint",
-      },
-      db,
-    );
+    const res = await enqueueAgentJob(db, {
+      organizationId,
+      userId,
+      idempotencyKey: "wh-key-0001",
+      callbackUrl: "https://hook.test/endpoint",
+    });
     await processJobInDb(res.jobId, db);
 
     // A pending delivery exists.
@@ -115,14 +71,13 @@ describe("integration: webhook delivery", () => {
 
   it("retries (backs off) on a failing endpoint", async () => {
     const { organizationId, userId } = await seedOrg(db, "org-wh2");
-    await publishSkill(db, organizationId);
-    const ctx = userContext({ organizationId, userId, membershipId: "m", role: "owner" });
 
-    const res = await executeSkill(
-      ctx,
-      { skillSlug: "echo", input: {}, idempotencyKey: "wh-key-0002", callbackUrl: "https://hook.test/bad" },
-      db,
-    );
+    const res = await enqueueAgentJob(db, {
+      organizationId,
+      userId,
+      idempotencyKey: "wh-key-0002",
+      callbackUrl: "https://hook.test/bad",
+    });
     await processJobInDb(res.jobId, db);
 
     const failing = vi.fn(async () => new Response("nope", { status: 500 }));

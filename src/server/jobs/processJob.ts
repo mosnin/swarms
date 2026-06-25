@@ -21,7 +21,6 @@ export interface WorkerRunRecord {
   id: string;
   organizationId: string;
   jobId: string;
-  skillVersionId: string | null;
   workerId: string;
   runnerType: string | null;
   status: JobRecord["status"];
@@ -115,7 +114,6 @@ export async function processJob(
     id: newId(IdPrefix.workerRun),
     organizationId: job.organizationId,
     jobId: job.id,
-    skillVersionId: job.skillVersionId,
     workerId: deps.workerId,
     runnerType: resolved.runnerType,
     status: "running",
@@ -144,7 +142,6 @@ export async function processJob(
     outcome = await getRunner(resolved.runnerType).run({
       jobId: job.id,
       organizationId: job.organizationId,
-      skillVersionId: job.skillVersionId ?? "",
       input: job.input,
       runnerConfig: resolved.runnerConfig,
       maxRuntimeMs: resolved.maxRuntimeMs || DEFAULT_MAX_RUNTIME_MS,

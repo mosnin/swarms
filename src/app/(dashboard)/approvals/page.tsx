@@ -22,7 +22,6 @@ export default async function ApprovalsPage() {
       <ApprovalsList
         initial={pending.map((p) => ({
           id: p.id,
-          skillVersionId: p.skillVersionId,
           costMinor: p.costMinor,
           costCurrency: p.costCurrency,
           createdAt: p.createdAt.toISOString(),

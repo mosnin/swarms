@@ -150,7 +150,6 @@ export async function spawnSwarm(
       apiKeyId: ctx.actor.kind === "agent" ? ctx.actor.apiKeyId : null,
       capability: {
         kind: "agent",
-        skillVersionId: null,
         task: taskFor(agent.instructions),
         resourceBundleId: bundleId,
         model,

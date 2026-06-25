@@ -12,6 +12,11 @@ import { drizzle } from "drizzle-orm/pglite";
 
 import * as schema from "@/lib/db/schema";
 import { getDb } from "@/lib/db";
+import { createJob } from "@/modules/execution/job-service";
+import { dbJobStore } from "@/modules/execution/job-repository";
+import { checkBudget } from "@/server/budget/checkBudget";
+import { reserveBudget } from "@/server/budget/reserveBudget";
+import { getJobQueue } from "@/server/queue/queue";
 
 export type TestDb = ReturnType<typeof getDb>;
 
@@ -56,4 +61,58 @@ export async function seedOrg(
     .insert(schema.wallets)
     .values({ organizationId: org.id, currency: "USD", balanceMinor: 0 });
   return { organizationId: org.id, userId: user.id };
+}
+
+/**
+ * Enqueue a single agent job through the real execution core (pre-flight budget
+ * check → idempotent create → reservation hold), mirroring the orchestration the
+ * spawn path performs. The mock agent runtime bills `min(gpuSeconds, maxGpuSeconds)
+ * × rate`; a one-word task is 1 GPU-second, so `maxGpuSeconds:1, rate:N` commits
+ * exactly N minor units — handy for deterministic budget assertions.
+ */
+export async function enqueueAgentJob(
+  db: TestDb,
+  opts: {
+    organizationId: string;
+    apiKeyId?: string | null;
+    userId?: string | null;
+    idempotencyKey: string;
+    task?: string;
+    maxGpuSeconds?: number;
+    rateMinorPerSecond?: number;
+    currency?: string;
+    callbackUrl?: string | null;
+    budgetMinor?: number;
+  },
+): Promise<{ jobId: string; status: string }> {
+  const currency = opts.currency ?? "USD";
+  const maxGpuSeconds = opts.maxGpuSeconds ?? 1;
+  const rate = opts.rateMinorPerSecond ?? 0;
+  const priceMinor = maxGpuSeconds * rate;
+  const task = opts.task ?? "echo";
+
+  await checkBudget(opts.organizationId, priceMinor, currency, db, {
+    apiKeyId: opts.apiKeyId ?? null,
+    userId: opts.userId ?? null,
+  });
+
+  const { job, replay } = await createJob(dbJobStore(db), getJobQueue(), {
+    organizationId: opts.organizationId,
+    createdByUserId: opts.userId ?? null,
+    apiKeyId: opts.apiKeyId ?? null,
+    capability: { kind: "agent", task, priceMinor, priceCurrency: currency },
+    input: { task, maxGpuSeconds, rateMinorPerSecond: rate, currency },
+    idempotencyKey: opts.idempotencyKey,
+    budgetMinor: opts.budgetMinor,
+    currency,
+    callbackUrl: opts.callbackUrl ?? null,
+  });
+
+  if (!replay && priceMinor > 0) {
+    await reserveBudget(
+      { organizationId: opts.organizationId, jobId: job.id, amountMinor: priceMinor, currency },
+      db,
+    );
+  }
+  return { jobId: job.id, status: job.status };
 }

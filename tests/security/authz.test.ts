@@ -20,8 +20,8 @@ const viewer = userContext({ organizationId: "org_a", userId: "u2", membershipId
 
 describe("permission guards fail closed", () => {
   it("viewer cannot perform mutations", () => {
-    expect(can(viewer, "skills.create")).toBe(false);
-    expect(() => requirePermission(viewer, "skills.create")).toThrowError(/permission/i);
+    expect(can(viewer, "connectors.manage")).toBe(false);
+    expect(() => requirePermission(viewer, "connectors.manage")).toThrowError(/permission/i);
     expect(() => requirePermission(viewer, "jobs.create")).toThrow();
     expect(() => requirePermission(viewer, "billing.manage")).toThrow();
   });
@@ -53,8 +53,8 @@ describe("organization isolation", () => {
 
 describe("API key scope escalation is prevented", () => {
   it("a key cannot be granted scopes the creator lacks", () => {
-    // viewer may not grant skills.create
-    expect(() => assertScopesGrantable(viewer, ["skills.create"])).toThrow();
+    // viewer may not grant connectors.manage
+    expect(() => assertScopesGrantable(viewer, ["connectors.manage"])).toThrow();
   });
 
   it("an agent key with explicit scopes is limited to those scopes", () => {
@@ -62,10 +62,10 @@ describe("API key scope escalation is prevented", () => {
       organizationId: "org_a",
       apiKeyId: "key_1",
       userId: "u1",
-      scopes: ["skills.read"],
+      scopes: ["jobs.read"],
     });
-    expect(can(agent, "skills.read")).toBe(true);
-    expect(can(agent, "skills.create")).toBe(false);
+    expect(can(agent, "jobs.read")).toBe(true);
+    expect(can(agent, "jobs.create")).toBe(false);
     expect(can(agent, "billing.manage")).toBe(false);
   });
 
@@ -74,9 +74,9 @@ describe("API key scope escalation is prevented", () => {
       organizationId: "org_a",
       apiKeyId: "key_2",
       userId: null,
-      scopes: ["skills.read", "totally.fake"],
+      scopes: ["jobs.read", "totally.fake"],
     });
-    expect(can(agent, "skills.read")).toBe(true);
+    expect(can(agent, "jobs.read")).toBe(true);
     // The fake permission is not present.
     expect([...agent.permissions]).not.toContain("totally.fake");
   });

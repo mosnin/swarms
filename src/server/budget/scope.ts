@@ -10,14 +10,11 @@ export interface BudgetScope {
   apiKeyId?: string;
   /** Restrict to a specific human user. */
   userId?: string;
-  /** Restrict to a specific skill (across its versions). */
-  skillId?: string;
 }
 
 export interface BudgetContext {
   apiKeyId?: string | null;
   userId?: string | null;
-  skillId?: string | null;
 }
 
 /** Parse an untrusted JSONB scope into a typed {@link BudgetScope}. */
@@ -27,7 +24,6 @@ export function parseScope(raw: unknown): BudgetScope {
   const scope: BudgetScope = {};
   if (typeof r.apiKeyId === "string") scope.apiKeyId = r.apiKeyId;
   if (typeof r.userId === "string") scope.userId = r.userId;
-  if (typeof r.skillId === "string") scope.skillId = r.skillId;
   return scope;
 }
 
@@ -35,11 +31,10 @@ export function parseScope(raw: unknown): BudgetScope {
 export function budgetApplies(scope: BudgetScope, context: BudgetContext): boolean {
   if (scope.apiKeyId !== undefined && scope.apiKeyId !== context.apiKeyId) return false;
   if (scope.userId !== undefined && scope.userId !== context.userId) return false;
-  if (scope.skillId !== undefined && scope.skillId !== context.skillId) return false;
   return true;
 }
 
 /** True when the scope carries at least one constraint (i.e. not org-wide). */
 export function isScoped(scope: BudgetScope): boolean {
-  return scope.apiKeyId !== undefined || scope.userId !== undefined || scope.skillId !== undefined;
+  return scope.apiKeyId !== undefined || scope.userId !== undefined;
 }

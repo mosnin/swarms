@@ -5,7 +5,7 @@
  * can be unit-tested in memory and run against Postgres in production.
  *
  * Invariants enforced here:
- * - Input is validated against the skill version's input schema.
+ * - An agent spawn requires a non-empty task.
  * - (organizationId, idempotencyKey) is unique: replaying the same key with the
  *   same input returns the original job; a different input is a conflict.
  * - The job is durably persisted (status `queued`) BEFORE it is enqueued, so a
@@ -17,7 +17,6 @@ import { requestHash } from "@/lib/idempotency";
 import { Errors } from "@/lib/errors";
 import { newId, IdPrefix } from "@/lib/ids";
 import { systemClock, type Clock } from "@/lib/time";
-import { assertValidInput } from "@/modules/execution/input-validation";
 import type { JobMessage, JobQueue } from "@/server/queue/types";
 
 export type JobStatus =
@@ -40,8 +39,7 @@ export interface JobRecord {
   organizationId: string;
   createdByUserId: string | null;
   apiKeyId: string | null;
-  capabilityKind: "agent" | "skill" | "swarm" | "connector";
-  skillVersionId: string | null;
+  capabilityKind: "agent" | "swarm" | "connector";
   /** Agent task instruction (capabilityKind = "agent"). */
   task: string | null;
   /** Encrypted resource bundle handed to the spawned agent. */
@@ -87,18 +85,13 @@ export interface JobStore {
 }
 
 /**
- * What the job will run. The engine is capability-agnostic: an `agent` job runs
- * a sandboxed worker agent on a task with an inherited resource bundle; a `skill`
- * job runs a pinned capability (legacy/internal). Pricing is an up-front estimate
- * (GPU/compute for agents); the worker records actual metered cost.
+ * What the job will run. An `agent` job runs a sandboxed worker agent on a task
+ * with an inherited resource bundle. Pricing is an up-front estimate (GPU/compute);
+ * the worker records the actual metered cost.
  */
 export interface ResolvedCapability {
-  kind: "agent" | "skill";
-  /** skill version id (skill jobs) or null (agent jobs). */
-  skillVersionId: string | null;
-  /** Optional input schema to validate against (skill jobs). */
-  inputSchema?: unknown;
-  /** Agent task + execution descriptor (agent jobs). */
+  kind: "agent";
+  /** Agent task + execution descriptor. */
   task?: string | null;
   resourceBundleId?: string | null;
   model?: string | null;
@@ -151,17 +144,12 @@ export async function createJob(
   clock: Clock = systemClock,
 ): Promise<CreateJobResult> {
   const cap = input.capability;
-  if (cap.kind === "agent") {
-    if (!cap.task || cap.task.trim().length === 0) {
-      throw Errors.validation("An agent spawn requires a non-empty task");
-    }
-  } else {
-    assertValidInput(input.input, cap.inputSchema);
+  if (!cap.task || cap.task.trim().length === 0) {
+    throw Errors.validation("An agent spawn requires a non-empty task");
   }
 
   const inputHash = requestHash({
     kind: cap.kind,
-    skillVersionId: cap.skillVersionId,
     task: cap.task ?? null,
     input: input.input,
   });
@@ -200,7 +188,6 @@ export async function createJob(
     createdByUserId: input.createdByUserId,
     apiKeyId: input.apiKeyId,
     capabilityKind: cap.kind,
-    skillVersionId: cap.skillVersionId,
     task: cap.task ?? null,
     resourceBundleId: cap.resourceBundleId ?? null,
     model: cap.model ?? null,

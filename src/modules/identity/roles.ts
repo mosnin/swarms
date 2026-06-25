@@ -10,10 +10,6 @@ export const PERMISSIONS = [
   "org.read",
   "org.manage",
   "api_keys.manage",
-  "skills.read",
-  "skills.create",
-  "skills.publish",
-  "skills.execute",
   "connectors.read",
   "connectors.manage",
   "jobs.read",
@@ -47,10 +43,10 @@ const ALL: readonly Permission[] = PERMISSIONS;
  * - owner: everything.
  * - admin: everything except `billing.manage` (financial control stays with owner).
  * - developer: build & run capabilities, manage own API keys; no governance/billing writes.
- * - operator: run/operate jobs and read state; cannot author skills.
+ * - operator: run/operate jobs and read state.
  * - viewer: read-only.
- * - agent: execute capabilities and manage its own jobs (default for keys with
- *   no explicit scopes).
+ * - agent: spawn work and manage its own jobs (default for keys with no explicit
+ *   scopes).
  */
 export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   owner: ALL,
@@ -58,10 +54,6 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   developer: [
     "org.read",
     "api_keys.manage",
-    "skills.read",
-    "skills.create",
-    "skills.publish",
-    "skills.execute",
     "connectors.read",
     "connectors.manage",
     "jobs.read",
@@ -71,8 +63,6 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   ],
   operator: [
     "org.read",
-    "skills.read",
-    "skills.execute",
     "connectors.read",
     "jobs.read",
     "jobs.create",
@@ -80,15 +70,8 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     "billing.read",
     "audit.read",
   ],
-  viewer: ["org.read", "skills.read", "connectors.read", "jobs.read", "billing.read", "audit.read"],
-  agent: [
-    "skills.read",
-    "skills.execute",
-    "connectors.read",
-    "jobs.read",
-    "jobs.create",
-    "jobs.cancel",
-  ],
+  viewer: ["org.read", "connectors.read", "jobs.read", "billing.read", "audit.read"],
+  agent: ["connectors.read", "jobs.read", "jobs.create", "jobs.cancel"],
 };
 
 /** The permission set granted by a role. */

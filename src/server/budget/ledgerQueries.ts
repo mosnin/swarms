@@ -45,9 +45,8 @@ export async function entriesForOrgSince(
 
 /**
  * Ledger entries for an organization since `since`, narrowed to a budget scope.
- * Org-wide scopes use the cheap path; constrained scopes join through `jobs`
- * (and `skill_versions` for a skill scope) so per-key / per-user / per-skill
- * budgets are computed from the same append-only ledger.
+ * Org-wide scopes use the cheap path; constrained scopes join through `jobs` so
+ * per-key / per-user budgets are computed from the same append-only ledger.
  */
 export async function scopedEntriesSince(
   organizationId: string,
@@ -64,20 +63,15 @@ export async function scopedEntriesSince(
   if (scope.apiKeyId) conds.push(eq(schema.jobs.apiKeyId, scope.apiKeyId));
   if (scope.userId) conds.push(eq(schema.jobs.createdByUserId, scope.userId));
 
-  const base = db
+  const rows = await db
     .select({
       direction: schema.usageLedgerEntries.direction,
       kind: schema.usageLedgerEntries.kind,
       amountMinor: schema.usageLedgerEntries.amountMinor,
     })
     .from(schema.usageLedgerEntries)
-    .innerJoin(schema.jobs, eq(schema.usageLedgerEntries.jobId, schema.jobs.id));
-
-  const rows = scope.skillId
-    ? await base
-        .innerJoin(schema.skillVersions, eq(schema.jobs.skillVersionId, schema.skillVersions.id))
-        .where(and(...conds, eq(schema.skillVersions.skillId, scope.skillId)))
-    : await base.where(and(...conds));
+    .innerJoin(schema.jobs, eq(schema.usageLedgerEntries.jobId, schema.jobs.id))
+    .where(and(...conds));
 
   return rows.map(toEntry);
 }

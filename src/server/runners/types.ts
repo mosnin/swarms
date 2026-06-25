@@ -11,7 +11,6 @@ export type RunnerType = "agent" | "mock" | "http" | "local_worker";
 export interface RunnerContext {
   jobId: string;
   organizationId: string;
-  skillVersionId: string;
   /** Validated job input. */
   input: unknown;
   /** Version-declared runner configuration (e.g. endpoint URL for http). */

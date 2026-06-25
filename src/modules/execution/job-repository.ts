@@ -6,7 +6,7 @@
  * `job-service.ts`.
  */
 
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 
 import { getDb } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
@@ -17,22 +17,16 @@ import {
   type AuthContext,
 } from "@/modules/identity/access-control";
 import { writeAudit } from "@/modules/governance/audit";
-import { loadPolicyRules } from "@/modules/governance/policy-repository";
 import {
   approveJob as approveJobCore,
   cancelJob as cancelJobCore,
-  createJob as createJobCore,
-  type CreateJobResult,
   type JobLogRecord,
   type JobRecord,
   type JobStatus,
   type JobStore,
 } from "@/modules/execution/job-service";
-import { canViewSkill, type SkillVisibility } from "@/modules/catalog/visibility";
 import { checkBudget } from "@/server/budget/checkBudget";
-import { reserveBudget } from "@/server/budget/reserveBudget";
 import { releaseBudget } from "@/server/budget/releaseBudget";
-import { evaluatePolicy, type PolicyRequest } from "@/server/policy/evaluatePolicy";
 import { getJobQueue } from "@/server/queue/queue";
 
 type Db = ReturnType<typeof getDb>;
@@ -46,7 +40,6 @@ function toJobRecord(row: JobRow): JobRecord {
     createdByUserId: row.createdByUserId,
     apiKeyId: row.apiKeyId,
     capabilityKind: row.capabilityKind as JobRecord["capabilityKind"],
-    skillVersionId: row.skillVersionId,
     task: row.task,
     resourceBundleId: row.resourceBundleId,
     model: row.model,
@@ -104,7 +97,6 @@ export function dbJobStore(db: Db = getDb()): JobStore {
             createdByUserId: record.createdByUserId,
             apiKeyId: record.apiKeyId,
             capabilityKind: record.capabilityKind,
-            skillVersionId: record.skillVersionId,
             task: record.task,
             resourceBundleId: record.resourceBundleId,
             model: record.model,
@@ -165,203 +157,10 @@ export function dbJobStore(db: Db = getDb()): JobStore {
   };
 }
 
-/* ------------------------------------------------------------------ */
-/* Capability resolution                                               */
-/* ------------------------------------------------------------------ */
-
-/**
- * Resolve a skill slug (+ optional version) to a published, viewable skill
- * version. Pins to the requested version, or the newest published one.
- */
-export async function resolveSkillVersion(
-  ctx: AuthContext,
-  skillSlug: string,
-  skillVersion: string | undefined,
-  db: Db = getDb(),
-): Promise<{
-  id: string;
-  skillId: string;
-  inputSchema: unknown;
-  priceMinor: number;
-  priceCurrency: string;
-  skillName: string;
-  riskLevel: string;
-  creatorOrganizationId: string;
-}> {
-  // The slug is unique per org, but execution may target another org's public
-  // skill — match by slug across orgs, then enforce visibility.
-  const skills = await db.select().from(schema.skills).where(eq(schema.skills.slug, skillSlug));
-  const skill = skills.find((s) =>
-    canViewSkill(ctx.organizationId, {
-      organizationId: s.organizationId,
-      visibility: s.visibility as SkillVisibility,
-    }),
-  );
-  if (!skill) throw Errors.capabilityNotFound(`Skill "${skillSlug}" not found`);
-
-  // Cross-org (marketplace) execution requires an approved review.
-  if (skill.organizationId !== ctx.organizationId && skill.reviewStatus !== "approved") {
-    throw Errors.capabilityNotFound(`Skill "${skillSlug}" is not approved for marketplace use`);
-  }
-
-  const versionRows = await db
-    .select()
-    .from(schema.skillVersions)
-    .where(
-      skillVersion
-        ? and(eq(schema.skillVersions.skillId, skill.id), eq(schema.skillVersions.version, skillVersion))
-        : eq(schema.skillVersions.skillId, skill.id),
-    )
-    .orderBy(desc(schema.skillVersions.publishedAt));
-
-  const published = versionRows.filter((v) => v.status === "published");
-  const chosen = published[0];
-  if (!chosen) {
-    throw Errors.capabilityNotFound(
-      skillVersion
-        ? `Version ${skillVersion} of "${skillSlug}" is not published`
-        : `No published version of "${skillSlug}"`,
-    );
-  }
-
-  return {
-    id: chosen.id,
-    skillId: chosen.skillId,
-    inputSchema: chosen.inputSchema,
-    priceMinor: chosen.priceMinor,
-    priceCurrency: chosen.priceCurrency,
-    skillName: skill.name,
-    riskLevel: skill.riskLevel,
-    creatorOrganizationId: skill.organizationId,
-  };
-}
-
-/* ------------------------------------------------------------------ */
-/* Request-facing orchestration                                        */
-/* ------------------------------------------------------------------ */
-
-export interface ExecuteRequest {
-  skillSlug: string;
-  skillVersion?: string;
-  input: unknown;
-  idempotencyKey: string;
-  budgetMinor?: number;
-  currency?: string;
-  callbackUrl?: string;
-}
-
-export interface ExecuteResponse {
-  jobId: string;
-  status: JobStatus;
-  paymentRequired: boolean;
-  estimatedCostMinor: number;
-  currency: string;
-  executionUrl: string;
-  createdAt: string;
-}
-
-/** Authenticated entry point for `POST /api/v1/execute`. */
-export async function executeSkill(
-  ctx: AuthContext,
-  request: ExecuteRequest,
-  db: Db = getDb(),
-): Promise<ExecuteResponse> {
-  requirePermission(ctx, "jobs.create");
-
-  const resolved = await resolveSkillVersion(ctx, request.skillSlug, request.skillVersion, db);
-  const currency = request.currency ?? resolved.priceCurrency;
-
-  // (1) Policy: deny / require approval / allow before anything is created.
-  const rules = await loadPolicyRules(ctx.organizationId, db);
-  const decision = evaluatePolicy(rules, {
-    skillRiskLevel: resolved.riskLevel as PolicyRequest["skillRiskLevel"],
-    costMinor: resolved.priceMinor,
-    requiresPayment: resolved.priceMinor > 0,
-  });
-  if (decision.effect === "deny") {
-    await writeAudit(ctx, {
-      action: "policy.denied",
-      resourceType: "skill_version",
-      resourceId: resolved.id,
-      after: { reason: decision.reason },
-    }, db);
-    throw Errors.policyDenied(decision.reason, { rule: decision.matchedRule?.name });
-  }
-  const requireApproval = decision.effect === "require_approval";
-
-  // (2) Budget hard-stop check (only for paths that will actually run now).
-  // Scope context lets per-key / per-user / per-skill budgets apply.
-  if (!requireApproval) {
-    await checkBudget(ctx.organizationId, resolved.priceMinor, currency, db, {
-      apiKeyId: ctx.actor.kind === "agent" ? ctx.actor.apiKeyId : null,
-      userId: ctx.actor.kind === "user" ? ctx.actor.userId : null,
-      skillId: resolved.skillId,
-    });
-  }
-
-  const result: CreateJobResult = await createJobCore(dbJobStore(db), getJobQueue(), {
-    organizationId: ctx.organizationId,
-    createdByUserId: ctx.actor.kind === "user" ? ctx.actor.userId : null,
-    apiKeyId: ctx.actor.kind === "agent" ? ctx.actor.apiKeyId : null,
-    capability: {
-      kind: "skill",
-      skillVersionId: resolved.id,
-      inputSchema: resolved.inputSchema,
-      priceMinor: resolved.priceMinor,
-      priceCurrency: resolved.priceCurrency,
-    },
-    input: request.input,
-    idempotencyKey: request.idempotencyKey,
-    budgetMinor: request.budgetMinor,
-    currency,
-    callbackUrl: request.callbackUrl,
-    requireApproval,
-  });
-
-  // First creation only: reserve budget (append-only hold) + audit.
-  if (!result.replay) {
-    if (requireApproval) {
-      await writeAudit(ctx, {
-        action: "policy.approval_required",
-        resourceType: "job",
-        resourceId: result.job.id,
-        after: { reason: decision.reason },
-      }, db);
-    } else {
-      await reserveBudget(
-        {
-          organizationId: ctx.organizationId,
-          jobId: result.job.id,
-          amountMinor: resolved.priceMinor,
-          currency,
-        },
-        db,
-      );
-    }
-    await writeAudit(ctx, {
-      action: "job.created",
-      resourceType: "job",
-      resourceId: result.job.id,
-      after: { skillSlug: request.skillSlug, status: result.job.status },
-    }, db);
-  }
-
-  return {
-    jobId: result.job.id,
-    status: result.job.status,
-    paymentRequired: false,
-    estimatedCostMinor: resolved.priceMinor,
-    currency: result.job.costCurrency,
-    executionUrl: `/api/v1/jobs/${result.job.id}`,
-    createdAt: result.job.createdAt.toISOString(),
-  };
-}
-
 export interface JobView {
   id: string;
   status: JobStatus;
   capabilityKind: string;
-  skillVersionId: string | null;
   input: unknown;
   output: unknown;
   error: unknown;
@@ -387,7 +186,6 @@ export async function getJob(ctx: AuthContext, jobId: string, db: Db = getDb()):
     id: job.id,
     status: job.status,
     capabilityKind: job.capabilityKind,
-    skillVersionId: job.skillVersionId,
     input: job.input,
     output: job.output,
     error: job.error,
@@ -448,7 +246,6 @@ export async function cancelJob(
     id: cancelled.id,
     status: cancelled.status,
     capabilityKind: cancelled.capabilityKind,
-    skillVersionId: cancelled.skillVersionId,
     input: cancelled.input,
     output: cancelled.output,
     error: cancelled.error,
@@ -488,7 +285,6 @@ export async function approveJob(
     id: queued.id,
     status: queued.status,
     capabilityKind: queued.capabilityKind,
-    skillVersionId: queued.skillVersionId,
     input: queued.input,
     output: queued.output,
     error: queued.error,

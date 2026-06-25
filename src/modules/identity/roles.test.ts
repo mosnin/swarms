@@ -24,10 +24,10 @@ describe("role/permission matrix", () => {
     for (const p of viewer) expect(p.endsWith(".read")).toBe(true);
   });
 
-  it("agent can execute but not author or manage", () => {
-    expect(roleHasPermission("agent", "skills.execute")).toBe(true);
+  it("agent can run jobs but not author or manage", () => {
     expect(roleHasPermission("agent", "jobs.create")).toBe(true);
-    expect(roleHasPermission("agent", "skills.create")).toBe(false);
+    expect(roleHasPermission("agent", "connectors.read")).toBe(true);
+    expect(roleHasPermission("agent", "connectors.manage")).toBe(false);
     expect(roleHasPermission("agent", "api_keys.manage")).toBe(false);
   });
 

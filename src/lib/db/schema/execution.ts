@@ -14,7 +14,6 @@ import {
 
 import { idFactory, IdPrefix } from "@/lib/ids";
 import { apiKeys, organizations, users } from "@/lib/db/schema/identity";
-import { skillVersions } from "@/lib/db/schema/catalog";
 import { amountMinorColumn, currencyColumn, jobStatus, timestamps } from "@/lib/db/schema/_shared";
 
 export const jobs = pgTable(
@@ -28,10 +27,7 @@ export const jobs = pgTable(
       onDelete: "set null",
     }),
     apiKeyId: text("api_key_id").references(() => apiKeys.id, { onDelete: "set null" }),
-    capabilityKind: varchar("capability_kind", { length: 16 }).notNull(), // agent | skill | swarm
-    skillVersionId: text("skill_version_id").references(() => skillVersions.id, {
-      onDelete: "set null",
-    }),
+    capabilityKind: varchar("capability_kind", { length: 16 }).notNull(), // agent | swarm
     // Agent labor: the task to perform, the inherited resource bundle, and model.
     task: text("task"),
     resourceBundleId: text("resource_bundle_id"),
@@ -93,9 +89,6 @@ export const workerRuns = pgTable(
       .notNull()
       .references(() => jobs.id, { onDelete: "cascade" }),
     jobStepId: text("job_step_id").references(() => jobSteps.id, { onDelete: "set null" }),
-    skillVersionId: text("skill_version_id").references(() => skillVersions.id, {
-      onDelete: "set null",
-    }),
     workerId: text("worker_id").notNull(),
     sandboxId: text("sandbox_id"),
     runnerType: varchar("runner_type", { length: 32 }),
@@ -140,10 +133,6 @@ export const jobsRelations = relations(jobs, ({ one, many }) => ({
   organization: one(organizations, {
     fields: [jobs.organizationId],
     references: [organizations.id],
-  }),
-  skillVersion: one(skillVersions, {
-    fields: [jobs.skillVersionId],
-    references: [skillVersions.id],
   }),
   steps: many(jobSteps),
   workerRuns: many(workerRuns),

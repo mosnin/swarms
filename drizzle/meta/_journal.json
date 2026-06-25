@@ -85,6 +85,13 @@
       "when": 1782361213027,
       "tag": "0011_faulty_king_cobra",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1782402544357,
+      "tag": "0012_drop_skills",
+      "breakpoints": true
     }
   ]
 }

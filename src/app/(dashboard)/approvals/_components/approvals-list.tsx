@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 
 export interface ApprovalItem {
   id: string;
-  skillVersionId: string | null;
   costMinor: number;
   costCurrency: string;
   createdAt: string;
@@ -44,7 +43,6 @@ export function ApprovalsList({ initial }: { initial: ApprovalItem[] }) {
           <thead className="border-b text-muted-foreground">
             <tr>
               <th className="p-3 font-medium">Job</th>
-              <th className="p-3 font-medium">Skill version</th>
               <th className="p-3 font-medium">Created</th>
               <th className="p-3"></th>
             </tr>
@@ -53,7 +51,6 @@ export function ApprovalsList({ initial }: { initial: ApprovalItem[] }) {
             {items.map((item) => (
               <tr key={item.id} className="border-b last:border-0">
                 <td className="p-3 font-mono text-xs">{item.id}</td>
-                <td className="p-3 font-mono text-xs">{item.skillVersionId ?? "—"}</td>
                 <td className="p-3 text-xs">{new Date(item.createdAt).toLocaleString()}</td>
                 <td className="p-3 text-right">
                   <div className="flex justify-end gap-2">

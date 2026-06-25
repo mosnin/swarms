@@ -10,10 +10,9 @@ describe("parseScope", () => {
   });
 
   it("extracts known string constraints only", () => {
-    expect(parseScope({ apiKeyId: "key_1", userId: "u_1", skillId: "s_1", junk: 2 })).toEqual({
+    expect(parseScope({ apiKeyId: "key_1", userId: "u_1", junk: 2 })).toEqual({
       apiKeyId: "key_1",
       userId: "u_1",
-      skillId: "s_1",
     });
   });
 });
@@ -30,14 +29,9 @@ describe("budgetApplies", () => {
     expect(budgetApplies({ apiKeyId: "key_1" }, { apiKeyId: null })).toBe(false);
   });
 
-  it("a skill budget applies only to that skill", () => {
-    expect(budgetApplies({ skillId: "s_1" }, { skillId: "s_1" })).toBe(true);
-    expect(budgetApplies({ skillId: "s_1" }, { skillId: "s_2" })).toBe(false);
-  });
-
   it("multiple constraints must all match", () => {
-    const scope = { apiKeyId: "key_1", skillId: "s_1" };
-    expect(budgetApplies(scope, { apiKeyId: "key_1", skillId: "s_1" })).toBe(true);
-    expect(budgetApplies(scope, { apiKeyId: "key_1", skillId: "s_2" })).toBe(false);
+    const scope = { apiKeyId: "key_1", userId: "u_1" };
+    expect(budgetApplies(scope, { apiKeyId: "key_1", userId: "u_1" })).toBe(true);
+    expect(budgetApplies(scope, { apiKeyId: "key_1", userId: "u_2" })).toBe(false);
   });
 });

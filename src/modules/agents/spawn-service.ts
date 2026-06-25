@@ -101,7 +101,6 @@ export async function spawnAgent(
     apiKeyId: ctx.actor.kind === "agent" ? ctx.actor.apiKeyId : null,
     capability: {
       kind: "agent",
-      skillVersionId: null,
       task: request.task,
       resourceBundleId: bundleId,
       model,

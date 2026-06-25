@@ -26,22 +26,7 @@ export const jobStatus = pgEnum("job_status", [
   "cancelled",
 ]);
 
-export const skillVisibility = pgEnum("skill_visibility", ["private", "unlisted", "public"]);
-
-export const skillVersionStatus = pgEnum("skill_version_status", [
-  "draft",
-  "published",
-  "deprecated",
-  "yanked",
-]);
-
 export const permissionLevel = pgEnum("permission_level", ["view", "execute", "manage"]);
-
-export const riskLevel = pgEnum("risk_level", ["low", "medium", "high", "critical"]);
-
-export const runnerType = pgEnum("runner_type", ["mock", "http", "local_worker"]);
-
-export const reviewStatus = pgEnum("review_status", ["approved", "pending", "rejected"]);
 
 export const connectorAccountStatus = pgEnum("connector_account_status", [
   "active",

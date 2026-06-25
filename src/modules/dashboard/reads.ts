@@ -28,7 +28,6 @@ export interface OverviewMetrics {
   failedJobs: number;
   queuedJobs: number;
   spendThisMonthMinor: number;
-  activeSkills: number;
   activeConnectors: number;
   pendingApprovals: number;
   recentAudit: Array<{ action: string; resourceType: string; createdAt: Date }>;
@@ -38,12 +37,11 @@ export async function overviewMetrics(ctx: AuthContext, db: Db = getDb()): Promi
   requirePermission(ctx, "org.read");
   const org = ctx.organizationId;
 
-  const [total, succeeded, failed, queued, skills, approvals, recent, monthEntries] = await Promise.all([
+  const [total, succeeded, failed, queued, approvals, recent, monthEntries] = await Promise.all([
     jobCount(db, org),
     jobCount(db, org, "succeeded"),
     jobCount(db, org, "failed"),
     jobCount(db, org, "awaiting_approval"),
-    db.select({ c: count() }).from(schema.skills).where(eq(schema.skills.organizationId, org)),
     db
       .select({ c: count() })
       .from(schema.jobs)
@@ -67,7 +65,6 @@ export async function overviewMetrics(ctx: AuthContext, db: Db = getDb()): Promi
     failedJobs: failed,
     queuedJobs: queued,
     spendThisMonthMinor: committedMinor(monthEntries),
-    activeSkills: skills[0]?.c ?? 0,
     activeConnectors: listConnectors().length,
     pendingApprovals: approvals[0]?.c ?? 0,
     recentAudit: recent,

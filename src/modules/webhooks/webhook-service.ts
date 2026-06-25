@@ -9,7 +9,7 @@ import { and, asc, eq, lte } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
 import { logger } from "@/lib/logger";
-import { canonicalize } from "@/modules/catalog/manifest";
+import { canonicalize } from "@/lib/canonical";
 import { signWebhook, webhookSecret } from "@/modules/webhooks/signing";
 
 type Db = ReturnType<typeof getDb>;

@@ -32,7 +32,6 @@ export async function listPolicies(ctx: AuthContext, db: Db = getDb()) {
 
 export interface PendingApproval {
   id: string;
-  skillVersionId: string | null;
   costMinor: number;
   costCurrency: string;
   createdAt: Date;
@@ -46,7 +45,6 @@ export async function listPendingApprovals(
   const rows = await db
     .select({
       id: schema.jobs.id,
-      skillVersionId: schema.jobs.skillVersionId,
       costMinor: schema.jobs.costMinor,
       costCurrency: schema.jobs.costCurrency,
       createdAt: schema.jobs.createdAt,

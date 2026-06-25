@@ -11,7 +11,6 @@ import { and, asc, eq, lt, sql } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
 import { Errors } from "@/lib/errors";
-import { isRunnerType } from "@/server/runners/runnerRegistry";
 import { commitBudget } from "@/server/budget/commitBudget";
 import { releaseBudget } from "@/server/budget/releaseBudget";
 import { logger } from "@/lib/logger";
@@ -38,7 +37,6 @@ function toWorkerRun(row: WorkerRunRow): WorkerRunRecord {
     id: row.id,
     organizationId: row.organizationId,
     jobId: row.jobId,
-    skillVersionId: row.skillVersionId,
     workerId: row.workerId,
     runnerType: row.runnerType,
     status: row.status as JobRecord["status"],
@@ -63,7 +61,6 @@ function dbWorkerRunStore(db: Db): WorkerRunStore {
             id: record.id,
             organizationId: record.organizationId,
             jobId: record.jobId,
-            skillVersionId: record.skillVersionId,
             workerId: record.workerId,
             runnerType: record.runnerType,
             status: record.status,
@@ -120,30 +117,8 @@ async function resolveExecution(db: Db, job: JobRecord): Promise<ResolvedExecuti
     };
   }
 
-  if (!job.skillVersionId) return null;
-  const version = (
-    await db
-      .select()
-      .from(schema.skillVersions)
-      .where(eq(schema.skillVersions.id, job.skillVersionId))
-      .limit(1)
-  )[0];
-  if (!version) return null;
-
-  const runnerType = isRunnerType(version.runnerType) ? version.runnerType : "mock";
-  const manifest = (version.manifest ?? {}) as { maxRuntimeMs?: unknown };
-  const maxRuntimeMs =
-    typeof manifest.maxRuntimeMs === "number" && manifest.maxRuntimeMs > 0
-      ? manifest.maxRuntimeMs
-      : 30_000;
-
-  return {
-    runnerType,
-    runnerConfig: version.runnerConfig,
-    maxRuntimeMs,
-    priceMinor: version.priceMinor,
-    currency: job.costCurrency || version.priceCurrency,
-  };
+  // Only agent labor is executable; any other capability kind is unsupported.
+  return null;
 }
 
 function deps(db: Db, workerId: string): ProcessDeps {

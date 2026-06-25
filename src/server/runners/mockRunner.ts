@@ -16,7 +16,6 @@ export class MockRunner implements Runner {
       costMinor: context.priceMinor,
       output: {
         echo: context.input,
-        skillVersionId: context.skillVersionId,
         producedBy: "mock-runner",
         deterministic: true,
       },
