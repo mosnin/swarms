@@ -6,8 +6,8 @@ agents that inherit its context, secrets, files, and tools.
 ## 1. Get an API key
 
 In the dashboard, create a key scoped to the permissions the agent needs
-(typically `skills.read`, `skills.execute`, `jobs.create`, `jobs.read`,
-`jobs.cancel`, `connectors.read`). The key is shown once.
+(typically `jobs.create`, `jobs.read`, `jobs.cancel`, `connectors.read`). The
+key is shown once.
 
 ## 2. Install the SDK
 
@@ -15,7 +15,7 @@ In the dashboard, create a key scoped to the permissions the agent needs
 npm install @swarms/sdk zod
 ```
 
-## 3. Execute a skill
+## 3. Spawn a worker agent
 
 ```ts
 import { SwarmsClient, generateIdempotencyKey, budget } from "@swarms/sdk";
@@ -25,27 +25,37 @@ const client = new SwarmsClient({
   apiKey: process.env.SWARMS_API_KEY!,
 });
 
-const job = await client.executeSkill({
-  skillSlug: "web-summarize",
-  input: { url: "https://example.com" },
+const agent = await client.spawnAgent({
+  task: "Read spec.md and summarize the risks.",
+  resources: { files: { "spec.md": "..." }, context: "Launch is in Q4." },
   idempotencyKey: generateIdempotencyKey(),
   ...budget(500),
 });
 
-for await (const log of client.streamJobLogs(job.jobId)) console.log(log.message);
-const final = await client.getJob(job.jobId);
+for await (const log of client.streamJobLogs(agent.jobId)) console.log(log.message);
+const final = await client.getJob(agent.jobId);
 ```
 
-## 4. Paid execution (x402)
+The worker inherits the resources you pass: files become `read_file` tools, MCP
+servers become callable tools, and secrets are used as tool auth (never returned).
 
-Provide a `PaymentSigner` that wraps your wallet/facilitator; the SDK handles the
-402 challenge/retry. See [`X402_PAYMENT_INTEGRATION.md`](./X402_PAYMENT_INTEGRATION.md).
-
-## 5. Swarms
+## 4. Spawn a workforce (swarm)
 
 ```ts
-const run = await client.runSwarm({ templateId, objective: "Analyze a competitor", ...budget(5000) });
+const swarm = await client.spawnSwarm({
+  objective: "Analyze a competitor",
+  tasks: ["Summarize their pricing", "List positioning claims", "Propose risks"],
+  resources: { context: "We sell a competing tool." },
+  idempotencyKey: generateIdempotencyKey(),
+  ...budget(5000),
+});
+// one worker per task, sharing the resources, under one aggregate budget
 ```
+
+## 5. Payments (x402)
+
+Compute is metered per second and charged against the org budget; on-chain
+settlement is via x402. See [`X402_PAYMENT_INTEGRATION.md`](./X402_PAYMENT_INTEGRATION.md).
 
 ## Idempotency & retries
 
@@ -56,6 +66,6 @@ rejected — see [`ERRORS.md`](./ERRORS.md).
 ## What the platform enforces for you
 
 Authorization, organization isolation, **policy** (allow/deny/approval),
-**budgets** (hard-stop), **payment binding** (paid skills), append-only **usage
+**budgets** (hard-stop), **payment binding** (x402), append-only **usage
 ledger**, and **audit**. Your agent does not manage accounts, infra, or worker
 isolation.

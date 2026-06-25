@@ -7,13 +7,18 @@
  */
 
 import { Errors } from "@/lib/errors";
-import type { PlannedAgent } from "@/server/swarms/planSwarm";
 import {
   mergeSwarmResults,
   type AgentResult,
   type FailurePolicy,
   type MergedSwarmResult,
 } from "@/server/swarms/mergeSwarmResults";
+
+/** One worker in a swarm: a role label and the task it runs. */
+export interface PlannedAgent {
+  role: string;
+  instructions: string;
+}
 
 export interface ChildOutcome {
   output?: unknown;

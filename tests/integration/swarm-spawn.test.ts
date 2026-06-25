@@ -54,11 +54,11 @@ describe("integration: spawn a workforce (swarm of agents)", () => {
     expect(res.costMinor).toBeGreaterThan(0);
     expect(res.costMinor).toBeLessThanOrEqual(300);
 
-    // The swarm run was persisted with no template (the agent-workforce path).
+    // The swarm run was persisted (the agent-workforce path).
     const run = (
       await db.select().from(schema.swarmRuns).where(eq(schema.swarmRuns.id, res.swarmRunId))
     )[0];
-    expect(run?.swarmTemplateId).toBeNull();
+    expect(run?.id).toBe(res.swarmRunId);
   });
 
   it("splits the aggregate budget into a hard per-worker GPU ceiling", async () => {

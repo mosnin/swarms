@@ -9,21 +9,18 @@ import { z } from "zod";
 
 import { SwarmsError, SwarmsNetworkError, type SwarmsErrorShape } from "./errors";
 import {
-  executeResponseSchema,
   jobLogSchema,
   jobSchema,
-  paymentRequirementsSchema,
   spawnResponseSchema,
   swarmRunSchema,
-  type ExecutePaidResult,
-  type ExecuteSkillParams,
+  swarmSpawnResponseSchema,
   type Job,
   type JobLog,
-  type PaymentSigner,
-  type RunSwarmParams,
   type SpawnAgentParams,
   type SpawnResponse,
+  type SpawnSwarmParams,
   type SwarmRun,
+  type SwarmSpawnResponse,
 } from "./types";
 
 type FetchLike = typeof fetch;
@@ -68,43 +65,15 @@ export class SwarmsClient {
   }
 
   /**
-   * Paid execution. With no signer (or when payment is required) the server's
-   * x402 requirements are returned. With a signer, the requirements are signed
-   * and the call is retried with the `X-PAYMENT` header.
+   * Spawn a workforce: one sandboxed worker agent per task, each inheriting the
+   * same resources, all bounded by one aggregate budget (a hard ceiling).
    */
-  async executePaidSkill(
-    params: ExecuteSkillParams,
-    options: { signer?: PaymentSigner } = {},
-  ): Promise<ExecutePaidResult> {
-    const first = await this.rawExecutePaid(params);
-    if (first.kind === "ok" || !options.signer) return first;
-
-    const header = await options.signer.sign(first.requirements);
-    const retried = await this.rawExecutePaid(params, header);
-    return retried;
-  }
-
-  private async rawExecutePaid(
-    params: ExecuteSkillParams,
-    paymentHeader?: string,
-  ): Promise<ExecutePaidResult> {
-    const url = `${this.baseUrl}/api/v1/execute-paid`;
-    const headers: Record<string, string> = {
-      "content-type": "application/json",
-      authorization: `Bearer ${this.apiKey}`,
-    };
-    if (paymentHeader) headers["x-payment"] = paymentHeader;
-
-    const res = await this.send(url, { method: "POST", headers, body: JSON.stringify(params) });
-    const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-
-    if (res.status === 402) {
-      const accepts = (json.accepts as unknown[]) ?? [];
-      const requirements = paymentRequirementsSchema.parse(accepts[0]);
-      return { kind: "payment_required", requirements };
-    }
-    if (!res.ok) throw new SwarmsError(res.status, (json.error as SwarmsErrorShape) ?? { code: "UNKNOWN", message: "error" });
-    return { kind: "ok", response: executeResponseSchema.parse(json.data) };
+  async spawnSwarm(params: SpawnSwarmParams): Promise<SwarmSpawnResponse> {
+    return this.request("/api/v1/swarms", {
+      method: "POST",
+      body: params,
+      schema: swarmSpawnResponseSchema,
+    });
   }
 
   /* ---------------------------- jobs ---------------------------- */
@@ -154,15 +123,6 @@ export class SwarmsClient {
   }
 
   /* --------------------------- swarms --------------------------- */
-
-  async runSwarm(params: RunSwarmParams): Promise<SwarmRun> {
-    const data = await this.request("/api/v1/swarms/run", {
-      method: "POST",
-      body: params,
-      schema: z.object({ run: swarmRunSchema }),
-    });
-    return data.run;
-  }
 
   async getSwarmRun(swarmRunId: string): Promise<SwarmRun> {
     const data = await this.request(`/api/v1/swarms/${encodeURIComponent(swarmRunId)}`, {

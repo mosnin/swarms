@@ -1,8 +1,8 @@
 /**
- * Example: launch a competitor-research swarm and print the rolled-up result.
+ * Example: spawn a workforce (a swarm of agents) and print the per-worker result.
  */
 
-import { SwarmsClient, budget } from "@swarms/sdk";
+import { SwarmsClient, budget, generateIdempotencyKey } from "@swarms/sdk";
 
 async function main(): Promise<void> {
   const client = new SwarmsClient({
@@ -10,15 +10,21 @@ async function main(): Promise<void> {
     apiKey: process.env.SWARMS_API_KEY ?? "",
   });
 
-  const run = await client.runSwarm({
-    templateId: process.env.SWARM_TEMPLATE_ID ?? "",
+  const run = await client.spawnSwarm({
     objective: "Analyze Acme Corp's pricing and positioning",
+    tasks: [
+      "Summarize Acme's public pricing",
+      "List Acme's positioning claims",
+      "Propose three competitive risks",
+    ],
+    resources: { context: "We sell a competing developer tool." },
+    idempotencyKey: generateIdempotencyKey(),
     ...budget(5000),
   });
 
-  console.log("swarm", run.id, run.status, "cost:", run.costMinor);
-  for (const agent of run.agents) {
-    console.log(`- ${agent.role}: ${agent.status}`);
+  console.log("swarm", run.swarmRunId, run.status, "cost:", run.costMinor);
+  for (const worker of run.workers) {
+    console.log(`- ${worker.role}: ${worker.status}`);
   }
 }
 

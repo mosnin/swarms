@@ -23,14 +23,13 @@ describe("openapi.json", () => {
     expect(Object.keys(spec.paths).length).toBeGreaterThan(5);
   });
 
-  it("documents the core execution + swarm + connector endpoints", () => {
+  it("documents the core agent + swarm + connector endpoints", () => {
     for (const path of [
-      "/api/v1/execute",
-      "/api/v1/execute-paid",
+      "/api/v1/spawn",
+      "/api/v1/swarms",
       "/api/v1/jobs/{jobId}",
       "/api/v1/jobs/{jobId}/logs",
       "/api/v1/jobs/{jobId}/cancel",
-      "/api/v1/swarms/run",
       "/api/v1/connectors/call",
       "/api/health",
     ]) {
@@ -40,8 +39,8 @@ describe("openapi.json", () => {
 
   it("defines bearer auth and the request/response schemas", () => {
     expect(spec.components.securitySchemes.bearerAuth).toBeDefined();
-    expect(spec.components.schemas.ExecuteRequest).toBeDefined();
-    expect(spec.components.schemas.PaymentRequirements).toBeDefined();
+    expect(spec.components.schemas.SpawnRequest).toBeDefined();
+    expect(spec.components.schemas.SwarmSpawnRequest).toBeDefined();
     expect(spec.components.schemas.Error).toBeDefined();
   });
 

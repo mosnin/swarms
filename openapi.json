@@ -14,38 +14,21 @@
     { "name": "ops" }
   ],
   "paths": {
-    "/api/v1/execute": {
+    "/api/v1/spawn": {
       "post": {
-        "tags": ["execution"],
-        "summary": "Execute a skill (free path; policy + budget gated)",
+        "tags": ["agents"],
+        "summary": "Spawn a sandboxed worker agent that inherits your resources",
         "requestBody": {
           "required": true,
           "content": {
-            "application/json": { "schema": { "$ref": "#/components/schemas/ExecuteRequest" } }
+            "application/json": { "schema": { "$ref": "#/components/schemas/SpawnRequest" } }
           }
         },
         "responses": {
-          "201": { "description": "Job created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExecuteEnvelope" } } } },
+          "201": { "description": "Agent spawned" },
           "402": { "description": "Budget exceeded", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } },
           "403": { "description": "Policy denied or forbidden" },
           "409": { "description": "Idempotency conflict" }
-        }
-      }
-    },
-    "/api/v1/execute-paid": {
-      "post": {
-        "tags": ["execution"],
-        "summary": "Execute a paid skill via x402",
-        "parameters": [
-          { "name": "X-PAYMENT", "in": "header", "required": false, "schema": { "type": "string" }, "description": "base64 JSON payment proof" }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExecuteRequest" } } }
-        },
-        "responses": {
-          "201": { "description": "Paid job created" },
-          "402": { "description": "Payment required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PaymentRequiredResponse" } } } }
         }
       }
     },
@@ -81,12 +64,15 @@
         "responses": { "200": { "description": "Queued" } }
       }
     },
-    "/api/v1/swarms/run": {
+    "/api/v1/swarms": {
       "post": {
         "tags": ["swarms"],
-        "summary": "Run a swarm",
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SwarmRunRequest" } } } },
-        "responses": { "201": { "description": "Swarm run" } }
+        "summary": "Spawn a workforce: one worker agent per task, sharing inherited resources",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SwarmSpawnRequest" } } } },
+        "responses": {
+          "201": { "description": "Swarm spawned" },
+          "402": { "description": "Budget exceeded", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } }
+        }
       }
     },
     "/api/v1/swarms/{swarmRunId}": {
@@ -124,34 +110,52 @@
       "bearerAuth": { "type": "http", "scheme": "bearer", "description": "Swarms API key" }
     },
     "schemas": {
-      "ExecuteRequest": {
+      "Resources": {
         "type": "object",
-        "required": ["skillSlug", "input", "idempotencyKey"],
+        "description": "Resources the worker inherits.",
         "properties": {
-          "skillSlug": { "type": "string" },
-          "skillVersion": { "type": "string" },
-          "input": {},
+          "env": { "type": "object", "additionalProperties": { "type": "string" } },
+          "files": { "type": "object", "additionalProperties": { "type": "string" } },
+          "mcpServers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["name", "url"],
+              "properties": {
+                "name": { "type": "string" },
+                "url": { "type": "string", "format": "uri" },
+                "token": { "type": "string" }
+              }
+            }
+          },
+          "context": { "type": "string" }
+        }
+      },
+      "SpawnRequest": {
+        "type": "object",
+        "required": ["task", "idempotencyKey"],
+        "properties": {
+          "task": { "type": "string" },
+          "resources": { "$ref": "#/components/schemas/Resources" },
+          "model": { "type": "string" },
           "idempotencyKey": { "type": "string", "minLength": 8, "maxLength": 255 },
           "budgetMinor": { "type": "integer", "minimum": 0 },
           "currency": { "type": "string", "minLength": 3, "maxLength": 3 },
           "callbackUrl": { "type": "string", "format": "uri" }
         }
       },
-      "ExecuteResponse": {
+      "SwarmSpawnRequest": {
         "type": "object",
+        "required": ["tasks", "idempotencyKey"],
         "properties": {
-          "jobId": { "type": "string" },
-          "status": { "type": "string" },
-          "paymentRequired": { "type": "boolean" },
-          "estimatedCostMinor": { "type": "integer" },
-          "currency": { "type": "string" },
-          "executionUrl": { "type": "string" },
-          "createdAt": { "type": "string" }
+          "tasks": { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": 16 },
+          "objective": { "type": "string" },
+          "resources": { "$ref": "#/components/schemas/Resources" },
+          "model": { "type": "string" },
+          "idempotencyKey": { "type": "string", "minLength": 8, "maxLength": 255 },
+          "budgetMinor": { "type": "integer", "minimum": 0 },
+          "currency": { "type": "string", "minLength": 3, "maxLength": 3 }
         }
-      },
-      "ExecuteEnvelope": {
-        "type": "object",
-        "properties": { "data": { "$ref": "#/components/schemas/ExecuteResponse" } }
       },
       "PaymentRequirements": {
         "type": "object",
@@ -164,24 +168,6 @@
           "nonce": { "type": "string" },
           "binding": { "type": "string" },
           "expiresAt": { "type": "string" }
-        }
-      },
-      "PaymentRequiredResponse": {
-        "type": "object",
-        "properties": {
-          "error": { "$ref": "#/components/schemas/Error" },
-          "accepts": { "type": "array", "items": { "$ref": "#/components/schemas/PaymentRequirements" } }
-        }
-      },
-      "SwarmRunRequest": {
-        "type": "object",
-        "required": ["templateId", "objective"],
-        "properties": {
-          "templateId": { "type": "string" },
-          "objective": { "type": "string" },
-          "input": { "type": "object" },
-          "budgetMinor": { "type": "integer", "minimum": 0 },
-          "currency": { "type": "string" }
         }
       },
       "ConnectorCallRequest": {

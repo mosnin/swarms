@@ -24,8 +24,7 @@ import { processJobInDb } from "@/modules/execution/worker";
 import { storeResourceBundle, type ResourceBundle } from "@/modules/resources/resource-bundle";
 import { checkBudget } from "@/server/budget/checkBudget";
 import { reserveBudget } from "@/server/budget/reserveBudget";
-import { executeSwarm, type ChildOutcome } from "@/server/swarms/executeSwarm";
-import type { PlannedAgent } from "@/server/swarms/planSwarm";
+import { executeSwarm, type ChildOutcome, type PlannedAgent } from "@/server/swarms/executeSwarm";
 import { getJobQueue } from "@/server/queue/queue";
 
 type Db = ReturnType<typeof getDb>;
@@ -110,7 +109,6 @@ export async function spawnSwarm(
       .insert(schema.swarmRuns)
       .values({
         organizationId: ctx.organizationId,
-        swarmTemplateId: null,
         status: "running",
         input: { objective: request.objective ?? null, workerCount: tasks.length },
         costCurrency: currency,

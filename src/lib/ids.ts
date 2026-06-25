@@ -46,7 +46,6 @@ export const IdPrefix = {
   paymentReceipt: "pyr",
   budget: "bdg",
   policyRule: "pol",
-  swarmTemplate: "swt",
   resourceBundle: "rsb",
   swarmRun: "swr",
   swarmAgent: "swa",

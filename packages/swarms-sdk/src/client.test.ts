@@ -61,51 +61,36 @@ describe("SwarmsClient.spawnAgent", () => {
   });
 });
 
-describe("SwarmsClient.executePaidSkill", () => {
-  const params = { skillSlug: "premium", input: {}, idempotencyKey: "idem-pay-123" };
-  const requirements = {
-    scheme: "x402-mock",
-    network: "base-sepolia",
-    payTo: "0xPAY",
-    amountMinor: 500,
-    currency: "USD",
-    nonce: "n1",
-    binding: "b1",
-    expiresAt: "2026-01-01T00:05:00Z",
-  };
-
-  it("returns payment requirements on 402 when no signer is provided", async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({ error: { code: "PAYMENT_REQUIRED", message: "pay" }, accepts: [requirements] }, 402));
-    const result = await client(fetchMock as unknown as typeof fetch).executePaidSkill(params);
-    expect(result.kind).toBe("payment_required");
-    if (result.kind === "payment_required") expect(result.requirements.amountMinor).toBe(500);
-  });
-
-  it("signs and retries with the X-PAYMENT header when a signer is provided", async () => {
-    let call = 0;
+describe("SwarmsClient.spawnSwarm", () => {
+  it("posts tasks to /swarms and returns the parsed workforce response", async () => {
     const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
-      call += 1;
-      if (call === 1) {
-        return jsonResponse({ error: { code: "PAYMENT_REQUIRED", message: "pay" }, accepts: [requirements] }, 402);
-      }
-      expect((init?.headers as Record<string, string>)["x-payment"]).toBe("signed-proof");
+      expect((init?.headers as Record<string, string>).authorization).toBe("Bearer hc_live_secret");
+      const sent = JSON.parse(init?.body as string);
+      expect(sent.tasks).toEqual(["a", "b"]);
       return jsonResponse({
         data: {
-          jobId: "job_paid",
-          status: "queued",
-          paymentRequired: false,
-          estimatedCostMinor: 500,
+          swarmRunId: "swr_1",
+          status: "succeeded",
+          workerCount: 2,
+          costMinor: 8,
           currency: "USD",
-          executionUrl: "/api/v1/jobs/job_paid",
+          maxGpuSecondsPerWorker: 2,
+          workers: [
+            { role: "worker-1", status: "succeeded", jobId: "job_a", costMinor: 4, output: {}, error: null },
+            { role: "worker-2", status: "succeeded", jobId: "job_b", costMinor: 4, output: {}, error: null },
+          ],
           createdAt: "2026-01-01T00:00:00Z",
         },
       }, 201);
     });
-    const signer = { sign: async () => "signed-proof" };
-    const result = await client(fetchMock as unknown as typeof fetch).executePaidSkill(params, { signer });
-    expect(result.kind).toBe("ok");
-    if (result.kind === "ok") expect(result.response.jobId).toBe("job_paid");
-    expect(call).toBe(2);
+    const res = await client(fetchMock as unknown as typeof fetch).spawnSwarm({
+      tasks: ["a", "b"],
+      budgetMinor: 8,
+      idempotencyKey: "idem-swarm-1",
+    });
+    expect(res.swarmRunId).toBe("swr_1");
+    expect(res.workers).toHaveLength(2);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("https://cloud.test/api/v1/swarms");
   });
 });
 

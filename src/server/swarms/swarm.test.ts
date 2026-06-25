@@ -1,28 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { executeSwarm } from "@/server/swarms/executeSwarm";
+import { executeSwarm, type PlannedAgent } from "@/server/swarms/executeSwarm";
 import { mergeSwarmResults, type AgentResult } from "@/server/swarms/mergeSwarmResults";
-import { planSwarm, type PlannedAgent } from "@/server/swarms/planSwarm";
-
-const roles = [
-  { role: "researcher", skillSlug: "web-summarize" },
-  { role: "pricing analyst", skillSlug: "web-summarize" },
-  { role: "positioning analyst" },
-  { role: "synthesis auditor" },
-];
-
-describe("planSwarm", () => {
-  it("expands roles deterministically with default instructions", () => {
-    const planned = planSwarm({ objective: "Study Acme", roles, maxAgents: 8 });
-    expect(planned).toHaveLength(4);
-    expect(planned[0]?.role).toBe("researcher");
-    expect(planned[2]?.instructions).toContain("Study Acme");
-  });
-
-  it("respects maxAgents", () => {
-    expect(planSwarm({ objective: "x", roles, maxAgents: 2 })).toHaveLength(2);
-  });
-});
 
 describe("mergeSwarmResults", () => {
   const ok = (role: string, cost = 100): AgentResult => ({ role, output: { role }, costMinor: cost });

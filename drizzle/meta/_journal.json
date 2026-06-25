@@ -78,6 +78,13 @@
       "when": 1782079558214,
       "tag": "0010_aromatic_vision",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1782361213027,
+      "tag": "0011_faulty_king_cobra",
+      "breakpoints": true
     }
   ]
 }

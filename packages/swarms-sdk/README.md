@@ -23,47 +23,49 @@ const client = new SwarmsClient({
   apiKey: process.env.SWARMS_API_KEY!,
 });
 
-// Free execution
-const job = await client.executeSkill({
-  skillSlug: "web-summarize",
-  input: { url: "https://example.com" },
+// Spawn a single worker agent that inherits your resources.
+const agent = await client.spawnAgent({
+  task: "Read spec.md and open a matching issue via the github MCP server.",
+  resources: {
+    files: { "spec.md": "..." },
+    mcpServers: [{ name: "github", url: "https://mcp.example/github", token: "..." }],
+  },
   idempotencyKey: generateIdempotencyKey(),
+  ...budget(500),
 });
 
-for await (const log of client.streamJobLogs(job.jobId)) {
+for await (const log of client.streamJobLogs(agent.jobId)) {
   console.log(log.level, log.message);
 }
 
-// Paid execution (x402) — provide a signer that wraps your wallet/facilitator
-const result = await client.executePaidSkill(
-  { skillSlug: "code-review", input: { repo: "acme/app" }, idempotencyKey: generateIdempotencyKey() },
-  { signer: myX402Signer },
-);
-
-// Swarms
-const run = await client.runSwarm({
-  templateId,
-  objective: "Analyze a competitor",
-  ...budget(5000),
+// Spawn a workforce: one worker per task, all sharing the same resources,
+// under one aggregate budget.
+const swarm = await client.spawnSwarm({
+  objective: "Prep the launch review",
+  tasks: ["Draft the announcement", "List three risks", "Propose a timeline"],
+  resources: { context: "Launch is in Q4." },
+  idempotencyKey: generateIdempotencyKey(),
+  ...budget(1500),
 });
+
+console.log(swarm.swarmRunId, swarm.status, "cost:", swarm.costMinor);
 ```
 
 ## Surface
 
 | Method | Endpoint |
 |---|---|
-| `executeSkill` | `POST /api/v1/execute` |
-| `executePaidSkill` | `POST /api/v1/execute-paid` (x402) |
+| `spawnAgent` | `POST /api/v1/spawn` |
+| `spawnSwarm` | `POST /api/v1/swarms` |
+| `getSwarmRun` | `GET /api/v1/swarms/:id` |
 | `getJob` / `cancelJob` | `GET/POST /api/v1/jobs/:id[/cancel]` |
 | `getJobLogs` / `streamJobLogs` | `GET /api/v1/jobs/:id/logs` (stream = poll placeholder) |
-| `runSwarm` / `getSwarmRun` | `POST /api/v1/swarms/run`, `GET /api/v1/swarms/:id` |
 
 Helpers: `generateIdempotencyKey()`, `toMinorUnits()`, `budget()`. Errors are
 typed (`SwarmsError`, `SwarmsNetworkError`). All responses are validated
 with Zod against the server contract.
 
-## Payments
+## Budget
 
-The SDK never holds wallet keys. Implement `PaymentSigner` to turn the server's
-x402 `PaymentRequirements` into an `X-PAYMENT` header; `executePaidSkill` handles
-the 402 challenge/retry handshake.
+`budget(n)` sets a hard ceiling in minor units. A spawned agent (or every worker
+in a swarm) is metered per second of compute and physically cannot exceed it.

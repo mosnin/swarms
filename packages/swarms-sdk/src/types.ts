@@ -8,25 +8,6 @@ import { z } from "zod";
 
 /* ----------------------------- requests ----------------------------- */
 
-export interface ExecuteSkillParams {
-  skillSlug: string;
-  skillVersion?: string;
-  input: unknown;
-  idempotencyKey: string;
-  budgetMinor?: number;
-  currency?: string;
-  callbackUrl?: string;
-  metadata?: Record<string, unknown>;
-}
-
-export interface RunSwarmParams {
-  templateId: string;
-  objective: string;
-  input?: Record<string, unknown>;
-  budgetMinor?: number;
-  currency?: string;
-}
-
 /** Resources the parent agent hands to the spawned worker (it inherits these). */
 export interface SpawnResources {
   /** Environment variables / secrets the worker needs. */
@@ -51,18 +32,21 @@ export interface SpawnAgentParams {
   callbackUrl?: string;
 }
 
-/* ----------------------------- responses ---------------------------- */
+export interface SpawnSwarmParams {
+  /** One worker agent is spawned per task. */
+  tasks: string[];
+  /** Optional shared objective given to every worker as context. */
+  objective?: string;
+  /** Resources inherited by EVERY worker. */
+  resources?: SpawnResources;
+  model?: string;
+  /** Hard aggregate ceiling across the whole swarm, in minor units. */
+  budgetMinor?: number;
+  currency?: string;
+  idempotencyKey: string;
+}
 
-export const executeResponseSchema = z.object({
-  jobId: z.string(),
-  status: z.string(),
-  paymentRequired: z.boolean(),
-  estimatedCostMinor: z.number(),
-  currency: z.string(),
-  executionUrl: z.string(),
-  createdAt: z.string(),
-});
-export type ExecuteResponse = z.infer<typeof executeResponseSchema>;
+/* ----------------------------- responses ---------------------------- */
 
 export const spawnResponseSchema = z.object({
   jobId: z.string(),
@@ -128,29 +112,23 @@ export const swarmRunSchema = z.object({
 });
 export type SwarmRun = z.infer<typeof swarmRunSchema>;
 
-export const paymentRequirementsSchema = z.object({
-  scheme: z.string(),
-  network: z.string(),
-  payTo: z.string(),
-  amountMinor: z.number(),
+export const swarmSpawnResponseSchema = z.object({
+  swarmRunId: z.string(),
+  status: z.string(),
+  workerCount: z.number(),
+  costMinor: z.number(),
   currency: z.string(),
-  nonce: z.string(),
-  binding: z.string(),
-  expiresAt: z.string(),
+  maxGpuSecondsPerWorker: z.number(),
+  workers: z.array(
+    z.object({
+      role: z.string(),
+      status: z.string(),
+      jobId: z.string().nullable(),
+      costMinor: z.number(),
+      output: z.unknown(),
+      error: z.unknown(),
+    }),
+  ),
+  createdAt: z.string(),
 });
-export type PaymentRequirements = z.infer<typeof paymentRequirementsSchema>;
-
-/* ----------------------------- payment ------------------------------ */
-
-/**
- * Adapter that turns x402 payment requirements into the `X-PAYMENT` header
- * value. The SDK ships no signer (no keys in the client); callers provide one
- * that wraps their wallet / x402 facilitator.
- */
-export interface PaymentSigner {
-  sign(requirements: PaymentRequirements): Promise<string>;
-}
-
-export type ExecutePaidResult =
-  | { kind: "ok"; response: ExecuteResponse }
-  | { kind: "payment_required"; requirements: PaymentRequirements };
+export type SwarmSpawnResponse = z.infer<typeof swarmSpawnResponseSchema>;
