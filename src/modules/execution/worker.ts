@@ -149,6 +149,14 @@ function deps(db: Db, workerId: string): ProcessDeps {
         after: { costMinor, currency },
       }, db);
     },
+    async onReleaseHold(job, currency) {
+      // Fallback: commitBudget failed after job was marked succeeded. Release
+      // the hold so budget headroom is not permanently frozen.
+      await releaseBudget(
+        { organizationId: job.organizationId, jobId: job.id, currency },
+        db,
+      );
+    },
   };
 }
 

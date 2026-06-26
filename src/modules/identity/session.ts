@@ -29,13 +29,17 @@ interface RequestLike {
  * Extract a session reference from request headers/cookies. Returns `null` when
  * no session identifier is present.
  *
- * LOCAL DEV ADAPTER: in a real deployment the user id comes from a verified,
- * signed session (set by the IdP callback). Here we also accept a header/cookie
- * carrying the user id directly. `service.ts` additionally supports a
- * `DEV_AUTH_USER_EMAIL` fallback for local development only.
+ * LOCAL DEV ADAPTER: the `x-swarms-user-id` header path accepts an unverified
+ * userId for local development convenience. It is BLOCKED in production — in a
+ * real deployment the user id must come from a verified, signed session cookie
+ * set by the IdP callback. `service.ts` also supports a `DEV_AUTH_USER_EMAIL`
+ * fallback, which is similarly dev-only.
  */
 export function readSessionRef(request: RequestLike): SessionRef | null {
-  const headerUser = request.headers.get(SESSION_USER_HEADER);
+  // Never trust the raw user-id header in production — an attacker who can set
+  // request headers would otherwise be able to impersonate any user.
+  const isProduction = process.env.NODE_ENV === "production";
+  const headerUser = isProduction ? null : request.headers.get(SESSION_USER_HEADER);
   const cookieUser = request.cookies?.get(SESSION_COOKIE)?.value;
   const userId = headerUser ?? cookieUser;
   if (!userId) return null;

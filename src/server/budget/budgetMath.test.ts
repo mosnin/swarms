@@ -9,16 +9,18 @@ import {
   type BudgetLedgerEntry,
 } from "@/server/budget/budgetMath";
 
-const hold = (n: number): BudgetLedgerEntry => ({ direction: "debit", kind: "hold", amountMinor: n });
+const hold = (n: number): BudgetLedgerEntry => ({ direction: "debit", kind: "hold", amountMinor: n, currency: "USD" });
 const release = (n: number): BudgetLedgerEntry => ({
   direction: "credit",
   kind: "release",
   amountMinor: n,
+  currency: "USD",
 });
 const charge = (n: number): BudgetLedgerEntry => ({
   direction: "debit",
   kind: "charge",
   amountMinor: n,
+  currency: "USD",
 });
 
 describe("budget math", () => {

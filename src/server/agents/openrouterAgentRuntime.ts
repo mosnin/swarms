@@ -45,6 +45,7 @@ async function openRouterExecutor(params: {
   system: string;
   task: string;
   model: string;
+  maxRuntimeMs: number;
   tools: ResourceTool[];
 }): Promise<AgentExecution> {
   const agents = await import("@openai/agents");
@@ -81,7 +82,15 @@ async function openRouterExecutor(params: {
     model: params.model,
     tools: sdkTools,
   });
-  const result = await agents.run(agent, params.task, { maxTurns: 8 } as never);
+
+  // Hard wall-clock limit so a slow LLM cannot run forever and consume unbounded
+  // GPU budget. Promise.race aborts the winning side immediately on resolution.
+  const agentPromise = agents.run(agent, params.task, { maxTurns: 8 } as never);
+  const timeoutPromise = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error("TIMEOUT")), params.maxRuntimeMs),
+  );
+  const result = await Promise.race([agentPromise, timeoutPromise]);
+
   const out = (result as { finalOutput?: unknown }).finalOutput;
   const text = typeof out === "string" ? out : JSON.stringify(out ?? "");
   return { text, outputTokens: Math.max(1, Math.ceil(text.length / 4)) };

@@ -10,7 +10,7 @@
  * their results.
  */
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
@@ -23,6 +23,7 @@ import { dbJobStore } from "@/modules/execution/job-repository";
 import { processJobInDb } from "@/modules/execution/worker";
 import { storeResourceBundle, type ResourceBundle } from "@/modules/resources/resource-bundle";
 import { checkBudget } from "@/server/budget/checkBudget";
+import { releaseBudget } from "@/server/budget/releaseBudget";
 import { reserveBudget } from "@/server/budget/reserveBudget";
 import { executeSwarm, type ChildOutcome, type PlannedAgent } from "@/server/swarms/executeSwarm";
 import { getJobQueue } from "@/server/queue/queue";
@@ -106,6 +107,43 @@ export async function spawnSwarm(
   const maxGpuSecondsPerWorker = rate > 0 ? Math.max(1, Math.floor(perWorkerMinor / rate)) : DEFAULT_GPU_SECONDS_PER_WORKER;
   const aggregateMinor = perWorkerMinor * tasks.length;
 
+  // Idempotency: a replayed key returns the original run without re-charging.
+  const existing = (
+    await db
+      .select()
+      .from(schema.swarmRuns)
+      .where(
+        and(
+          eq(schema.swarmRuns.organizationId, ctx.organizationId),
+          eq(schema.swarmRuns.idempotencyKey, request.idempotencyKey),
+        ),
+      )
+      .limit(1)
+  )[0];
+  if (existing) {
+    const agents = await db
+      .select()
+      .from(schema.swarmAgents)
+      .where(eq(schema.swarmAgents.swarmRunId, existing.id));
+    return {
+      swarmRunId: existing.id,
+      status: existing.status,
+      workerCount: agents.length,
+      costMinor: existing.costMinor,
+      currency: existing.costCurrency,
+      maxGpuSecondsPerWorker: maxGpuSecondsPerWorker,
+      workers: agents.map((a) => ({
+        role: a.role,
+        status: a.status,
+        jobId: a.jobId ?? null,
+        costMinor: a.costMinor,
+        output: a.output ?? null,
+        error: a.error ?? null,
+      })),
+      createdAt: existing.createdAt.toISOString(),
+    };
+  }
+
   // One budget pre-flight for the whole workforce.
   await checkBudget(ctx.organizationId, aggregateMinor, currency, db, {
     apiKeyId: ctx.actor.kind === "agent" ? ctx.actor.apiKeyId : null,
@@ -121,6 +159,7 @@ export async function spawnSwarm(
       .insert(schema.swarmRuns)
       .values({
         organizationId: ctx.organizationId,
+        idempotencyKey: request.idempotencyKey,
         status: "running",
         input: { objective: request.objective ?? null, workerCount: tasks.length },
         costCurrency: currency,
@@ -140,6 +179,9 @@ export async function spawnSwarm(
   // Each worker's prompt is its task plus the shared objective as context.
   const taskFor = (instructions: string) =>
     request.objective ? `Objective: ${request.objective}\n\nYour task: ${instructions}` : instructions;
+
+  // Track job IDs that have a live reservation so we can roll back on partial failure.
+  const reservedJobIds: string[] = [];
 
   const runChild = async (agent: PlannedAgent, index: number): Promise<ChildOutcome> => {
     const workerRow = (
@@ -177,6 +219,7 @@ export async function spawnSwarm(
       { organizationId: ctx.organizationId, jobId: job.id, amountMinor: perWorkerMinor, currency },
       db,
     );
+    reservedJobIds.push(job.id);
 
     const processed = await processJobInDb(job.id, db);
 
@@ -201,11 +244,24 @@ export async function spawnSwarm(
     };
   };
 
-  const result = await executeSwarm(planned, {
-    runChild,
-    budgetMinor: aggregateMinor,
-    failurePolicy: "best_effort",
-  });
+  let result;
+  try {
+    result = await executeSwarm(planned, {
+      runChild,
+      budgetMinor: aggregateMinor,
+      failurePolicy: "best_effort",
+    });
+  } catch (err) {
+    // If executeSwarm throws (e.g., reserveBudget failed mid-swarm), release
+    // all holds that successfully landed so budget headroom is not permanently
+    // consumed. Errors here are best-effort — log and rethrow the original.
+    await Promise.allSettled(
+      reservedJobIds.map((jobId) =>
+        releaseBudget({ organizationId: ctx.organizationId, jobId, currency }, db),
+      ),
+    );
+    throw err;
+  }
 
   const finished = (
     await db

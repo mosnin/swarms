@@ -15,7 +15,7 @@ export async function releaseBudget(
   params: { organizationId: string; jobId: string; currency: string },
   db: Db = getDb(),
 ): Promise<void> {
-  const outstanding = await outstandingHoldMinor(params.jobId, db);
+  const outstanding = await outstandingHoldMinor(params.jobId, db, params.currency);
   if (outstanding <= 0) return;
   await appendEntry(dbLedgerStore(db), {
     organizationId: params.organizationId,

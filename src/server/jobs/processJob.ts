@@ -55,6 +55,12 @@ export interface ProcessDeps {
   resolve(job: JobRecord): Promise<ResolvedExecution | null>;
   /** Record a usage charge on success (append-only ledger). Optional. */
   onCharge?(job: JobRecord, costMinor: number, currency: string): Promise<void>;
+  /**
+   * Called when `onCharge` throws after the job is already marked succeeded.
+   * Must release the outstanding budget hold so headroom is not permanently
+   * consumed. Errors are swallowed — the job is already terminal.
+   */
+  onReleaseHold?(job: JobRecord, currency: string): Promise<void>;
   workerId: string;
   clock?: Clock;
 }
@@ -190,7 +196,17 @@ export async function processJob(
       updatedAt: finishedAt,
     });
     if (deps.onCharge && outcome.costMinor > 0) {
-      await deps.onCharge(settled, outcome.costMinor, resolved.currency);
+      try {
+        await deps.onCharge(settled, outcome.costMinor, resolved.currency);
+      } catch (chargeError) {
+        // The job is already terminal (succeeded). The charge failed — log it
+        // and release the hold so budget headroom is not permanently consumed.
+        logger.error("processJob: onCharge failed after job succeeded; releasing hold", {
+          jobId: job.id,
+          error: chargeError,
+        });
+        await deps.onReleaseHold?.(settled, resolved.currency).catch(() => undefined);
+      }
     }
     return settled;
   }

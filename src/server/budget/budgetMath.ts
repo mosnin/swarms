@@ -11,6 +11,7 @@ export interface BudgetLedgerEntry {
   direction: LedgerDirection;
   kind: LedgerEntryKind;
   amountMinor: number;
+  currency: string;
 }
 
 /** Sum of committed usage charges (debit + charge). */

@@ -13,33 +13,37 @@ import { isScoped, type BudgetScope } from "@/server/budget/scope";
 
 type Db = ReturnType<typeof getDb>;
 
-function toEntry(row: { direction: string; kind: string; amountMinor: number }): BudgetLedgerEntry {
+function toEntry(row: { direction: string; kind: string; amountMinor: number; currency: string }): BudgetLedgerEntry {
   return {
     direction: row.direction as LedgerDirection,
     kind: row.kind as LedgerEntryKind,
     amountMinor: row.amountMinor,
+    currency: row.currency,
   };
 }
 
-/** All ledger entries for an organization since `since` (period start). */
+/** All ledger entries for an organization since `since` (period start), filtered by currency. */
 export async function entriesForOrgSince(
   organizationId: string,
   since: Date,
   db: Db = getDb(),
+  currency?: string,
 ): Promise<BudgetLedgerEntry[]> {
+  const conds: SQL[] = [
+    eq(schema.usageLedgerEntries.organizationId, organizationId),
+    gte(schema.usageLedgerEntries.createdAt, since),
+  ];
+  if (currency) conds.push(eq(schema.usageLedgerEntries.currency, currency.toUpperCase()));
+
   const rows = await db
     .select({
       direction: schema.usageLedgerEntries.direction,
       kind: schema.usageLedgerEntries.kind,
       amountMinor: schema.usageLedgerEntries.amountMinor,
+      currency: schema.usageLedgerEntries.currency,
     })
     .from(schema.usageLedgerEntries)
-    .where(
-      and(
-        eq(schema.usageLedgerEntries.organizationId, organizationId),
-        gte(schema.usageLedgerEntries.createdAt, since),
-      ),
-    );
+    .where(and(...conds));
   return rows.map(toEntry);
 }
 
@@ -53,13 +57,15 @@ export async function scopedEntriesSince(
   since: Date,
   scope: BudgetScope,
   db: Db = getDb(),
+  currency?: string,
 ): Promise<BudgetLedgerEntry[]> {
-  if (!isScoped(scope)) return entriesForOrgSince(organizationId, since, db);
+  if (!isScoped(scope)) return entriesForOrgSince(organizationId, since, db, currency);
 
   const conds: SQL[] = [
     eq(schema.usageLedgerEntries.organizationId, organizationId),
     gte(schema.usageLedgerEntries.createdAt, since),
   ];
+  if (currency) conds.push(eq(schema.usageLedgerEntries.currency, currency.toUpperCase()));
   if (scope.apiKeyId) conds.push(eq(schema.jobs.apiKeyId, scope.apiKeyId));
   if (scope.userId) conds.push(eq(schema.jobs.createdByUserId, scope.userId));
 
@@ -68,6 +74,7 @@ export async function scopedEntriesSince(
       direction: schema.usageLedgerEntries.direction,
       kind: schema.usageLedgerEntries.kind,
       amountMinor: schema.usageLedgerEntries.amountMinor,
+      currency: schema.usageLedgerEntries.currency,
     })
     .from(schema.usageLedgerEntries)
     .innerJoin(schema.jobs, eq(schema.usageLedgerEntries.jobId, schema.jobs.id))
@@ -76,22 +83,34 @@ export async function scopedEntriesSince(
   return rows.map(toEntry);
 }
 
-/** Ledger entries scoped to a single job. */
-export async function entriesForJob(jobId: string, db: Db = getDb()): Promise<BudgetLedgerEntry[]> {
+/** Ledger entries scoped to a single job, optionally filtered by currency. */
+export async function entriesForJob(
+  jobId: string,
+  db: Db = getDb(),
+  currency?: string,
+): Promise<BudgetLedgerEntry[]> {
+  const conds: SQL[] = [eq(schema.usageLedgerEntries.jobId, jobId)];
+  if (currency) conds.push(eq(schema.usageLedgerEntries.currency, currency.toUpperCase()));
+
   const rows = await db
     .select({
       direction: schema.usageLedgerEntries.direction,
       kind: schema.usageLedgerEntries.kind,
       amountMinor: schema.usageLedgerEntries.amountMinor,
+      currency: schema.usageLedgerEntries.currency,
     })
     .from(schema.usageLedgerEntries)
-    .where(eq(schema.usageLedgerEntries.jobId, jobId));
+    .where(and(...conds));
   return rows.map(toEntry);
 }
 
 /** Outstanding (un-released) reservation hold for a job, in minor units. */
-export async function outstandingHoldMinor(jobId: string, db: Db = getDb()): Promise<number> {
-  return reservedMinor(await entriesForJob(jobId, db));
+export async function outstandingHoldMinor(
+  jobId: string,
+  db: Db = getDb(),
+  currency?: string,
+): Promise<number> {
+  return reservedMinor(await entriesForJob(jobId, db, currency));
 }
 
 /** Start of the current budget period (UTC). */

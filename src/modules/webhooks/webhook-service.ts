@@ -4,7 +4,7 @@
  * bounded exponential-backoff retries — at-least-once, never blocking the job.
  */
 
-import { and, asc, eq, lte } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 
 import { getDb } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
@@ -63,24 +63,45 @@ const BACKOFF_MS = [0, 2_000, 8_000, 30_000, 120_000];
  * Deliver due pending webhooks. POSTs each with its signature; on success marks
  * delivered, on failure backs off, and after `maxAttempts` marks failed.
  * Returns the number attempted.
+ *
+ * Multi-worker safe: rows are atomically claimed with `FOR UPDATE SKIP LOCKED`
+ * before any HTTP call, so concurrent workers never deliver the same webhook.
  */
 export async function deliverPendingWebhooks(
   db: Db = getDb(),
   fetchImpl: typeof fetch = fetch,
   batchSize = 20,
 ): Promise<number> {
+  // Atomic claim: flip status to 'delivering' in a single UPDATE ... WHERE id IN
+  // (SELECT ... FOR UPDATE SKIP LOCKED). Workers that lose the race see no rows.
   const now = new Date();
+  const claimed = await db.execute(sql`
+    UPDATE webhook_deliveries
+    SET status = 'delivering', updated_at = now()
+    WHERE id IN (
+      SELECT id FROM webhook_deliveries
+      WHERE status = 'pending' AND next_attempt_at <= ${now}
+      ORDER BY next_attempt_at ASC
+      LIMIT ${batchSize}
+      FOR UPDATE SKIP LOCKED
+    )
+    RETURNING id
+  `);
+  // Normalize across drivers: postgres-js returns an array; pglite returns { rows }.
+  const claimedRows = (
+    Array.isArray(claimed) ? claimed : (claimed as { rows?: unknown[] }).rows ?? []
+  ) as Array<{ id: string }>;
+  const claimedIds = new Set(claimedRows.map((r) => r.id));
+  if (claimedIds.size === 0) return 0;
+
+  const idList = Array.from(claimedIds);
   const due = await db
     .select()
     .from(schema.webhookDeliveries)
-    .where(
-      and(
-        eq(schema.webhookDeliveries.status, "pending"),
-        lte(schema.webhookDeliveries.nextAttemptAt, now),
-      ),
-    )
-    .orderBy(asc(schema.webhookDeliveries.nextAttemptAt))
-    .limit(batchSize);
+    .where(sql`${schema.webhookDeliveries.id} = ANY(ARRAY[${sql.join(idList.map((id) => sql`${id}`), sql`, `)}]::text[])`)
+    .orderBy(asc(schema.webhookDeliveries.nextAttemptAt));
+
+  if (due.length === 0) return 0;
 
   for (const delivery of due) {
     const body = buildEventBody(
@@ -127,7 +148,7 @@ export async function deliverPendingWebhooks(
       );
     }
   }
-  return due.length;
+  return claimedIds.size;
 }
 
 async function scheduleRetry(
@@ -148,6 +169,6 @@ async function scheduleRetry(
   const backoff = BACKOFF_MS[Math.min(attempts, BACKOFF_MS.length - 1)] ?? 120_000;
   await db
     .update(schema.webhookDeliveries)
-    .set({ attempts, lastError, nextAttemptAt: new Date(Date.now() + backoff) })
+    .set({ status: "pending", attempts, lastError, nextAttemptAt: new Date(Date.now() + backoff) })
     .where(eq(schema.webhookDeliveries.id, id));
 }

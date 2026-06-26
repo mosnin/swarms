@@ -146,11 +146,14 @@ export function dbJobStore(db: Db = getDb()): JobStore {
       if (!row) throw Errors.internal("Failed to append execution log");
       return toLogRecord(row);
     },
-    async listLogs(jobId) {
+    async listLogs(jobId, organizationId) {
+      const conds = organizationId
+        ? and(eq(schema.executionLogs.jobId, jobId), eq(schema.executionLogs.organizationId, organizationId))
+        : eq(schema.executionLogs.jobId, jobId);
       const rows = await db
         .select()
         .from(schema.executionLogs)
-        .where(eq(schema.executionLogs.jobId, jobId))
+        .where(conds)
         .orderBy(asc(schema.executionLogs.loggedAt));
       return rows.map(toLogRecord);
     },
@@ -212,7 +215,7 @@ export async function getJobLogs(
 ): Promise<JobLogView[]> {
   requirePermission(ctx, "jobs.read");
   await loadJobInOrg(ctx, jobId, db);
-  const logs = await dbJobStore(db).listLogs(jobId);
+  const logs = await dbJobStore(db).listLogs(jobId, ctx.organizationId);
   return logs.map((l) => ({
     level: l.level,
     message: l.message,

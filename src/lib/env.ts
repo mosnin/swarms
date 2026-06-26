@@ -82,6 +82,21 @@ export const envSchema = z.object({
   // GPU compute pricing for agent labor (integer minor units per GPU-second).
   GPU_RATE_MINOR_PER_SECOND: z.coerce.number().int().nonnegative().default(2),
   GPU_RATE_CURRENCY: z.string().length(3).default("USD"),
+}).superRefine((data, ctx) => {
+  // In production, all secrets that are "optional" in dev must be present.
+  // Lazy failures (first use of crypto/webhook signing) are unacceptable for
+  // a paid execution layer — fail fast at boot instead.
+  if (data.NODE_ENV === "production") {
+    if (!data.API_KEY_PEPPER) {
+      ctx.addIssue({ code: "custom", path: ["API_KEY_PEPPER"], message: "Required in production" });
+    }
+    if (!data.WEBHOOK_SIGNING_SECRET) {
+      ctx.addIssue({ code: "custom", path: ["WEBHOOK_SIGNING_SECRET"], message: "Required in production" });
+    }
+    if (!data.CONNECTOR_ENCRYPTION_KEY) {
+      ctx.addIssue({ code: "custom", path: ["CONNECTOR_ENCRYPTION_KEY"], message: "Required in production" });
+    }
+  }
 });
 
 export type Env = z.infer<typeof envSchema>;

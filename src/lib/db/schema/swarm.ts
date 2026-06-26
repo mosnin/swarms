@@ -1,7 +1,7 @@
 /** Swarms: runs and their per-worker agents. */
 
 import { relations } from "drizzle-orm";
-import { index, jsonb, pgTable, text, timestamp, varchar } from "drizzle-orm/pg-core";
+import { index, jsonb, pgTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
 
 import { idFactory, IdPrefix } from "@/lib/ids";
 import { organizations } from "@/lib/db/schema/identity";
@@ -16,6 +16,7 @@ export const swarmRuns = pgTable(
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
     jobId: text("job_id").references(() => jobs.id, { onDelete: "set null" }),
+    idempotencyKey: varchar("idempotency_key", { length: 255 }),
     status: jobStatus("status").notNull().default("queued"),
     input: jsonb("input"),
     output: jsonb("output"),
@@ -25,7 +26,10 @@ export const swarmRuns = pgTable(
     finishedAt: timestamp("finished_at", { withTimezone: true }),
     ...timestamps,
   },
-  (table) => [index("swarm_runs_org_idx").on(table.organizationId)],
+  (table) => [
+    index("swarm_runs_org_idx").on(table.organizationId),
+    uniqueIndex("swarm_runs_org_idempotency_uq").on(table.organizationId, table.idempotencyKey),
+  ],
 );
 
 export const swarmAgents = pgTable(

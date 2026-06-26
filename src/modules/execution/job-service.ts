@@ -81,7 +81,7 @@ export interface JobStore {
   findById(id: string): Promise<JobRecord | null>;
   update(id: string, patch: Partial<JobRecord>): Promise<JobRecord>;
   appendLog(record: JobLogRecord): Promise<JobLogRecord>;
-  listLogs(jobId: string): Promise<JobLogRecord[]>;
+  listLogs(jobId: string, organizationId?: string): Promise<JobLogRecord[]>;
 }
 
 /**

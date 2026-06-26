@@ -23,10 +23,12 @@ export interface ReceiptLite {
   id: string;
   jobId: string | null;
   amountMinor: number;
+  currency: string;
 }
 export interface ChargeableJobLite {
   id: string;
   costMinor: number;
+  costCurrency: string;
 }
 export interface LedgerLite {
   kind: string;
@@ -34,6 +36,7 @@ export interface LedgerLite {
   refId: string | null;
   jobId: string | null;
   amountMinor: number;
+  currency: string;
 }
 
 /** Pure reconciliation of receipts + chargeable jobs against ledger entries. */
@@ -46,7 +49,11 @@ export function reconcile(
 
   for (const receipt of receipts) {
     const entry = ledger.find(
-      (e) => e.kind === "payment" && e.refType === "payment_receipt" && e.refId === receipt.id,
+      (e) =>
+        e.kind === "payment" &&
+        e.refType === "payment_receipt" &&
+        e.refId === receipt.id &&
+        e.currency === receipt.currency,
     );
     if (!entry) {
       discrepancies.push({ kind: "missing_payment_entry", receiptId: receipt.id });
@@ -61,7 +68,9 @@ export function reconcile(
   }
 
   for (const job of chargeableJobs) {
-    const charge = ledger.find((e) => e.kind === "charge" && e.jobId === job.id);
+    const charge = ledger.find(
+      (e) => e.kind === "charge" && e.jobId === job.id && e.currency === job.costCurrency,
+    );
     if (!charge) {
       discrepancies.push({ kind: "missing_charge_entry", jobId: job.id, expectedMinor: job.costMinor });
     }
@@ -91,11 +100,16 @@ export async function reconcileOrganization(
         id: schema.x402PaymentReceipts.id,
         jobId: schema.x402PaymentReceipts.jobId,
         amountMinor: schema.x402PaymentReceipts.amountMinor,
+        currency: schema.x402PaymentReceipts.currency,
       })
       .from(schema.x402PaymentReceipts)
       .where(eq(schema.x402PaymentReceipts.organizationId, org)),
     db
-      .select({ id: schema.jobs.id, costMinor: schema.jobs.costMinor })
+      .select({
+        id: schema.jobs.id,
+        costMinor: schema.jobs.costMinor,
+        costCurrency: schema.jobs.costCurrency,
+      })
       .from(schema.jobs)
       .where(and(eq(schema.jobs.organizationId, org), eq(schema.jobs.status, "succeeded"))),
     db
@@ -105,6 +119,7 @@ export async function reconcileOrganization(
         refId: schema.usageLedgerEntries.refId,
         jobId: schema.usageLedgerEntries.jobId,
         amountMinor: schema.usageLedgerEntries.amountMinor,
+        currency: schema.usageLedgerEntries.currency,
       })
       .from(schema.usageLedgerEntries)
       .where(eq(schema.usageLedgerEntries.organizationId, org)),

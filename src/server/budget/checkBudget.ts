@@ -38,7 +38,7 @@ export async function checkBudget(
     if (!budgetApplies(scope, context)) continue;
 
     const since = periodStart(budget.period as Period);
-    const entries = await scopedEntriesSince(organizationId, since, scope, db);
+    const entries = await scopedEntriesSince(organizationId, since, scope, db, currency);
     if (wouldExceed(budget.limitMinor, entries, requestedMinor)) {
       throw Errors.budgetExceeded(`Budget "${budget.name}" would be exceeded`, {
         budgetId: budget.id,

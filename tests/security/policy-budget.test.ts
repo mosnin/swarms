@@ -48,8 +48,8 @@ describe("policy denial fails closed", () => {
 });
 
 describe("budget overage fails closed", () => {
-  const charge = (n: number): BudgetLedgerEntry => ({ direction: "debit", kind: "charge", amountMinor: n });
-  const hold = (n: number): BudgetLedgerEntry => ({ direction: "debit", kind: "hold", amountMinor: n });
+  const charge = (n: number): BudgetLedgerEntry => ({ direction: "debit", kind: "charge", amountMinor: n, currency: "USD" });
+  const hold = (n: number): BudgetLedgerEntry => ({ direction: "debit", kind: "hold", amountMinor: n, currency: "USD" });
 
   it("blocks a charge that would exceed the limit", () => {
     expect(wouldExceed(1000, [charge(900)], 200)).toBe(true);
