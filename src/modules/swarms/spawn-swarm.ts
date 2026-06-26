@@ -45,6 +45,18 @@ export interface SpawnSwarmRequest {
   budgetMinor?: number;
   currency?: string;
   idempotencyKey: string;
+  /**
+   * When set, a final aggregator agent is spawned after all workers complete.
+   * The aggregator receives every successful worker output and synthesises them
+   * into one result (Mixture-of-Agents pattern). Budget is allocated for N+1
+   * agents when this is provided.
+   */
+  aggregatorTask?: string;
+  /**
+   * When true, workers run sequentially and each worker's output is passed as
+   * context to the next worker, enabling pipeline-style workflows.
+   */
+  sequential?: boolean;
 }
 
 export interface SwarmWorkerView {
@@ -64,6 +76,8 @@ export interface SpawnSwarmResponse {
   currency: string;
   maxGpuSecondsPerWorker: number;
   workers: SwarmWorkerView[];
+  /** Synthesised output from the aggregator agent (Mixture-of-Agents), if requested. */
+  aggregatorOutput?: unknown;
   createdAt: string;
 }
 
@@ -87,14 +101,15 @@ export async function spawnSwarm(
   const model = request.model ?? env.AGENT_DEFAULT_MODEL ?? "deepseek/deepseek-chat-v4";
   const resources = request.resources ?? {};
 
-  // Split the aggregate budget evenly into a hard per-worker GPU ceiling. The
-  // per-worker floor must NOT be bumped up to `rate` — doing so makes the
-  // aggregate exceed the caller's budgetMinor (a silent over-charge). Instead,
-  // a budget that can't fund one GPU-second per worker is rejected up front so
-  // the workforce total is always <= budgetMinor.
+  // Split the aggregate budget evenly into a hard per-worker GPU ceiling. When
+  // an aggregator is requested, budget is divided across N+1 slots (N workers +
+  // 1 aggregator). The per-worker floor must NOT be bumped up to `rate` — doing
+  // so makes the aggregate exceed the caller's budgetMinor (a silent over-charge).
+  // Instead, a budget that can't fund one GPU-second per slot is rejected up front.
+  const agentSlots = tasks.length + (request.aggregatorTask ? 1 : 0);
   let perWorkerMinor: number;
   if (request.budgetMinor && request.budgetMinor > 0) {
-    perWorkerMinor = Math.floor(request.budgetMinor / tasks.length);
+    perWorkerMinor = Math.floor(request.budgetMinor / agentSlots);
     if (perWorkerMinor < rate) {
       throw Errors.budgetExceeded(
         "budgetMinor is too low to fund one GPU-second per worker",
@@ -105,7 +120,7 @@ export async function spawnSwarm(
     perWorkerMinor = DEFAULT_GPU_SECONDS_PER_WORKER * rate;
   }
   const maxGpuSecondsPerWorker = rate > 0 ? Math.max(1, Math.floor(perWorkerMinor / rate)) : DEFAULT_GPU_SECONDS_PER_WORKER;
-  const aggregateMinor = perWorkerMinor * tasks.length;
+  const aggregateMinor = perWorkerMinor * agentSlots;
 
   // Idempotency: a replayed key returns the original run without re-charging.
   const existing = (
@@ -176,9 +191,19 @@ export async function spawnSwarm(
   );
 
   const planned: PlannedAgent[] = tasks.map((task, i) => ({ role: `worker-${i + 1}`, instructions: task }));
-  // Each worker's prompt is its task plus the shared objective as context.
-  const taskFor = (instructions: string) =>
-    request.objective ? `Objective: ${request.objective}\n\nYour task: ${instructions}` : instructions;
+  // Build the full prompt for a worker: shared objective + task + optional prior output.
+  const taskFor = (instructions: string, previousOutput?: unknown): string => {
+    const parts: string[] = [];
+    if (request.objective) parts.push(`Objective: ${request.objective}`);
+    parts.push(`Your task: ${instructions}`);
+    if (previousOutput !== undefined) {
+      const prev = typeof previousOutput === "string"
+        ? previousOutput
+        : JSON.stringify(previousOutput, null, 2);
+      parts.push(`Previous step output:\n${prev}`);
+    }
+    return parts.join("\n\n");
+  };
 
   // Track job IDs that have a live reservation so we can roll back on partial failure.
   const reservedJobIds: string[] = [];
@@ -204,13 +229,13 @@ export async function spawnSwarm(
       apiKeyId: ctx.actor.kind === "agent" ? ctx.actor.apiKeyId : null,
       capability: {
         kind: "agent",
-        task: taskFor(agent.instructions),
+        task: taskFor(agent.instructions, agent.previousOutput),
         resourceBundleId: bundleId,
         model,
         priceMinor: perWorkerMinor,
         priceCurrency: currency,
       },
-      input: { task: taskFor(agent.instructions), maxGpuSeconds: maxGpuSecondsPerWorker, rateMinorPerSecond: rate, currency },
+      input: { task: taskFor(agent.instructions, agent.previousOutput), maxGpuSeconds: maxGpuSecondsPerWorker, rateMinorPerSecond: rate, currency },
       idempotencyKey: `${run.id}-${index}`,
       currency,
     });
@@ -250,6 +275,8 @@ export async function spawnSwarm(
       runChild,
       budgetMinor: aggregateMinor,
       failurePolicy: "best_effort",
+      parallel: !request.sequential,
+      aggregatorTask: request.aggregatorTask,
     });
   } catch (err) {
     // If executeSwarm throws (e.g., reserveBudget failed mid-swarm), release
@@ -268,7 +295,11 @@ export async function spawnSwarm(
       .update(schema.swarmRuns)
       .set({
         status: result.status === "failed" ? "failed" : "succeeded",
-        output: { byRole: result.byRole, failures: result.failures },
+        output: {
+          byRole: result.byRole,
+          failures: result.failures,
+          aggregatorOutput: result.aggregatorOutput ?? null,
+        },
         costMinor: result.totalCostMinor,
         finishedAt: new Date(),
       })
@@ -291,6 +322,7 @@ export async function spawnSwarm(
       output: a.output ?? null,
       error: a.error ?? null,
     })),
+    aggregatorOutput: result.aggregatorOutput,
     createdAt: (finished ?? run).createdAt.toISOString(),
   };
 }

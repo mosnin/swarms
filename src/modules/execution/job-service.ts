@@ -90,8 +90,8 @@ export interface JobStore {
  * the worker records the actual metered cost.
  */
 export interface ResolvedCapability {
-  kind: "agent";
-  /** Agent task + execution descriptor. */
+  kind: "agent" | "swarm";
+  /** Agent task instruction or JSON-encoded swarm config (kind="swarm"). */
   task?: string | null;
   resourceBundleId?: string | null;
   model?: string | null;
@@ -145,7 +145,7 @@ export async function createJob(
 ): Promise<CreateJobResult> {
   const cap = input.capability;
   if (!cap.task || cap.task.trim().length === 0) {
-    throw Errors.validation("An agent spawn requires a non-empty task");
+    throw Errors.validation("A job spawn requires a non-empty task");
   }
 
   const inputHash = requestHash({

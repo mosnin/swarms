@@ -17,7 +17,7 @@ import {
 
 export type Actor =
   | { kind: "user"; userId: string; membershipId: string; role: HumanRole }
-  | { kind: "agent"; apiKeyId: string; userId: string | null; role: "agent" };
+  | { kind: "agent"; apiKeyId: string | null; userId: string | null; role: "agent" };
 
 export interface AuthContext {
   organizationId: string;
@@ -51,7 +51,7 @@ export function userContext(params: {
  */
 export function agentContext(params: {
   organizationId: string;
-  apiKeyId: string;
+  apiKeyId: string | null;
   userId: string | null;
   scopes: readonly string[];
 }): AuthContext {

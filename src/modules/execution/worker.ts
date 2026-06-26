@@ -12,6 +12,7 @@ import { getDb } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
 import { Errors } from "@/lib/errors";
 import { commitBudget } from "@/server/budget/commitBudget";
+import type { DirectorSwarmConfig } from "@/server/runners/swarmRunner";
 import { releaseBudget } from "@/server/budget/releaseBudget";
 import { logger } from "@/lib/logger";
 import { metrics } from "@/lib/metrics";
@@ -125,7 +126,33 @@ async function resolveExecution(db: Db, job: JobRecord): Promise<ResolvedExecuti
     };
   }
 
-  // Only agent labor is executable; any other capability kind is unsupported.
+  // Hierarchical director: the job holds a JSON swarm config in `task`; the
+  // SwarmRunner spawns a child swarm and returns its aggregated result.
+  if (job.capabilityKind === "swarm") {
+    const input = (job.input ?? {}) as Partial<DirectorSwarmConfig>;
+    const currency = job.costCurrency || input.currency || "USD";
+    const config: DirectorSwarmConfig = {
+      tasks: input.tasks ?? [],
+      objective: input.objective,
+      model: input.model ?? job.model ?? undefined,
+      budgetMinor: input.budgetMinor ?? (job.costMinor > 0 ? job.costMinor : undefined),
+      currency,
+      aggregatorTask: input.aggregatorTask,
+      sequential: input.sequential,
+      apiKeyId: job.apiKeyId,
+      createdByUserId: job.createdByUserId,
+      idempotencyKey: `director-${job.id}`,
+    };
+    return {
+      runnerType: "swarm",
+      runnerConfig: config,
+      maxRuntimeMs: 600_000,
+      priceMinor: job.costMinor,
+      currency,
+    };
+  }
+
+  // Only agent and swarm capabilities are executable; any other kind is unsupported.
   return null;
 }
 

@@ -32,6 +32,10 @@ const body = z.object({
   budgetMinor: z.number().int().nonnegative().optional(),
   currency: z.string().length(3).optional(),
   idempotencyKey: idempotencyKeySchema,
+  /** Synthesise all worker outputs into one result via a final aggregator agent. */
+  aggregatorTask: z.string().min(1).max(20_000).optional(),
+  /** Run workers one-at-a-time, threading each output into the next as context. */
+  sequential: z.boolean().optional(),
 });
 
 export async function POST(request: NextRequest): Promise<Response> {
@@ -55,6 +59,8 @@ export async function POST(request: NextRequest): Promise<Response> {
       budgetMinor: parsed.data.budgetMinor,
       currency: parsed.data.currency,
       idempotencyKey: parsed.data.idempotencyKey,
+      aggregatorTask: parsed.data.aggregatorTask,
+      sequential: parsed.data.sequential,
     });
     return ok(response, 201);
   });
