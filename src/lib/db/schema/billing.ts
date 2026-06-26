@@ -1,6 +1,6 @@
 /** Billing: append-only usage ledger, x402 payments, budgets. */
 
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
   boolean,
   index,
@@ -52,6 +52,9 @@ export const usageLedgerEntries = pgTable(
     index("ledger_org_idx").on(table.organizationId),
     index("ledger_job_idx").on(table.jobId),
     index("ledger_wallet_idx").on(table.walletId),
+    uniqueIndex("ledger_job_charge_uq")
+      .on(table.jobId)
+      .where(sql`${table.kind} = 'charge' AND ${table.jobId} IS NOT NULL`),
   ],
 );
 

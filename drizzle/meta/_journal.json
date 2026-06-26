@@ -92,6 +92,20 @@
       "when": 1782402544357,
       "tag": "0012_drop_skills",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1782498408541,
+      "tag": "0013_burly_shen",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1782498452846,
+      "tag": "0014_big_glorian",
+      "breakpoints": true
     }
   ]
 }

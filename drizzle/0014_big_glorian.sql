@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "ledger_job_charge_uq" ON "usage_ledger_entries" USING btree ("job_id") WHERE "usage_ledger_entries"."kind" = 'charge' AND "usage_ledger_entries"."job_id" IS NOT NULL;
