@@ -27,7 +27,7 @@ import { releaseBudget } from "@/server/budget/releaseBudget";
 import { reserveBudget } from "@/server/budget/reserveBudget";
 import { executeSwarm, type ChildOutcome, type PlannedAgent } from "@/server/swarms/executeSwarm";
 import { detectDuplicateTasks, type DuplicateWarning } from "@/server/swarms/task-dedup";
-import { enqueueWebhook } from "@/modules/webhooks/webhook-service";
+import { fanOutWebhook } from "@/modules/webhooks/webhook-service";
 import { computeBudgetAlerts } from "@/server/budget/budgetAlerts";
 import { getJobQueue } from "@/server/queue/queue";
 
@@ -396,54 +396,53 @@ export async function spawnSwarm(
   const finalStatus = finished?.status ?? "succeeded";
   const finalCostMinor = finished?.costMinor ?? result.totalCostMinor;
 
-  // Best-effort webhook: enqueue and never let failures surface to the caller.
-  if (request.callbackUrl) {
-    enqueueWebhook(
-      {
-        organizationId: ctx.organizationId,
+  // Best-effort swarm lifecycle webhook. Fan-out goes to both the per-request
+  // callbackUrl (if any) AND every enabled org-level webhook endpoint.
+  fanOutWebhook(
+    {
+      organizationId: ctx.organizationId,
+      swarmRunId: run.id,
+      eventType: `swarm.${finalStatus}`,
+      url: request.callbackUrl,
+      data: {
         swarmRunId: run.id,
-        eventType: `swarm.${finalStatus}`,
-        url: request.callbackUrl,
-        data: {
-          swarmRunId: run.id,
-          status: finalStatus,
-          workerCount: tasks.length,
-          costMinor: finalCostMinor,
-          currency,
-        },
+        status: finalStatus,
+        workerCount: tasks.length,
+        costMinor: finalCostMinor,
+        currency,
       },
-      db,
-    ).catch(() => undefined);
+    },
+    db,
+  ).catch(() => undefined);
 
-    // Budget threshold alerts: fire after the swarm charge is committed so the
-    // spend figure is accurate. Best-effort — never blocks the response.
-    computeBudgetAlerts(ctx.organizationId, currency, db)
-      .then(async (alerts) => {
-        for (const alert of alerts) {
-          await enqueueWebhook(
-            {
-              organizationId: ctx.organizationId,
-              swarmRunId: run.id,
-              eventType: `budget.${alert.level}`,
-              url: request.callbackUrl!,
-              data: {
-                budgetId: alert.budgetId,
-                budgetName: alert.budgetName,
-                threshold: alert.threshold,
-                level: alert.level,
-                spentMinor: alert.spentMinor,
-                limitMinor: alert.limitMinor,
-                currency: alert.currency,
-                period: alert.period,
-                usagePercent: alert.usagePercent,
-              },
+  // Budget threshold alerts: fire after the swarm charge is committed so the
+  // spend figure is accurate. Fan-out to callbackUrl + org endpoints.
+  computeBudgetAlerts(ctx.organizationId, currency, db)
+    .then(async (alerts) => {
+      for (const alert of alerts) {
+        await fanOutWebhook(
+          {
+            organizationId: ctx.organizationId,
+            swarmRunId: run.id,
+            eventType: `budget.${alert.level}`,
+            url: request.callbackUrl,
+            data: {
+              budgetId: alert.budgetId,
+              budgetName: alert.budgetName,
+              threshold: alert.threshold,
+              level: alert.level,
+              spentMinor: alert.spentMinor,
+              limitMinor: alert.limitMinor,
+              currency: alert.currency,
+              period: alert.period,
+              usagePercent: alert.usagePercent,
             },
-            db,
-          );
-        }
-      })
-      .catch(() => undefined);
-  }
+          },
+          db,
+        );
+      }
+    })
+    .catch(() => undefined);
 
   return {
     swarmRunId: run.id,

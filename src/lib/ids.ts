@@ -47,6 +47,7 @@ export const IdPrefix = {
   swarmRun: "swr",
   swarmAgent: "swa",
   webhookDelivery: "whd",
+  webhookEndpoint: "whe",
 } as const;
 
 export type IdPrefix = (typeof IdPrefix)[keyof typeof IdPrefix];

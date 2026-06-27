@@ -11,6 +11,7 @@ import * as schema from "@/lib/db/schema";
 import { logger } from "@/lib/logger";
 import { canonicalize } from "@/lib/canonical";
 import { signWebhook, webhookSecret } from "@/modules/webhooks/signing";
+import { enabledEndpointUrls } from "@/modules/webhooks/endpoint-service";
 
 type Db = ReturnType<typeof getDb>;
 
@@ -59,6 +60,27 @@ export async function enqueueWebhook(input: WebhookEventInput, db: Db = getDb())
     status: "pending",
     nextAttemptAt: new Date(),
   });
+}
+
+/**
+ * Fan out a webhook event to a specific URL AND to every enabled org-level
+ * webhook endpoint. The per-request `url` (if provided) is always included.
+ * Org endpoints receive the same signed payload. All enqueues are independent —
+ * a failure on one endpoint does not affect others.
+ */
+export async function fanOutWebhook(
+  input: Omit<WebhookEventInput, "url"> & { url?: string },
+  db: Db = getDb(),
+): Promise<void> {
+  const orgUrls = await enabledEndpointUrls(input.organizationId, db);
+  const allUrls = new Set<string>(orgUrls);
+  if (input.url) allUrls.add(input.url);
+
+  await Promise.all(
+    Array.from(allUrls).map((url) =>
+      enqueueWebhook({ ...input, url }, db).catch(() => undefined),
+    ),
+  );
 }
 
 const BACKOFF_MS = [0, 2_000, 8_000, 30_000, 120_000];
