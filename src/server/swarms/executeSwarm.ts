@@ -39,8 +39,11 @@ export interface ChildOutcome {
 }
 
 export interface ExecuteSwarmDeps {
-  /** Execute one agent's subtask, returning its outcome + cost. */
-  runChild(agent: PlannedAgent, index: number): Promise<ChildOutcome>;
+  /**
+   * Execute one agent's subtask, returning its outcome + cost.
+   * `attempt` is 0 for the first run, 1 for the first retry, etc.
+   */
+  runChild(agent: PlannedAgent, index: number, attempt: number): Promise<ChildOutcome>;
   /** Aggregate budget cap in minor units (0 = unlimited). */
   budgetMinor: number;
   failurePolicy?: FailurePolicy;
@@ -53,6 +56,11 @@ export interface ExecuteSwarmDeps {
    * The aggregator is skipped when ALL workers failed (no outputs to aggregate).
    */
   aggregatorTask?: string;
+  /**
+   * How many times to retry a failed worker before marking it as failed.
+   * Default 0 (no retries). Set to 1 for one automatic retry per worker.
+   */
+  maxRetries?: number;
 }
 
 export interface SwarmExecutionResult extends MergedSwarmResult {
@@ -68,9 +76,21 @@ export async function executeSwarm(
   const parallel = deps.parallel ?? true;
   const outcomes: Array<{ agent: PlannedAgent; outcome: ChildOutcome }> = [];
 
+  const maxRetries = deps.maxRetries ?? 0;
+
+  const runWithRetry = async (agent: PlannedAgent, index: number): Promise<ChildOutcome> => {
+    let attempt = 0;
+    let outcome = await deps.runChild(agent, index, attempt);
+    while (outcome.error && attempt < maxRetries) {
+      attempt += 1;
+      outcome = await deps.runChild(agent, index, attempt);
+    }
+    return outcome;
+  };
+
   if (parallel) {
     const results = await Promise.all(
-      planned.map(async (agent, i) => ({ agent, outcome: await deps.runChild(agent, i) })),
+      planned.map(async (agent, i) => ({ agent, outcome: await runWithRetry(agent, i) })),
     );
     outcomes.push(...results);
   } else {
@@ -78,7 +98,7 @@ export async function executeSwarm(
     let previousOutput: unknown = undefined;
     for (let i = 0; i < planned.length; i += 1) {
       const agent: PlannedAgent = { ...planned[i]!, previousOutput };
-      const outcome = await deps.runChild(agent, i);
+      const outcome = await runWithRetry(agent, i);
       outcomes.push({ agent, outcome });
       // Only thread successful output forward — failures leave previousOutput unchanged.
       if (!outcome.error) {
@@ -107,7 +127,7 @@ export async function executeSwarm(
         .join("\n\n");
       const aggregatorInstructions = `${deps.aggregatorTask}\n\nWorker outputs to synthesise:\n${workerSummary}`;
       const aggregatorAgent: PlannedAgent = { role: "aggregator", instructions: aggregatorInstructions };
-      const aggOutcome = await deps.runChild(aggregatorAgent, agentResults.length);
+      const aggOutcome = await deps.runChild(aggregatorAgent, agentResults.length, 0);
       aggregatorOutput = aggOutcome.output;
       aggregatorCostMinor = aggOutcome.costMinor;
     }

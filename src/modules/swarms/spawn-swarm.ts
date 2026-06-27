@@ -207,21 +207,36 @@ export async function spawnSwarm(
 
   // Track job IDs that have a live reservation so we can roll back on partial failure.
   const reservedJobIds: string[] = [];
+  // Reuse the same swarmAgent row across retry attempts for the same worker slot.
+  const workerRowIds = new Map<number, string>();
 
-  const runChild = async (agent: PlannedAgent, index: number): Promise<ChildOutcome> => {
-    const workerRow = (
+  const runChild = async (agent: PlannedAgent, index: number, attempt: number): Promise<ChildOutcome> => {
+    // On first attempt, insert the swarmAgent row. On retries, update the existing row.
+    let workerRowId = workerRowIds.get(index);
+    if (workerRowId === undefined) {
+      const workerRow = (
+        await db
+          .insert(schema.swarmAgents)
+          .values({
+            organizationId: ctx.organizationId,
+            swarmRunId: run.id,
+            role: agent.role,
+            status: "queued",
+            input: { task: agent.instructions },
+            costCurrency: currency,
+          })
+          .returning()
+      )[0];
+      if (!workerRow) throw Errors.internal("Failed to create swarm agent row");
+      workerRowId = workerRow.id;
+      workerRowIds.set(index, workerRowId);
+    } else {
+      // Reset status to "queued" for the retry attempt.
       await db
-        .insert(schema.swarmAgents)
-        .values({
-          organizationId: ctx.organizationId,
-          swarmRunId: run.id,
-          role: agent.role,
-          status: "queued",
-          input: { task: agent.instructions },
-          costCurrency: currency,
-        })
-        .returning()
-    )[0];
+        .update(schema.swarmAgents)
+        .set({ status: "queued", error: null, output: null })
+        .where(eq(schema.swarmAgents.id, workerRowId));
+    }
 
     const { job } = await createJobCore(dbJobStore(db), getJobQueue(), {
       organizationId: ctx.organizationId,
@@ -236,7 +251,7 @@ export async function spawnSwarm(
         priceCurrency: currency,
       },
       input: { task: taskFor(agent.instructions, agent.previousOutput), maxGpuSeconds: maxGpuSecondsPerWorker, rateMinorPerSecond: rate, currency },
-      idempotencyKey: `${run.id}-${index}`,
+      idempotencyKey: `${run.id}-${index}-${attempt}`,
       currency,
     });
 
@@ -248,18 +263,16 @@ export async function spawnSwarm(
 
     const processed = await processJobInDb(job.id, db);
 
-    if (workerRow) {
-      await db
-        .update(schema.swarmAgents)
-        .set({
-          jobId: job.id,
-          status: processed.status,
-          output: processed.output ?? null,
-          error: processed.error ?? null,
-          costMinor: processed.costMinor,
-        })
-        .where(eq(schema.swarmAgents.id, workerRow.id));
-    }
+    await db
+      .update(schema.swarmAgents)
+      .set({
+        jobId: job.id,
+        status: processed.status,
+        output: processed.output ?? null,
+        error: processed.error ?? null,
+        costMinor: processed.costMinor,
+      })
+      .where(eq(schema.swarmAgents.id, workerRowId));
 
     return {
       output: processed.output,
@@ -277,6 +290,7 @@ export async function spawnSwarm(
       failurePolicy: "best_effort",
       parallel: !request.sequential,
       aggregatorTask: request.aggregatorTask,
+      maxRetries: 1,
     });
   } catch (err) {
     // If executeSwarm throws (e.g., reserveBudget failed mid-swarm), release

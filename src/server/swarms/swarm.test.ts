@@ -229,3 +229,98 @@ describe("executeSwarm — aggregator agent", () => {
     ).rejects.toMatchObject({ code: "BUDGET_EXCEEDED" });
   });
 });
+
+// ── Feature 5: Auto-retry one failed worker ──────────────────────────────────
+
+describe("executeSwarm — auto-retry", () => {
+  it("retries a failed worker up to maxRetries times", async () => {
+    const attempts: number[] = [];
+
+    const result = await executeSwarm(
+      [{ role: "flaky", instructions: "do work" }],
+      {
+        budgetMinor: 0,
+        maxRetries: 1,
+        async runChild(_agent, _index, attempt) {
+          attempts.push(attempt);
+          if (attempt === 0) {
+            return { error: { code: "TRANSIENT", message: "blip" }, costMinor: 0 };
+          }
+          return { output: "recovered", costMinor: 10 };
+        },
+      },
+    );
+
+    expect(attempts).toEqual([0, 1]);
+    expect(result.status).toBe("succeeded");
+    expect(result.agents[0]?.output).toBe("recovered");
+  });
+
+  it("marks worker as failed when all retries are exhausted", async () => {
+    const attempts: number[] = [];
+
+    const result = await executeSwarm(
+      [{ role: "dead", instructions: "fail" }],
+      {
+        budgetMinor: 0,
+        maxRetries: 1,
+        async runChild(_agent, _index, attempt) {
+          attempts.push(attempt);
+          return { error: { code: "HARD_FAIL", message: "nope" }, costMinor: 0 };
+        },
+      },
+    );
+
+    expect(attempts).toEqual([0, 1]);
+    expect(result.status).toBe("failed");
+    expect(result.agents[0]?.error).toMatchObject({ code: "HARD_FAIL" });
+  });
+
+  it("does not retry when maxRetries is 0 (default)", async () => {
+    const attempts: number[] = [];
+
+    const result = await executeSwarm(
+      [{ role: "w", instructions: "task" }],
+      {
+        budgetMinor: 0,
+        async runChild(_agent, _index, attempt) {
+          attempts.push(attempt);
+          return { error: { code: "FAIL", message: "no" }, costMinor: 0 };
+        },
+      },
+    );
+
+    expect(attempts).toEqual([0]);
+    expect(result.status).toBe("failed");
+  });
+
+  it("passes the correct attempt index to runChild", async () => {
+    const seen: Array<{ index: number; attempt: number }> = [];
+
+    await executeSwarm(
+      [
+        { role: "w1", instructions: "a" },
+        { role: "w2", instructions: "b" },
+      ],
+      {
+        budgetMinor: 0,
+        maxRetries: 1,
+        async runChild(_agent, index, attempt) {
+          seen.push({ index, attempt });
+          if (index === 0 && attempt === 0) {
+            return { error: { code: "FAIL", message: "first try" }, costMinor: 0 };
+          }
+          return { output: "ok", costMinor: 5 };
+        },
+      },
+    );
+
+    // Worker 0 runs twice (attempt 0 failed, attempt 1 succeeded).
+    expect(seen.filter((s) => s.index === 0)).toEqual([
+      { index: 0, attempt: 0 },
+      { index: 0, attempt: 1 },
+    ]);
+    // Worker 1 runs once.
+    expect(seen.filter((s) => s.index === 1)).toEqual([{ index: 1, attempt: 0 }]);
+  });
+});
