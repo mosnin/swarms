@@ -12,16 +12,18 @@
 
 import type { NextRequest } from "next/server";
 import { formatResponse } from "@/lib/format-response";
-import { CATALOG_VERSION } from "@/server/skills/skill-registry";
+import { CATALOG_VERSION, buildManifest } from "@/server/skills/skill-registry";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export function GET(request: NextRequest): Response {
+  const manifest = buildManifest();
   const body = {
     api: "swarms",
     version: "v1",
     catalogVersion: CATALOG_VERSION,
+    skills: manifest.skills,
     links: {
       skills: "/api/v1/skills",
       skillsManifest: "/api/v1/skills/manifest",
