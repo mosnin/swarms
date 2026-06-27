@@ -84,6 +84,25 @@ export function requestHash(payload: unknown): string {
 }
 
 /**
+ * Derive a stable idempotency key from the caller's organization and the
+ * canonical request payload.  Use this when the client did not supply an
+ * explicit key — the same org + same payload always produces the same key, so
+ * accidental duplicate submissions are still deduplicated.
+ *
+ * If you genuinely want to run the same logical request twice, supply your own
+ * distinct key; auto-derived keys offer best-effort dedup, not per-run isolation.
+ */
+export function deriveIdempotencyKey(organizationId: string, payload: unknown): string {
+  const digest = createHash("sha256")
+    .update(organizationId)
+    .update("\x00")
+    .update(stableStringify(payload))
+    .digest("hex")
+    .slice(0, 32);
+  return `auto-${digest}`;
+}
+
+/**
  * Decide the outcome for a key that may already exist. A matching hash is a safe
  * replay; a differing hash is a conflict.
  */

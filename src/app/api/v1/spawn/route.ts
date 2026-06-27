@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { ok, route } from "@/lib/api";
 import { Errors } from "@/lib/errors";
-import { idempotencyKeySchema } from "@/lib/idempotency";
+import { deriveIdempotencyKey, idempotencyKeySchema } from "@/lib/idempotency";
 import { requireOrganization } from "@/modules/identity/access-control";
 import { authenticateRequest } from "@/modules/identity/service";
 import { spawnAgent } from "@/modules/agents/spawn-service";
@@ -30,7 +30,7 @@ const body = z.object({
   model: z.string().max(96).optional(),
   budgetMinor: z.number().int().nonnegative().optional(),
   currency: z.string().length(3).optional(),
-  idempotencyKey: idempotencyKeySchema,
+  idempotencyKey: idempotencyKeySchema.optional(),
   callbackUrl: z.string().url().optional(),
 });
 
@@ -47,14 +47,19 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
     if (parsed.data.organizationId) requireOrganization(ctx, parsed.data.organizationId);
 
+    const { idempotencyKey, ...rest } = parsed.data;
+    const resolvedKey =
+      idempotencyKey ??
+      deriveIdempotencyKey(ctx.organizationId, { task: rest.task, model: rest.model });
+
     const response = await spawnAgent(ctx, {
-      task: parsed.data.task,
-      resources: parsed.data.resources,
-      model: parsed.data.model,
-      budgetMinor: parsed.data.budgetMinor,
-      currency: parsed.data.currency,
-      idempotencyKey: parsed.data.idempotencyKey,
-      callbackUrl: parsed.data.callbackUrl,
+      task: rest.task,
+      resources: rest.resources,
+      model: rest.model,
+      budgetMinor: rest.budgetMinor,
+      currency: rest.currency,
+      idempotencyKey: resolvedKey,
+      callbackUrl: rest.callbackUrl,
     });
     return ok(response, 201);
   });

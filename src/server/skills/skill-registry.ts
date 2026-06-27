@@ -182,7 +182,11 @@ const SPAWN_SWARM: SkillDefinition = {
       currency: { type: "string", description: "ISO-4217 3-letter code, default USD." },
       idempotencyKey: {
         type: "string",
-        description: "Unique key; re-submitting with the same key returns the original result without re-running.",
+        description:
+          "Optional. Re-submitting with the same key returns the original result without re-running. " +
+          "When omitted, a stable key is derived from your organization ID and the request payload — " +
+          "identical requests are automatically deduplicated. Supply an explicit key to run the same " +
+          "logical request more than once.",
       },
       aggregatorTask: {
         type: "string",

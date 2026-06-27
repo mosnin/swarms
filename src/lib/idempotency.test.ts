@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  deriveIdempotencyKey,
   idempotencyKeyFromHeaders,
   isValidIdempotencyKey,
   parseIdempotencyKey,
@@ -53,6 +54,41 @@ describe("request fingerprinting", () => {
 
   it("sorts nested object keys deterministically", () => {
     expect(stableStringify({ b: 1, a: { d: 2, c: 3 } })).toBe('{"a":{"c":3,"d":2},"b":1}');
+  });
+});
+
+describe("deriveIdempotencyKey", () => {
+  it("produces a valid idempotency key (passes schema)", () => {
+    const key = deriveIdempotencyKey("org_1", { tasks: ["do X"] });
+    expect(isValidIdempotencyKey(key)).toBe(true);
+  });
+
+  it("is deterministic — same org + same payload → same key", () => {
+    const a = deriveIdempotencyKey("org_1", { tasks: ["do X"] });
+    const b = deriveIdempotencyKey("org_1", { tasks: ["do X"] });
+    expect(a).toBe(b);
+  });
+
+  it("is payload-order-independent (same as requestHash)", () => {
+    const a = deriveIdempotencyKey("org_1", { model: "gpt", task: "do X" });
+    const b = deriveIdempotencyKey("org_1", { task: "do X", model: "gpt" });
+    expect(a).toBe(b);
+  });
+
+  it("differs across orgs", () => {
+    const a = deriveIdempotencyKey("org_1", { task: "do X" });
+    const b = deriveIdempotencyKey("org_2", { task: "do X" });
+    expect(a).not.toBe(b);
+  });
+
+  it("differs across payloads", () => {
+    const a = deriveIdempotencyKey("org_1", { tasks: ["do X"] });
+    const b = deriveIdempotencyKey("org_1", { tasks: ["do Y"] });
+    expect(a).not.toBe(b);
+  });
+
+  it("starts with 'auto-' prefix", () => {
+    expect(deriveIdempotencyKey("org_1", {})).toMatch(/^auto-/);
   });
 });
 
