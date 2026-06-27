@@ -23,6 +23,7 @@ import {
 import { generateApiKey, hashApiKey, looksLikeApiKey } from "@/modules/identity/api-keys";
 import { sanitizePermissions, type HumanRole, type Permission } from "@/modules/identity/roles";
 import { readSessionRef, type SessionRef } from "@/modules/identity/session";
+import { parseScope } from "@/server/budget/scope";
 
 type Db = ReturnType<typeof getDb>;
 
@@ -36,11 +37,15 @@ export interface ApiKeyView {
   expiresAt: Date | null;
   revokedAt: Date | null;
   createdAt: Date;
+  /** Non-null when the key has a spending cap (auto-created scoped budget). */
+  budgetMinor: number | null;
+  budgetCurrency: string | null;
 }
 
 type ApiKeyRow = typeof schema.apiKeys.$inferSelect;
+type BudgetRow = typeof schema.budgets.$inferSelect;
 
-function toView(row: ApiKeyRow): ApiKeyView {
+function toView(row: ApiKeyRow, budget?: BudgetRow | null): ApiKeyView {
   return {
     id: row.id,
     name: row.name,
@@ -50,7 +55,21 @@ function toView(row: ApiKeyRow): ApiKeyView {
     expiresAt: row.expiresAt,
     revokedAt: row.revokedAt,
     createdAt: row.createdAt,
+    budgetMinor: budget?.limitMinor ?? null,
+    budgetCurrency: budget?.currency ?? null,
   };
+}
+
+async function findKeyBudget(
+  apiKeyId: string,
+  organizationId: string,
+  db: Db,
+): Promise<BudgetRow | null> {
+  const rows = await db
+    .select()
+    .from(schema.budgets)
+    .where(eq(schema.budgets.organizationId, organizationId));
+  return rows.find((b) => parseScope(b.scope).apiKeyId === apiKeyId) ?? null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -62,6 +81,9 @@ export interface CreateApiKeyInput {
   /** Requested permission scopes; must be a subset of the caller's permissions. */
   scopes?: Permission[];
   expiresAt?: Date | null;
+  /** When set, auto-creates a scoped hard-stop monthly budget for this key. */
+  budgetMinor?: number;
+  budgetCurrency?: string;
 }
 
 export interface CreateApiKeyResult {
@@ -98,7 +120,26 @@ export async function createApiKey(
   )[0];
 
   if (!inserted) throw Errors.internal("Failed to create API key");
-  return { plaintext: generated.plaintext, key: toView(inserted) };
+
+  let budget: BudgetRow | undefined;
+  if (input.budgetMinor !== undefined && input.budgetMinor > 0) {
+    const currency = (input.budgetCurrency ?? "USD").toUpperCase();
+    const [newBudget] = await db
+      .insert(schema.budgets)
+      .values({
+        organizationId: ctx.organizationId,
+        name: `Key budget: ${input.name}`,
+        limitMinor: input.budgetMinor,
+        currency,
+        period: "monthly",
+        hardStop: true,
+        scope: { apiKeyId: inserted.id },
+      })
+      .returning();
+    budget = newBudget;
+  }
+
+  return { plaintext: generated.plaintext, key: toView(inserted, budget) };
 }
 
 export async function listApiKeys(ctx: AuthContext, db: Db = getDb()): Promise<ApiKeyView[]> {
@@ -108,7 +149,19 @@ export async function listApiKeys(ctx: AuthContext, db: Db = getDb()): Promise<A
     .from(schema.apiKeys)
     .where(eq(schema.apiKeys.organizationId, ctx.organizationId))
     .orderBy(desc(schema.apiKeys.createdAt));
-  return rows.map(toView);
+
+  const budgetRows =
+    rows.length > 0
+      ? await db
+          .select()
+          .from(schema.budgets)
+          .where(eq(schema.budgets.organizationId, ctx.organizationId))
+      : [];
+
+  return rows.map((row) => {
+    const budget = budgetRows.find((b) => parseScope(b.scope).apiKeyId === row.id) ?? null;
+    return toView(row, budget);
+  });
 }
 
 export async function revokeApiKey(
@@ -125,7 +178,8 @@ export async function revokeApiKey(
   // Org-scoped access check: the key must belong to the caller's organization.
   requireOrganization(ctx, existing.organizationId);
 
-  if (existing.revokedAt) return toView(existing);
+  const budget = await findKeyBudget(apiKeyId, existing.organizationId, db);
+  if (existing.revokedAt) return toView(existing, budget);
 
   const updated = (
     await db
@@ -135,7 +189,7 @@ export async function revokeApiKey(
       .returning()
   )[0];
   if (!updated) throw Errors.internal("Failed to revoke API key");
-  return toView(updated);
+  return toView(updated, budget);
 }
 
 /* ------------------------------------------------------------------ */
