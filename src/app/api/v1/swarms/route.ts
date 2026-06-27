@@ -9,6 +9,7 @@ import { requireOrganization } from "@/modules/identity/access-control";
 import { authenticateRequest } from "@/modules/identity/service";
 import { spawnSwarm } from "@/modules/swarms/spawn-swarm";
 import { enforceRateLimit } from "@/server/ratelimit/enforce";
+import { expandTemplate, findTemplate } from "@/server/swarms/swarm-templates";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,7 +28,15 @@ const resourcesSchema = z
 const body = z
   .object({
     organizationId: z.string().optional(),
-    tasks: z.array(z.string().min(1).max(20_000)).min(1).max(16),
+    /**
+     * Pre-built swarm pattern (e.g. "research", "pipeline", "synthesis").
+     * When provided, tasks/aggregatorTask/sequential default to the template's
+     * values and can be individually overridden by the caller.
+     * GET /api/v1/swarms/templates lists all available templates.
+     */
+    templateId: z.string().optional(),
+    /** Required unless templateId is supplied. */
+    tasks: z.array(z.string().min(1).max(20_000)).min(1).max(16).optional(),
     objective: z.string().max(2_000).optional(),
     resources: resourcesSchema,
     model: z.string().max(96).optional(),
@@ -38,6 +47,10 @@ const body = z
     idempotencyKey: idempotencyKeySchema.optional(),
     aggregatorTask: z.string().min(1).max(20_000).optional(),
     sequential: z.boolean().optional(),
+  })
+  .refine((d) => d.templateId !== undefined || (d.tasks !== undefined && d.tasks.length > 0), {
+    message: "Provide tasks or templateId",
+    path: ["tasks"],
   })
   .refine((d) => !(d.budgetUsd !== undefined && d.budgetMinor !== undefined), {
     message: "Provide budgetUsd or budgetMinor, not both",
@@ -57,29 +70,49 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
     if (parsed.data.organizationId) requireOrganization(ctx, parsed.data.organizationId);
 
-    const { idempotencyKey, budgetUsd, ...rest } = parsed.data;
+    const { idempotencyKey, budgetUsd, templateId, ...rest } = parsed.data;
+
+    // Expand template defaults, then apply any caller overrides.
+    let tasks = rest.tasks;
+    let aggregatorTask = rest.aggregatorTask;
+    let sequential = rest.sequential;
+    if (templateId !== undefined) {
+      const template = findTemplate(templateId);
+      if (!template) {
+        throw Errors.validation(`Unknown templateId: "${templateId}". See GET /api/v1/swarms/templates.`);
+      }
+      const expanded = expandTemplate(template, rest.objective ?? "");
+      tasks = rest.tasks ?? expanded.tasks;
+      aggregatorTask = rest.aggregatorTask ?? expanded.aggregatorTask;
+      sequential = rest.sequential ?? expanded.sequential;
+    }
+    if (!tasks || tasks.length === 0) {
+      throw Errors.validation("tasks is required when templateId is not provided");
+    }
+
     const budgetMinor = rest.budgetMinor ?? (budgetUsd !== undefined ? usdToMinor(budgetUsd) : undefined);
     const currency = rest.currency ?? (budgetUsd !== undefined ? "USD" : undefined);
     const resolvedKey =
       idempotencyKey ??
       deriveIdempotencyKey(ctx.organizationId, {
-        tasks: rest.tasks,
+        tasks,
         objective: rest.objective,
         model: rest.model,
-        aggregatorTask: rest.aggregatorTask,
-        sequential: rest.sequential,
+        aggregatorTask,
+        sequential,
+        templateId,
       });
 
     const response = await spawnSwarm(ctx, {
-      tasks: rest.tasks,
+      tasks,
       objective: rest.objective,
       resources: rest.resources,
       model: rest.model,
       budgetMinor,
       currency,
       idempotencyKey: resolvedKey,
-      aggregatorTask: rest.aggregatorTask,
-      sequential: rest.sequential,
+      aggregatorTask,
+      sequential,
     });
     return ok(response, 201);
   });
