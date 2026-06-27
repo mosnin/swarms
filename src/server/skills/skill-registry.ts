@@ -13,7 +13,7 @@
  * Increment CATALOG_VERSION whenever any skill version bumps.
  */
 
-export const CATALOG_VERSION = "1.2.0";
+export const CATALOG_VERSION = "1.3.0";
 
 export interface JsonSchema {
   type?: string;
@@ -574,6 +574,86 @@ const GET_SWARM_RUN: SkillDefinition = {
   },
 };
 
+const STREAM_SWARM: SkillDefinition = {
+  id: "stream-swarm",
+  version: "1.0.0",
+  name: "Stream swarm progress (SSE)",
+  description:
+    "Subscribe to real-time Server-Sent Events for a swarm run. " +
+    "Emits swarm.started once, then worker.update for each worker as it completes, " +
+    "then swarm.done when the entire run reaches a terminal state. " +
+    "For a completed swarm all events arrive immediately; for an in-progress run they stream live. " +
+    "Connect with EventSource (browser) or curl --no-buffer. " +
+    "Heartbeat comments (': heartbeat') are sent every 5 s to keep the connection alive. " +
+    "Stream closes automatically on terminal state or after 10 minutes.",
+  endpoint: "/api/v1/swarms/:swarmRunId/stream",
+  method: "GET",
+  auth: "bearer",
+  output: {
+    type: "object",
+    description: "Each SSE message has an 'event' type and a JSON 'data' payload.",
+    properties: {
+      "swarm.started": {
+        type: "object",
+        properties: { swarmRunId: { type: "string" }, status: { type: "string" }, createdAt: { type: "string" } },
+      },
+      "worker.update": {
+        type: "object",
+        properties: {
+          agentId: { type: "string" },
+          role: { type: "string" },
+          status: { type: "string" },
+          jobId: { type: "string" },
+          costMinor: { type: "integer" },
+          output: {},
+          error: {},
+        },
+      },
+      "swarm.done": {
+        type: "object",
+        properties: {
+          swarmRunId: { type: "string" },
+          status: { type: "string" },
+          totalWorkers: { type: "integer" },
+          costMinor: { type: "integer" },
+          finishedAt: { type: "string" },
+        },
+      },
+    },
+  },
+  examples: [
+    {
+      title: "Stream a swarm's worker progress with curl",
+      curl: `curl -N "$SWARMS_URL/api/v1/swarms/swarm_01abc/stream" \\
+  -H "Authorization: Bearer $SWARMS_API_KEY" \\
+  -H "Accept: text/event-stream"`,
+      response: [
+        { event: "swarm.started", data: { swarmRunId: "swarm_01abc", status: "running" } },
+        { event: "worker.update", data: { role: "worker-1", status: "succeeded", costMinor: 80 } },
+        { event: "worker.update", data: { role: "worker-2", status: "succeeded", costMinor: 72 } },
+        { event: "swarm.done", data: { status: "succeeded", totalWorkers: 2, costMinor: 152 } },
+      ],
+    },
+  ],
+  relatedSkills: ["spawn-swarm", "get-swarm-run"],
+  tool: {
+    type: "function",
+    function: {
+      name: "stream_swarm",
+      description:
+        "Open an SSE stream for real-time worker progress on a swarm run. " +
+        "Resolves to the swarm.done event payload when the run completes.",
+      parameters: {
+        type: "object",
+        required: ["swarmRunId"],
+        properties: {
+          swarmRunId: { type: "string" },
+        },
+      },
+    },
+  },
+};
+
 const GET_SWARM_RUN_LOGS: SkillDefinition = {
   id: "get-swarm-run-logs",
   version: "1.0.0",
@@ -710,6 +790,7 @@ export const SKILL_CATALOG: SkillCatalog = {
   skills: [
     SPAWN_SWARM,
     ESTIMATE_SWARM,
+    STREAM_SWARM,
     SPAWN_AGENT,
     GET_JOB,
     GET_JOB_LOGS,
