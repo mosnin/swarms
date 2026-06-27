@@ -286,4 +286,100 @@ describe("integration: spawn a workforce (swarm of agents)", () => {
     // Director job + 2 child worker jobs = 3 jobs
     expect(childJobs.length).toBeGreaterThanOrEqual(3);
   });
+
+  // ── Feature 8: Swarm templates ────────────────────────────────────────────
+
+  it("templateId=research: spawns 4 workers + aggregator with objective interpolated", async () => {
+    const { organizationId, userId } = await seedOrg(db, "org-tpl-1");
+    const ctx = userContext({ organizationId, userId, membershipId: "m", role: "owner" });
+
+    const res = await spawnSwarm(
+      ctx,
+      {
+        templateId: "research",
+        objective: "the future of autonomous agents",
+        // research template = 4 workers + 1 aggregator = 5 slots; rate 2/sec → 10 minor min
+        budgetMinor: 500,
+        idempotencyKey: "swarm-tpl-research-0001",
+      },
+      db,
+    );
+
+    expect(res.status).toBe("succeeded");
+    expect(res.workerCount).toBe(4); // research template has 4 tasks
+    // Aggregator ran (research template defines aggregatorTask)
+    expect(res.aggregatorOutput).toBeTruthy();
+    // Objective is interpolated into worker tasks
+    const taskStrings = res.workers.map((w) => (w.output as { task?: string })?.task ?? "");
+    expect(taskStrings.some((t) => t.includes("the future of autonomous agents"))).toBe(true);
+  });
+
+  it("templateId=pipeline: spawns 4 sequential workers with no aggregator", async () => {
+    const { organizationId, userId } = await seedOrg(db, "org-tpl-2");
+    const ctx = userContext({ organizationId, userId, membershipId: "m", role: "owner" });
+
+    const res = await spawnSwarm(
+      ctx,
+      {
+        templateId: "pipeline",
+        objective: "open-source LLM landscape",
+        budgetMinor: 400,
+        idempotencyKey: "swarm-tpl-pipeline-0001",
+      },
+      db,
+    );
+
+    expect(res.status).toBe("succeeded");
+    expect(res.workerCount).toBe(4); // pipeline template has 4 tasks
+    // Pipeline template has no aggregatorTask
+    expect(res.aggregatorOutput).toBeUndefined();
+  });
+
+  it("templateId=synthesis: spawns 3 workers + aggregator (Mixture-of-Agents)", async () => {
+    const { organizationId, userId } = await seedOrg(db, "org-tpl-3");
+    const ctx = userContext({ organizationId, userId, membershipId: "m", role: "owner" });
+
+    const res = await spawnSwarm(
+      ctx,
+      {
+        templateId: "synthesis",
+        objective: "best practices for multi-agent systems",
+        budgetMinor: 400,
+        idempotencyKey: "swarm-tpl-synthesis-0001",
+      },
+      db,
+    );
+
+    expect(res.status).toBe("succeeded");
+    expect(res.workerCount).toBe(3); // synthesis template has 3 tasks
+    expect(res.aggregatorOutput).toBeTruthy();
+  });
+
+  it("templateId: caller-supplied tasks override the template default", async () => {
+    const { organizationId, userId } = await seedOrg(db, "org-tpl-4");
+    const ctx = userContext({ organizationId, userId, membershipId: "m", role: "owner" });
+
+    const res = await spawnSwarm(
+      ctx,
+      {
+        templateId: "research",
+        tasks: ["custom task only"], // override — 1 worker instead of template's 4
+        objective: "ignored when tasks are explicit",
+        budgetMinor: 200,
+        idempotencyKey: "swarm-tpl-override-0001",
+      },
+      db,
+    );
+
+    expect(res.workerCount).toBe(1);
+  });
+
+  it("templateId: unknown template returns a VALIDATION error", async () => {
+    const { organizationId, userId } = await seedOrg(db, "org-tpl-5");
+    const ctx = userContext({ organizationId, userId, membershipId: "m", role: "owner" });
+
+    await expect(
+      spawnSwarm(ctx, { templateId: "does-not-exist", budgetMinor: 100, idempotencyKey: "swarm-tpl-bad" }, db),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+  });
 });

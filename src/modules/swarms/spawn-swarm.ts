@@ -27,6 +27,7 @@ import { releaseBudget } from "@/server/budget/releaseBudget";
 import { reserveBudget } from "@/server/budget/reserveBudget";
 import { executeSwarm, type ChildOutcome, type PlannedAgent } from "@/server/swarms/executeSwarm";
 import { detectDuplicateTasks, type DuplicateWarning } from "@/server/swarms/task-dedup";
+import { findTemplate, expandTemplate } from "@/server/swarms/swarm-templates";
 import { fanOutWebhook } from "@/modules/webhooks/webhook-service";
 import { computeBudgetAlerts } from "@/server/budget/budgetAlerts";
 import { getJobQueue } from "@/server/queue/queue";
@@ -37,8 +38,18 @@ const MAX_WORKERS = 16;
 const DEFAULT_GPU_SECONDS_PER_WORKER = 60;
 
 export interface SpawnSwarmRequest {
-  /** One worker agent is spawned per task. */
-  tasks: string[];
+  /**
+   * One worker agent is spawned per task. Optional when `templateId` is
+   * provided — the template's default tasks are used and may be overridden
+   * by supplying explicit tasks here.
+   */
+  tasks?: string[];
+  /**
+   * Pre-built swarm pattern. When provided, tasks / aggregatorTask / sequential
+   * default to the template's values; explicit fields on this request override
+   * those defaults.
+   */
+  templateId?: string;
   /** Optional shared objective, given to every worker as context. */
   objective?: string;
   /** Resources inherited by EVERY worker (env, files, MCP servers, context). */
@@ -113,7 +124,24 @@ export async function spawnSwarm(
 ): Promise<SpawnSwarmResponse> {
   requirePermission(ctx, "jobs.create");
 
-  const tasks = (request.tasks ?? []).map((t) => t.trim()).filter((t) => t.length > 0);
+  // Template expansion: apply template defaults, then let caller overrides win.
+  let rawTasks = request.tasks ?? [];
+  let aggregatorTask = request.aggregatorTask;
+  let sequential = request.sequential;
+  if (request.templateId !== undefined) {
+    const template = findTemplate(request.templateId);
+    if (!template) {
+      throw Errors.validation(
+        `Unknown templateId: "${request.templateId}". See GET /api/v1/swarms/templates.`,
+      );
+    }
+    const expanded = expandTemplate(template, request.objective ?? "");
+    rawTasks = rawTasks.length > 0 ? rawTasks : expanded.tasks;
+    aggregatorTask = aggregatorTask ?? expanded.aggregatorTask;
+    sequential = sequential ?? expanded.sequential;
+  }
+
+  const tasks = rawTasks.map((t) => t.trim()).filter((t) => t.length > 0);
   if (tasks.length === 0) throw Errors.validation("At least one task is required");
   if (tasks.length > MAX_WORKERS) {
     throw Errors.validation(`A swarm is capped at ${MAX_WORKERS} workers`, { requested: tasks.length });
@@ -144,7 +172,7 @@ export async function spawnSwarm(
     );
   }
 
-  const agentSlots = tasks.length + (request.aggregatorTask ? 1 : 0);
+  const agentSlots = tasks.length + (aggregatorTask ? 1 : 0);
   let perWorkerMinor: number;
   let workerBudgets: number[];
 
@@ -154,7 +182,7 @@ export async function spawnSwarm(
     const workerTotal = workerBudgets.reduce((a, b) => a + b, 0);
     // Aggregator (if any) gets the average worker budget.
     perWorkerMinor = Math.floor(workerTotal / tasks.length);
-    const aggregatorBudget = request.aggregatorTask ? perWorkerMinor : 0;
+    const aggregatorBudget = aggregatorTask ? perWorkerMinor : 0;
     const totalNeeded = workerTotal + aggregatorBudget;
     if (request.budgetMinor && request.budgetMinor > 0 && totalNeeded > request.budgetMinor) {
       throw Errors.budgetExceeded(
@@ -179,7 +207,7 @@ export async function spawnSwarm(
   }
 
   const maxGpuSecondsPerWorker = rate > 0 ? Math.max(1, Math.floor(perWorkerMinor / rate)) : DEFAULT_GPU_SECONDS_PER_WORKER;
-  const aggregateMinor = workerBudgets.reduce((a, b) => a + b, 0) + (request.aggregatorTask ? perWorkerMinor : 0);
+  const aggregateMinor = workerBudgets.reduce((a, b) => a + b, 0) + (aggregatorTask ? perWorkerMinor : 0);
 
   // Idempotency: a replayed key returns the original run without re-charging.
   const existing = (
@@ -239,8 +267,8 @@ export async function spawnSwarm(
         objective: request.objective ?? null,
         workerCount: tasks.length,
         model: model,
-        sequential: request.sequential ?? false,
-        aggregatorTask: request.aggregatorTask ?? null,
+        sequential: sequential ?? false,
+        aggregatorTask: aggregatorTask ?? null,
         budgetMinor: request.budgetMinor ?? null,
         currency,
       },
@@ -360,8 +388,8 @@ export async function spawnSwarm(
       runChild,
       budgetMinor: aggregateMinor,
       failurePolicy: "best_effort",
-      parallel: !request.sequential,
-      aggregatorTask: request.aggregatorTask,
+      parallel: !sequential,
+      aggregatorTask: aggregatorTask,
       maxRetries: 1,
     });
   } catch (err) {
