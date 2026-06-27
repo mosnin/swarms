@@ -13,7 +13,7 @@
  * Increment CATALOG_VERSION whenever any skill version bumps.
  */
 
-export const CATALOG_VERSION = "1.1.0";
+export const CATALOG_VERSION = "1.2.0";
 
 export interface JsonSchema {
   type?: string;
@@ -616,6 +616,88 @@ const GET_SWARM_RUN_LOGS: SkillDefinition = {
   },
 };
 
+const ESTIMATE_SWARM: SkillDefinition = {
+  id: "estimate-swarm",
+  version: "1.0.0",
+  name: "Estimate swarm cost (dry run)",
+  description:
+    "Preview the budget breakdown for a proposed swarm before committing funds. " +
+    "No jobs are created and no money is reserved. " +
+    "Returns the per-worker budget, aggregate ceiling, and whether your budget covers the swarm. " +
+    "Use this before spawn-swarm to confirm the cost fits your budget, or to explain the price to the user.",
+  endpoint: "/api/v1/swarms/estimate",
+  method: "POST",
+  auth: "bearer",
+  input: {
+    type: "object",
+    required: ["tasks"],
+    properties: {
+      tasks: { type: "array", minItems: 1, maxItems: 16, items: { type: "string" } },
+      aggregatorTask: { type: "string", description: "Include to account for an aggregator slot in the estimate." },
+      budgetMinor: { type: "integer", minimum: 0 },
+      budgetUsd: { type: "number", description: "Budget in dollars (alternative to budgetMinor)." },
+      currency: { type: "string" },
+    },
+  },
+  output: {
+    type: "object",
+    required: ["agentSlots", "perWorkerMinor", "estimatedCostMinor", "withinBudget"],
+    properties: {
+      agentSlots: { type: "integer", description: "Total agent slots (workers + aggregator if present)." },
+      workerCount: { type: "integer" },
+      hasAggregator: { type: "boolean" },
+      perWorkerMinor: { type: "integer", description: "Budget allocated to each agent slot." },
+      estimatedCostMinor: { type: "integer" },
+      estimatedCostUsd: { type: "number", description: "Display-only USD equivalent. Null for non-USD." },
+      maxGpuSecondsPerWorker: { type: "integer" },
+      rateMinorPerSecond: { type: "integer" },
+      currency: { type: "string" },
+      withinBudget: { type: "boolean", description: "False when the budget is too low; spawn-swarm would reject it." },
+      rejectionReason: { type: "string", description: "Present only when withinBudget is false." },
+    },
+  },
+  examples: [
+    {
+      title: "Check if $3 covers a 3-task swarm with aggregator",
+      curl: `curl -X POST "$SWARMS_URL/api/v1/swarms/estimate" \\
+  -H "Authorization: Bearer $SWARMS_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"tasks":["task A","task B","task C"],"aggregatorTask":"Synthesise","budgetUsd":3.00}'`,
+      response: {
+        agentSlots: 4,
+        workerCount: 3,
+        hasAggregator: true,
+        perWorkerMinor: 75,
+        estimatedCostMinor: 300,
+        estimatedCostUsd: 3.0,
+        maxGpuSecondsPerWorker: 37,
+        rateMinorPerSecond: 2,
+        currency: "USD",
+        withinBudget: true,
+      },
+    },
+  ],
+  relatedSkills: ["spawn-swarm"],
+  tool: {
+    type: "function",
+    function: {
+      name: "estimate_swarm",
+      description:
+        "Dry-run cost preview for a swarm. Check withinBudget before calling spawn_swarm. No money reserved.",
+      parameters: {
+        type: "object",
+        required: ["tasks"],
+        properties: {
+          tasks: { type: "array", items: { type: "string" }, description: "One item per planned worker." },
+          aggregatorTask: { type: "string" },
+          budgetUsd: { type: "number" },
+          budgetMinor: { type: "integer" },
+        },
+      },
+    },
+  },
+};
+
 // ── Catalog ───────────────────────────────────────────────────────────────────
 
 export const SKILL_CATALOG: SkillCatalog = {
@@ -627,6 +709,7 @@ export const SKILL_CATALOG: SkillCatalog = {
     "your model's tool list.",
   skills: [
     SPAWN_SWARM,
+    ESTIMATE_SWARM,
     SPAWN_AGENT,
     GET_JOB,
     GET_JOB_LOGS,
