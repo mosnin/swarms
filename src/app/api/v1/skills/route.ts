@@ -11,17 +11,15 @@
 
 import type { NextRequest } from "next/server";
 
+import { formatResponse } from "@/lib/format-response";
 import { SKILL_CATALOG } from "@/server/skills/skill-registry";
 
 export const runtime = "nodejs";
 export const dynamic = "force-static";
 
-export function GET(_request: NextRequest): Response {
-  const body = JSON.stringify(SKILL_CATALOG, null, 2);
-  return new Response(body, {
-    status: 200,
+export function GET(request: NextRequest): Response {
+  return formatResponse(request, SKILL_CATALOG, {
     headers: {
-      "Content-Type": "application/json",
       "Cache-Control": "public, max-age=60, stale-while-revalidate=300",
       Etag: `"${SKILL_CATALOG.catalogVersion}"`,
     },

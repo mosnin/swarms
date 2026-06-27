@@ -16,17 +16,16 @@
 
 import type { NextRequest } from "next/server";
 
+import { formatResponse } from "@/lib/format-response";
 import { buildManifest, CATALOG_VERSION } from "@/server/skills/skill-registry";
 
 export const runtime = "nodejs";
 export const dynamic = "force-static";
 
-export function GET(_request: NextRequest): Response {
+export function GET(request: NextRequest): Response {
   const manifest = buildManifest();
-  return new Response(JSON.stringify(manifest, null, 2), {
-    status: 200,
+  return formatResponse(request, manifest, {
     headers: {
-      "Content-Type": "application/json",
       "Cache-Control": "public, max-age=30, stale-while-revalidate=120",
       Etag: `"${CATALOG_VERSION}"`,
     },

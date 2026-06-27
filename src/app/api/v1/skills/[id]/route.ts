@@ -7,27 +7,23 @@
 
 import type { NextRequest } from "next/server";
 
+import { formatResponse } from "@/lib/format-response";
 import { SKILL_CATALOG } from "@/server/skills/skill-registry";
 
 export const runtime = "nodejs";
 export const dynamic = "force-static";
 
 export function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
   return params.then(({ id }) => {
     const skill = SKILL_CATALOG.skills.find((s) => s.id === id);
     if (!skill) {
-      return new Response(
-        JSON.stringify({ error: { code: "NOT_FOUND", message: `Unknown skill: ${id}` } }),
-        { status: 404, headers: { "Content-Type": "application/json" } },
-      );
+      return formatResponse(request, { error: { code: "NOT_FOUND", message: `Unknown skill: ${id}` } }, { status: 404 });
     }
-    return new Response(JSON.stringify(skill, null, 2), {
-      status: 200,
+    return formatResponse(request, skill, {
       headers: {
-        "Content-Type": "application/json",
         "Cache-Control": "public, max-age=60, stale-while-revalidate=300",
         Etag: `"${skill.version}"`,
       },
