@@ -4,6 +4,7 @@ import { z } from "zod";
 import { ok, route } from "@/lib/api";
 import { Errors } from "@/lib/errors";
 import { deriveIdempotencyKey, idempotencyKeySchema } from "@/lib/idempotency";
+import { usdToMinor } from "@/lib/money";
 import { requireOrganization } from "@/modules/identity/access-control";
 import { authenticateRequest } from "@/modules/identity/service";
 import { spawnAgent } from "@/modules/agents/spawn-service";
@@ -23,16 +24,23 @@ const resourcesSchema = z
   })
   .optional();
 
-const body = z.object({
-  organizationId: z.string().optional(),
-  task: z.string().min(1).max(20_000),
-  resources: resourcesSchema,
-  model: z.string().max(96).optional(),
-  budgetMinor: z.number().int().nonnegative().optional(),
-  currency: z.string().length(3).optional(),
-  idempotencyKey: idempotencyKeySchema.optional(),
-  callbackUrl: z.string().url().optional(),
-});
+const body = z
+  .object({
+    organizationId: z.string().optional(),
+    task: z.string().min(1).max(20_000),
+    resources: resourcesSchema,
+    model: z.string().max(96).optional(),
+    budgetMinor: z.number().int().nonnegative().optional(),
+    /** Human-friendly alternative to budgetMinor: dollars as a decimal (e.g. 1.50). */
+    budgetUsd: z.number().positive().optional(),
+    currency: z.string().length(3).optional(),
+    idempotencyKey: idempotencyKeySchema.optional(),
+    callbackUrl: z.string().url().optional(),
+  })
+  .refine((d) => !(d.budgetUsd !== undefined && d.budgetMinor !== undefined), {
+    message: "Provide budgetUsd or budgetMinor, not both",
+    path: ["budgetUsd"],
+  });
 
 export async function POST(request: NextRequest): Promise<Response> {
   return route(async () => {
@@ -47,7 +55,9 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
     if (parsed.data.organizationId) requireOrganization(ctx, parsed.data.organizationId);
 
-    const { idempotencyKey, ...rest } = parsed.data;
+    const { idempotencyKey, budgetUsd, ...rest } = parsed.data;
+    const budgetMinor = rest.budgetMinor ?? (budgetUsd !== undefined ? usdToMinor(budgetUsd) : undefined);
+    const currency = rest.currency ?? (budgetUsd !== undefined ? "USD" : undefined);
     const resolvedKey =
       idempotencyKey ??
       deriveIdempotencyKey(ctx.organizationId, { task: rest.task, model: rest.model });
@@ -56,8 +66,8 @@ export async function POST(request: NextRequest): Promise<Response> {
       task: rest.task,
       resources: rest.resources,
       model: rest.model,
-      budgetMinor: rest.budgetMinor,
-      currency: rest.currency,
+      budgetMinor,
+      currency,
       idempotencyKey: resolvedKey,
       callbackUrl: rest.callbackUrl,
     });

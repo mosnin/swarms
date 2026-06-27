@@ -156,6 +156,24 @@ export function equals(a: Money, b: Money): boolean {
 }
 
 /**
+ * Convert a human-readable major-unit amount (e.g. dollars) to integer minor
+ * units (e.g. cents).  Uses `Intl` to determine the correct exponent for the
+ * currency so JPY (0 decimals) and KWD (3 decimals) are handled automatically.
+ *
+ * Only use this at API boundaries — all internal math operates on minor units.
+ */
+export function majorToMinor(majorAmount: number, currency: string): number {
+  const formatter = new Intl.NumberFormat("en-US", { style: "currency", currency });
+  const exponent = formatter.resolvedOptions().maximumFractionDigits ?? 2;
+  return Math.round(majorAmount * 10 ** exponent);
+}
+
+/** Convenience wrapper for the common USD case. */
+export function usdToMinor(dollars: number): number {
+  return majorToMinor(dollars, "USD");
+}
+
+/**
  * Format for display using the platform `Intl` data. The minor-unit integer is
  * converted to a string for display only — never used for further math.
  */

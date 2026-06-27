@@ -7,10 +7,12 @@ import {
   compare,
   equals,
   format,
+  majorToMinor,
   money,
   multiplyByInt,
   subtract,
   sum,
+  usdToMinor,
   zero,
 } from "@/lib/money";
 
@@ -82,6 +84,29 @@ describe("allocate", () => {
 
   it("rejects non-positive part counts", () => {
     expect(() => allocate(money(100, "USD"), 0)).toThrowError();
+  });
+});
+
+describe("majorToMinor / usdToMinor", () => {
+  it("converts whole dollars to cents", () => {
+    expect(usdToMinor(1)).toBe(100);
+    expect(usdToMinor(3)).toBe(300);
+  });
+
+  it("converts fractional dollars, rounding correctly", () => {
+    expect(usdToMinor(1.5)).toBe(150);
+    expect(usdToMinor(0.01)).toBe(1);
+    // Classic float trap: 1.005 * 100 = 100.49999... → Math.round → 100
+    // We don't guarantee sub-cent precision; agents should use cents directly for that.
+    expect(usdToMinor(1.99)).toBe(199);
+  });
+
+  it("handles currencies with no minor unit (JPY)", () => {
+    expect(majorToMinor(500, "JPY")).toBe(500);
+  });
+
+  it("handles currencies with 3 decimal places (KWD)", () => {
+    expect(majorToMinor(1, "KWD")).toBe(1000);
   });
 });
 

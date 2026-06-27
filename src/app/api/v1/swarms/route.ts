@@ -4,6 +4,7 @@ import { z } from "zod";
 import { ok, route } from "@/lib/api";
 import { Errors } from "@/lib/errors";
 import { deriveIdempotencyKey, idempotencyKeySchema } from "@/lib/idempotency";
+import { usdToMinor } from "@/lib/money";
 import { requireOrganization } from "@/modules/identity/access-control";
 import { authenticateRequest } from "@/modules/identity/service";
 import { spawnSwarm } from "@/modules/swarms/spawn-swarm";
@@ -23,20 +24,25 @@ const resourcesSchema = z
   })
   .optional();
 
-const body = z.object({
-  organizationId: z.string().optional(),
-  tasks: z.array(z.string().min(1).max(20_000)).min(1).max(16),
-  objective: z.string().max(2_000).optional(),
-  resources: resourcesSchema,
-  model: z.string().max(96).optional(),
-  budgetMinor: z.number().int().nonnegative().optional(),
-  currency: z.string().length(3).optional(),
-  idempotencyKey: idempotencyKeySchema.optional(),
-  /** Synthesise all worker outputs into one result via a final aggregator agent. */
-  aggregatorTask: z.string().min(1).max(20_000).optional(),
-  /** Run workers one-at-a-time, threading each output into the next as context. */
-  sequential: z.boolean().optional(),
-});
+const body = z
+  .object({
+    organizationId: z.string().optional(),
+    tasks: z.array(z.string().min(1).max(20_000)).min(1).max(16),
+    objective: z.string().max(2_000).optional(),
+    resources: resourcesSchema,
+    model: z.string().max(96).optional(),
+    budgetMinor: z.number().int().nonnegative().optional(),
+    /** Human-friendly alternative to budgetMinor: dollars as a decimal (e.g. 3.00). */
+    budgetUsd: z.number().positive().optional(),
+    currency: z.string().length(3).optional(),
+    idempotencyKey: idempotencyKeySchema.optional(),
+    aggregatorTask: z.string().min(1).max(20_000).optional(),
+    sequential: z.boolean().optional(),
+  })
+  .refine((d) => !(d.budgetUsd !== undefined && d.budgetMinor !== undefined), {
+    message: "Provide budgetUsd or budgetMinor, not both",
+    path: ["budgetUsd"],
+  });
 
 export async function POST(request: NextRequest): Promise<Response> {
   return route(async () => {
@@ -51,7 +57,9 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
     if (parsed.data.organizationId) requireOrganization(ctx, parsed.data.organizationId);
 
-    const { idempotencyKey, ...rest } = parsed.data;
+    const { idempotencyKey, budgetUsd, ...rest } = parsed.data;
+    const budgetMinor = rest.budgetMinor ?? (budgetUsd !== undefined ? usdToMinor(budgetUsd) : undefined);
+    const currency = rest.currency ?? (budgetUsd !== undefined ? "USD" : undefined);
     const resolvedKey =
       idempotencyKey ??
       deriveIdempotencyKey(ctx.organizationId, {
@@ -67,8 +75,8 @@ export async function POST(request: NextRequest): Promise<Response> {
       objective: rest.objective,
       resources: rest.resources,
       model: rest.model,
-      budgetMinor: rest.budgetMinor,
-      currency: rest.currency,
+      budgetMinor,
+      currency,
       idempotencyKey: resolvedKey,
       aggregatorTask: rest.aggregatorTask,
       sequential: rest.sequential,
