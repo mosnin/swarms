@@ -4,7 +4,7 @@
  * agent-workforce path (see spawn-swarm.ts).
  */
 
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, lt } from "drizzle-orm";
 
 import { getDb } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
@@ -22,6 +22,77 @@ export interface SwarmRunView {
   output: unknown;
   agents: Array<{ role: string; status: string; jobId: string | null; costMinor: number; output: unknown; error: unknown }>;
   createdAt: string;
+}
+
+export interface SwarmRunSummary {
+  id: string;
+  status: string;
+  objective: string;
+  workerCount: number;
+  costMinor: number;
+  costCurrency: string;
+  createdAt: string;
+  finishedAt: string | null;
+}
+
+export interface ListSwarmRunsOptions {
+  status?: string;
+  limit?: number;
+  cursor?: string; // id of last item on previous page (cursor-based pagination)
+}
+
+export async function listSwarmRuns(
+  ctx: AuthContext,
+  opts: ListSwarmRunsOptions = {},
+  db: Db = getDb(),
+): Promise<{ runs: SwarmRunSummary[]; nextCursor: string | null }> {
+  requirePermission(ctx, "jobs.read");
+
+  const limit = Math.min(opts.limit ?? 20, 100);
+
+  const conditions = [eq(schema.swarmRuns.organizationId, ctx.organizationId)];
+  if (opts.status) {
+    conditions.push(eq(schema.swarmRuns.status, opts.status as never));
+  }
+  if (opts.cursor) {
+    // Fetch runs created before the cursor item (descending order).
+    const cursorRun = (
+      await db
+        .select({ createdAt: schema.swarmRuns.createdAt })
+        .from(schema.swarmRuns)
+        .where(eq(schema.swarmRuns.id, opts.cursor))
+        .limit(1)
+    )[0];
+    if (cursorRun) {
+      conditions.push(lt(schema.swarmRuns.createdAt, cursorRun.createdAt));
+    }
+  }
+
+  const rows = await db
+    .select()
+    .from(schema.swarmRuns)
+    .where(and(...conditions))
+    .orderBy(desc(schema.swarmRuns.createdAt))
+    .limit(limit + 1); // fetch one extra to detect next page
+
+  const hasNext = rows.length > limit;
+  const page = hasNext ? rows.slice(0, limit) : rows;
+
+  const runs: SwarmRunSummary[] = page.map((r) => ({
+    id: r.id,
+    status: r.status,
+    objective: (r.input as { objective?: string })?.objective ?? "",
+    workerCount: (r.input as { workerCount?: number })?.workerCount ?? 0,
+    costMinor: r.costMinor,
+    costCurrency: r.costCurrency,
+    createdAt: r.createdAt.toISOString(),
+    finishedAt: r.finishedAt?.toISOString() ?? null,
+  }));
+
+  return {
+    runs,
+    nextCursor: hasNext && page.length > 0 ? (page[page.length - 1]?.id ?? null) : null,
+  };
 }
 
 export async function getSwarmRun(ctx: AuthContext, swarmRunId: string, db: Db = getDb()): Promise<SwarmRunView> {

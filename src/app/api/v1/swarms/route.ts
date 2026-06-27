@@ -8,6 +8,7 @@ import { usdToMinor } from "@/lib/money";
 import { requireOrganization } from "@/modules/identity/access-control";
 import { authenticateRequest } from "@/modules/identity/service";
 import { spawnSwarm } from "@/modules/swarms/spawn-swarm";
+import { listSwarmRuns } from "@/modules/swarms/swarm-repository";
 import { enforceRateLimit } from "@/server/ratelimit/enforce";
 import { expandTemplate, findTemplate } from "@/server/swarms/swarm-templates";
 
@@ -67,6 +68,30 @@ const body = z
     message: "Provide budgetUsd or budgetMinor, not both",
     path: ["budgetUsd"],
   });
+
+const VALID_STATUSES = new Set(["queued", "running", "succeeded", "failed", "cancelled"]);
+
+export async function GET(request: NextRequest): Promise<Response> {
+  return route(async () => {
+    const ctx = await authenticateRequest(request);
+    const url = new URL(request.url);
+    const status = url.searchParams.get("status") ?? undefined;
+    const limitRaw = url.searchParams.get("limit");
+    const cursor = url.searchParams.get("cursor") ?? undefined;
+
+    if (status !== undefined && !VALID_STATUSES.has(status)) {
+      throw Errors.validation(`Invalid status filter: "${status}". Must be one of: ${[...VALID_STATUSES].join(", ")}`);
+    }
+
+    const limit = limitRaw !== null ? Number(limitRaw) : undefined;
+    if (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > 100)) {
+      throw Errors.validation("limit must be an integer between 1 and 100");
+    }
+
+    const result = await listSwarmRuns(ctx, { status, limit, cursor });
+    return ok(result);
+  });
+}
 
 export async function POST(request: NextRequest): Promise<Response> {
   return route(async () => {
