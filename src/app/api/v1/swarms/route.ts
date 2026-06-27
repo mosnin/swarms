@@ -52,6 +52,12 @@ const body = z
      * (or the expanded template's task count). Each element is seconds (integer ≥ 1).
      */
     workerTimeouts: z.array(z.number().int().positive()).max(16).optional(),
+    /**
+     * When true, reject the request if any two tasks appear to be duplicates
+     * (similarity ≥ 0.8). Default false — warnings are returned but execution
+     * continues.
+     */
+    deduplicateStrict: z.boolean().optional(),
   })
   .refine((d) => d.templateId !== undefined || (d.tasks !== undefined && d.tasks.length > 0), {
     message: "Provide tasks or templateId",
@@ -75,7 +81,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
     if (parsed.data.organizationId) requireOrganization(ctx, parsed.data.organizationId);
 
-    const { idempotencyKey, budgetUsd, templateId, workerTimeouts, ...rest } = parsed.data;
+    const { idempotencyKey, budgetUsd, templateId, workerTimeouts, deduplicateStrict, ...rest } = parsed.data;
 
     // Expand template defaults, then apply any caller overrides.
     let tasks = rest.tasks;
@@ -119,6 +125,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       aggregatorTask,
       sequential,
       workerTimeouts,
+      deduplicateStrict,
     });
     return ok(response, 201);
   });

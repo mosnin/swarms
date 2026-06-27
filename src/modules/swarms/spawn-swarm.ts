@@ -26,6 +26,7 @@ import { checkBudget } from "@/server/budget/checkBudget";
 import { releaseBudget } from "@/server/budget/releaseBudget";
 import { reserveBudget } from "@/server/budget/reserveBudget";
 import { executeSwarm, type ChildOutcome, type PlannedAgent } from "@/server/swarms/executeSwarm";
+import { detectDuplicateTasks, type DuplicateWarning } from "@/server/swarms/task-dedup";
 import { getJobQueue } from "@/server/queue/queue";
 
 type Db = ReturnType<typeof getDb>;
@@ -64,6 +65,12 @@ export interface SpawnSwarmRequest {
    * The aggregator (if any) always uses the uniform slice.
    */
   workerTimeouts?: number[];
+  /**
+   * When true, reject the request if any two tasks are exact or near-duplicates
+   * (instead of running them and including warnings in the response).
+   * Default false — warnings are surfaced but execution continues.
+   */
+  deduplicateStrict?: boolean;
 }
 
 export interface SwarmWorkerView {
@@ -85,6 +92,8 @@ export interface SpawnSwarmResponse {
   workers: SwarmWorkerView[];
   /** Synthesised output from the aggregator agent (Mixture-of-Agents), if requested. */
   aggregatorOutput?: unknown;
+  /** Non-empty when duplicate or near-duplicate tasks were detected. */
+  duplicateWarnings?: DuplicateWarning[];
   createdAt: string;
 }
 
@@ -100,6 +109,17 @@ export async function spawnSwarm(
   if (tasks.length === 0) throw Errors.validation("At least one task is required");
   if (tasks.length > MAX_WORKERS) {
     throw Errors.validation(`A swarm is capped at ${MAX_WORKERS} workers`, { requested: tasks.length });
+  }
+
+  const duplicateWarnings = detectDuplicateTasks(tasks);
+  if (duplicateWarnings.length > 0 && request.deduplicateStrict) {
+    throw Errors.validation("Duplicate or near-duplicate tasks detected", {
+      duplicates: duplicateWarnings.map((w) => ({
+        kind: w.kind,
+        tasks: [w.indexA, w.indexB],
+        similarity: w.similarity,
+      })),
+    });
   }
 
   // Fallbacks: Zod defaults don't apply under SKIP_ENV_VALIDATION (build/test).
@@ -381,6 +401,7 @@ export async function spawnSwarm(
       error: a.error ?? null,
     })),
     aggregatorOutput: result.aggregatorOutput,
+    ...(duplicateWarnings.length > 0 ? { duplicateWarnings } : {}),
     createdAt: (finished ?? run).createdAt.toISOString(),
   };
 }
