@@ -382,4 +382,65 @@ describe("integration: spawn a workforce (swarm of agents)", () => {
       spawnSwarm(ctx, { templateId: "does-not-exist", budgetMinor: 100, idempotencyKey: "swarm-tpl-bad" }, db),
     ).rejects.toMatchObject({ code: "VALIDATION" });
   });
+
+  // ── Feature 12: Duplicate / conflicting task detection ────────────────────
+
+  it("duplicate detection: returns duplicateWarnings when tasks are identical (lenient mode)", async () => {
+    const { organizationId, userId } = await seedOrg(db, "org-dedup-1");
+    const ctx = userContext({ organizationId, userId, membershipId: "m", role: "owner" });
+
+    const res = await spawnSwarm(
+      ctx,
+      {
+        tasks: ["Research AI trends", "Research AI trends"], // exact duplicate
+        budgetMinor: 200,
+        idempotencyKey: "swarm-dedup-lenient-0001",
+        // deduplicateStrict NOT set → should warn but not reject
+      },
+      db,
+    );
+
+    expect(res.status).toBe("succeeded");
+    expect(Array.isArray(res.duplicateWarnings)).toBe(true);
+    expect(res.duplicateWarnings!.length).toBeGreaterThan(0);
+    expect(res.duplicateWarnings![0]?.kind).toBe("exact");
+    expect(res.duplicateWarnings![0]?.similarity).toBe(1);
+  });
+
+  it("duplicate detection: rejects with VALIDATION when deduplicateStrict=true and duplicates found", async () => {
+    const { organizationId, userId } = await seedOrg(db, "org-dedup-2");
+    const ctx = userContext({ organizationId, userId, membershipId: "m", role: "owner" });
+
+    await expect(
+      spawnSwarm(
+        ctx,
+        {
+          tasks: ["Summarise the quarterly report", "Summarise the quarterly report"],
+          budgetMinor: 200,
+          deduplicateStrict: true,
+          idempotencyKey: "swarm-dedup-strict-0001",
+        },
+        db,
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+  });
+
+  it("duplicate detection: no warnings for clearly distinct tasks", async () => {
+    const { organizationId, userId } = await seedOrg(db, "org-dedup-3");
+    const ctx = userContext({ organizationId, userId, membershipId: "m", role: "owner" });
+
+    const res = await spawnSwarm(
+      ctx,
+      {
+        tasks: ["Draft a blog post about climate change", "Analyse competitor pricing strategies"],
+        budgetMinor: 200,
+        idempotencyKey: "swarm-dedup-distinct-0001",
+      },
+      db,
+    );
+
+    expect(res.status).toBe("succeeded");
+    // duplicateWarnings absent or empty when tasks are clearly distinct
+    expect(!res.duplicateWarnings || res.duplicateWarnings.length === 0).toBe(true);
+  });
 });
