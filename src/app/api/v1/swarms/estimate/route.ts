@@ -23,7 +23,6 @@ import { ok, route } from "@/lib/api";
 import { Errors } from "@/lib/errors";
 import { env } from "@/lib/env";
 import { usdToMinor } from "@/lib/money";
-import { idempotencyKeySchema } from "@/lib/idempotency";
 import { authenticateRequest } from "@/modules/identity/service";
 
 export const runtime = "nodejs";
