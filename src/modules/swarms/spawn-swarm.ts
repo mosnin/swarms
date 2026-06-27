@@ -176,7 +176,15 @@ export async function spawnSwarm(
         organizationId: ctx.organizationId,
         idempotencyKey: request.idempotencyKey,
         status: "running",
-        input: { objective: request.objective ?? null, workerCount: tasks.length },
+        input: {
+        objective: request.objective ?? null,
+        workerCount: tasks.length,
+        model: model,
+        sequential: request.sequential ?? false,
+        aggregatorTask: request.aggregatorTask ?? null,
+        budgetMinor: request.budgetMinor ?? null,
+        currency,
+      },
         costCurrency: currency,
         startedAt: new Date(),
       })
