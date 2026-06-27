@@ -27,6 +27,7 @@ import { getDb } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
 import { requirePermission } from "@/modules/identity/access-control";
 import { authenticateRequest } from "@/modules/identity/service";
+import { computeBudgetAlerts } from "@/server/budget/budgetAlerts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -82,7 +83,7 @@ export async function GET(request: NextRequest): Promise<Response> {
     // Swarm vs standalone breakdown: join ledger → jobs → swarm_agents to determine
     // whether a job belongs to a swarm. A job is a "swarm job" when it has a
     // swarmAgent row pointing at it.
-    const [swarmSpendRow, jobCount, swarmRunCount] = await Promise.all([
+    const [swarmSpendRow, jobCount, swarmRunCount, budgetAlerts] = await Promise.all([
       db
         .select({ total: sum(schema.usageLedgerEntries.amountMinor) })
         .from(schema.usageLedgerEntries)
@@ -96,6 +97,7 @@ export async function GET(request: NextRequest): Promise<Response> {
         .select({ count: sql<number>`cast(count(*) as int)` })
         .from(schema.swarmRuns)
         .where(eq(schema.swarmRuns.organizationId, orgId)),
+      computeBudgetAlerts(orgId, "USD", db),
     ]);
 
     const totalMinor = Number(month30Row[0]?.total ?? 0);
@@ -115,6 +117,7 @@ export async function GET(request: NextRequest): Promise<Response> {
       currency: "USD",
       totalJobs: jobCount[0]?.count ?? 0,
       totalSwarmRuns: swarmRunCount[0]?.count ?? 0,
+      budgetAlerts,
     });
   });
 }

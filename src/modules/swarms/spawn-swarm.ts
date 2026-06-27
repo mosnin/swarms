@@ -28,6 +28,7 @@ import { reserveBudget } from "@/server/budget/reserveBudget";
 import { executeSwarm, type ChildOutcome, type PlannedAgent } from "@/server/swarms/executeSwarm";
 import { detectDuplicateTasks, type DuplicateWarning } from "@/server/swarms/task-dedup";
 import { enqueueWebhook } from "@/modules/webhooks/webhook-service";
+import { computeBudgetAlerts } from "@/server/budget/budgetAlerts";
 import { getJobQueue } from "@/server/queue/queue";
 
 type Db = ReturnType<typeof getDb>;
@@ -413,6 +414,35 @@ export async function spawnSwarm(
       },
       db,
     ).catch(() => undefined);
+
+    // Budget threshold alerts: fire after the swarm charge is committed so the
+    // spend figure is accurate. Best-effort — never blocks the response.
+    computeBudgetAlerts(ctx.organizationId, currency, db)
+      .then(async (alerts) => {
+        for (const alert of alerts) {
+          await enqueueWebhook(
+            {
+              organizationId: ctx.organizationId,
+              swarmRunId: run.id,
+              eventType: `budget.${alert.level}`,
+              url: request.callbackUrl!,
+              data: {
+                budgetId: alert.budgetId,
+                budgetName: alert.budgetName,
+                threshold: alert.threshold,
+                level: alert.level,
+                spentMinor: alert.spentMinor,
+                limitMinor: alert.limitMinor,
+                currency: alert.currency,
+                period: alert.period,
+                usagePercent: alert.usagePercent,
+              },
+            },
+            db,
+          );
+        }
+      })
+      .catch(() => undefined);
   }
 
   return {
