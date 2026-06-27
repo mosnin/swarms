@@ -118,9 +118,7 @@ describe("integration: API key scoped budgets", () => {
     const ctx = userContext({ organizationId, userId, membershipId: "m", role: "owner" });
 
     const { key } = await createApiKey(ctx, { name: "key-with-budget", budgetMinor: 9999 }, db);
-    const budgets = await db.select().from(schema.budgets).where(
-      // All budgets for org; should find one scoped to this key
-    );
+    const budgets = await db.select().from(schema.budgets);
     const budget = budgets.find((b) => {
       const s = b.scope as Record<string, unknown> | null;
       return s?.apiKeyId === key.id;

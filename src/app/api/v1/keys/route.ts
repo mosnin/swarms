@@ -13,6 +13,7 @@ import { z } from "zod";
 import { ok, route } from "@/lib/api";
 import { Errors } from "@/lib/errors";
 import { authenticateRequest, createApiKey, listApiKeys } from "@/modules/identity/service";
+import type { Permission } from "@/modules/identity/roles";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,7 +47,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     const { name, scopes, expiresAt, budgetMinor, budgetCurrency } = parsed.data;
     const result = await createApiKey(ctx, {
       name,
-      scopes: scopes as string[] | undefined,
+      scopes: scopes as Permission[] | undefined,
       expiresAt: expiresAt ? new Date(expiresAt) : undefined,
       budgetMinor,
       budgetCurrency,
