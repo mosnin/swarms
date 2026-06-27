@@ -8,6 +8,8 @@
  * The goal is agent-readable, not publication-quality.
  */
 
+import { NextResponse } from "next/server";
+
 type Headers = Record<string, string>;
 
 function wantsMarkdown(url: string | URL): boolean {
@@ -54,19 +56,19 @@ export function formatResponse(
   request: { url: string },
   data: unknown,
   options: { status?: number; headers?: Headers } = {},
-): Response {
+): NextResponse {
   const status = options.status ?? 200;
   const extraHeaders = options.headers ?? {};
 
   if (wantsMarkdown(request.url)) {
     const body = toMarkdown(data);
-    return new Response(body, {
+    return new NextResponse(body, {
       status,
       headers: { "Content-Type": "text/markdown; charset=utf-8", ...extraHeaders },
     });
   }
 
-  return new Response(JSON.stringify(data, null, 2), {
+  return new NextResponse(JSON.stringify(data, null, 2), {
     status,
     headers: { "Content-Type": "application/json", ...extraHeaders },
   });

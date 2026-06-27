@@ -11,12 +11,13 @@
  */
 
 import type { NextRequest } from "next/server";
+import { formatResponse } from "@/lib/format-response";
 import { CATALOG_VERSION } from "@/server/skills/skill-registry";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export function GET(_request: NextRequest): Response {
+export function GET(request: NextRequest): Response {
   const body = {
     api: "swarms",
     version: "v1",
@@ -38,12 +39,14 @@ export function GET(_request: NextRequest): Response {
     },
   };
 
+  const cacheHeaders = { "Cache-Control": "public, max-age=60, stale-while-revalidate=300" };
+
+  if (new URL(request.url).searchParams.get("format") === "markdown") {
+    return formatResponse(request, body, { headers: cacheHeaders });
+  }
+
   return new Response(JSON.stringify({ data: body }), {
     status: 200,
-    headers: {
-      "Content-Type": "application/json",
-      // Public, cache for 60 s at CDN, 300 s stale-while-revalidate.
-      "Cache-Control": "public, max-age=60, stale-while-revalidate=300",
-    },
+    headers: { "Content-Type": "application/json", ...cacheHeaders },
   });
 }

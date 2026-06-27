@@ -23,6 +23,7 @@ import type { NextRequest } from "next/server";
 import { and, eq, gte, isNotNull, sql, sum } from "drizzle-orm";
 
 import { ok, route } from "@/lib/api";
+import { formatResponse } from "@/lib/format-response";
 import { getDb } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
 import { requirePermission } from "@/modules/identity/access-control";
@@ -104,7 +105,7 @@ export async function GET(request: NextRequest): Promise<Response> {
     const swarmMinor = Number(swarmSpendRow[0]?.total ?? 0);
     const standaloneMinor = totalMinor - swarmMinor;
 
-    return ok({
+    const usageData = {
       periods: {
         today: Number(todayRow[0]?.total ?? 0),
         last7days: Number(week7Row[0]?.total ?? 0),
@@ -118,6 +119,10 @@ export async function GET(request: NextRequest): Promise<Response> {
       totalJobs: jobCount[0]?.count ?? 0,
       totalSwarmRuns: swarmRunCount[0]?.count ?? 0,
       budgetAlerts,
-    });
+    };
+    if (new URL(request.url).searchParams.get("format") === "markdown") {
+      return formatResponse(request, usageData);
+    }
+    return ok(usageData);
   });
 }

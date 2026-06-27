@@ -4,6 +4,7 @@ import { z } from "zod";
 import { ok, route } from "@/lib/api";
 import { Errors } from "@/lib/errors";
 import { deriveIdempotencyKey, idempotencyKeySchema } from "@/lib/idempotency";
+import { formatResponse } from "@/lib/format-response";
 import { usdToMinor } from "@/lib/money";
 import { requireOrganization } from "@/modules/identity/access-control";
 import { authenticateRequest } from "@/modules/identity/service";
@@ -95,6 +96,9 @@ export async function GET(request: NextRequest): Promise<Response> {
     }
 
     const result = await listSwarmRuns(ctx, { status, limit, cursor });
+    if (url.searchParams.get("format") === "markdown") {
+      return formatResponse(request, result);
+    }
     return ok(result);
   });
 }
