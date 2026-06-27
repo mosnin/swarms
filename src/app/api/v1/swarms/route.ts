@@ -47,6 +47,11 @@ const body = z
     idempotencyKey: idempotencyKeySchema.optional(),
     aggregatorTask: z.string().min(1).max(20_000).optional(),
     sequential: z.boolean().optional(),
+    /**
+     * Per-worker GPU-second limits. When provided, length must equal tasks.length
+     * (or the expanded template's task count). Each element is seconds (integer ≥ 1).
+     */
+    workerTimeouts: z.array(z.number().int().positive()).max(16).optional(),
   })
   .refine((d) => d.templateId !== undefined || (d.tasks !== undefined && d.tasks.length > 0), {
     message: "Provide tasks or templateId",
@@ -70,7 +75,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
     if (parsed.data.organizationId) requireOrganization(ctx, parsed.data.organizationId);
 
-    const { idempotencyKey, budgetUsd, templateId, ...rest } = parsed.data;
+    const { idempotencyKey, budgetUsd, templateId, workerTimeouts, ...rest } = parsed.data;
 
     // Expand template defaults, then apply any caller overrides.
     let tasks = rest.tasks;
@@ -113,6 +118,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       idempotencyKey: resolvedKey,
       aggregatorTask,
       sequential,
+      workerTimeouts,
     });
     return ok(response, 201);
   });

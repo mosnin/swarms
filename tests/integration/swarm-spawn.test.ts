@@ -184,6 +184,56 @@ describe("integration: spawn a workforce (swarm of agents)", () => {
     expect(res.costMinor).toBeLessThanOrEqual(6);
   });
 
+  // ── Feature 10: Per-worker timeout override ───────────────────────────────
+
+  it("per-worker timeouts: each worker gets an individual GPU budget", async () => {
+    const { organizationId, userId } = await seedOrg(db, "org-timeout-1");
+    const ctx = userContext({ organizationId, userId, membershipId: "m", role: "owner" });
+
+    // Workers get 10 s and 30 s respectively. rate = 2 minor/sec → 20 and 60 minor.
+    const res = await spawnSwarm(
+      ctx,
+      {
+        tasks: ["quick task", "long task"],
+        workerTimeouts: [10, 30],
+        idempotencyKey: "swarm-timeout-0001",
+      },
+      db,
+    );
+
+    expect(res.status).toBe("succeeded");
+    expect(res.workerCount).toBe(2);
+    // Aggregate cost must be within the sum of per-worker budgets (20+60=80 minor).
+    expect(res.costMinor).toBeLessThanOrEqual(80);
+  });
+
+  it("per-worker timeouts: rejects when length mismatches task count", async () => {
+    const { organizationId, userId } = await seedOrg(db, "org-timeout-2");
+    const ctx = userContext({ organizationId, userId, membershipId: "m", role: "owner" });
+
+    await expect(
+      spawnSwarm(
+        ctx,
+        { tasks: ["a", "b", "c"], workerTimeouts: [10, 20], idempotencyKey: "swarm-timeout-err" },
+        db,
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+  });
+
+  it("per-worker timeouts: rejects when total exceeds budgetMinor", async () => {
+    const { organizationId, userId } = await seedOrg(db, "org-timeout-3");
+    const ctx = userContext({ organizationId, userId, membershipId: "m", role: "owner" });
+
+    // rate=2, 30s+30s = 120 minor; budget only 50
+    await expect(
+      spawnSwarm(
+        ctx,
+        { tasks: ["a", "b"], workerTimeouts: [30, 30], budgetMinor: 50, idempotencyKey: "swarm-timeout-budget" },
+        db,
+      ),
+    ).rejects.toMatchObject({ code: "BUDGET_EXCEEDED" });
+  });
+
   // ── Feature 3: Hierarchical director (kind="swarm") ───────────────────────
 
   it("director job: a kind=swarm job spawns a child swarm and reports its output", async () => {

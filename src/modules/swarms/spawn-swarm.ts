@@ -57,6 +57,13 @@ export interface SpawnSwarmRequest {
    * context to the next worker, enabling pipeline-style workflows.
    */
   sequential?: boolean;
+  /**
+   * Per-worker GPU-second limits. When provided, length must equal tasks.length.
+   * The i-th worker gets `workerTimeouts[i] * rate` minor units as its budget.
+   * Overrides the uniform per-worker split derived from budgetMinor.
+   * The aggregator (if any) always uses the uniform slice.
+   */
+  workerTimeouts?: number[];
 }
 
 export interface SwarmWorkerView {
@@ -101,26 +108,50 @@ export async function spawnSwarm(
   const model = request.model ?? env.AGENT_DEFAULT_MODEL ?? "deepseek/deepseek-chat-v4";
   const resources = request.resources ?? {};
 
-  // Split the aggregate budget evenly into a hard per-worker GPU ceiling. When
-  // an aggregator is requested, budget is divided across N+1 slots (N workers +
-  // 1 aggregator). The per-worker floor must NOT be bumped up to `rate` — doing
-  // so makes the aggregate exceed the caller's budgetMinor (a silent over-charge).
-  // Instead, a budget that can't fund one GPU-second per slot is rejected up front.
+  // Per-worker timeout overrides: if provided, each worker gets an explicit
+  // GPU-second budget; otherwise fall back to an even split of budgetMinor.
+  if (request.workerTimeouts !== undefined && request.workerTimeouts.length !== tasks.length) {
+    throw Errors.validation(
+      `workerTimeouts length (${request.workerTimeouts.length}) must equal tasks length (${tasks.length})`,
+    );
+  }
+
   const agentSlots = tasks.length + (request.aggregatorTask ? 1 : 0);
   let perWorkerMinor: number;
-  if (request.budgetMinor && request.budgetMinor > 0) {
-    perWorkerMinor = Math.floor(request.budgetMinor / agentSlots);
-    if (perWorkerMinor < rate) {
+  let workerBudgets: number[];
+
+  if (request.workerTimeouts !== undefined) {
+    // Explicit per-worker budgets.
+    workerBudgets = request.workerTimeouts.map((sec) => Math.max(1, Math.floor(sec * rate)));
+    const workerTotal = workerBudgets.reduce((a, b) => a + b, 0);
+    // Aggregator (if any) gets the average worker budget.
+    perWorkerMinor = Math.floor(workerTotal / tasks.length);
+    const aggregatorBudget = request.aggregatorTask ? perWorkerMinor : 0;
+    const totalNeeded = workerTotal + aggregatorBudget;
+    if (request.budgetMinor && request.budgetMinor > 0 && totalNeeded > request.budgetMinor) {
       throw Errors.budgetExceeded(
-        "budgetMinor is too low to fund one GPU-second per worker",
-        { budgetMinor: request.budgetMinor, workers: tasks.length, minPerWorkerMinor: rate },
+        "workerTimeouts exceed budgetMinor",
+        { budgetMinor: request.budgetMinor, workerTotal, aggregatorBudget },
       );
     }
   } else {
-    perWorkerMinor = DEFAULT_GPU_SECONDS_PER_WORKER * rate;
+    // Uniform split across all slots.
+    if (request.budgetMinor && request.budgetMinor > 0) {
+      perWorkerMinor = Math.floor(request.budgetMinor / agentSlots);
+      if (perWorkerMinor < rate) {
+        throw Errors.budgetExceeded(
+          "budgetMinor is too low to fund one GPU-second per worker",
+          { budgetMinor: request.budgetMinor, workers: tasks.length, minPerWorkerMinor: rate },
+        );
+      }
+    } else {
+      perWorkerMinor = DEFAULT_GPU_SECONDS_PER_WORKER * rate;
+    }
+    workerBudgets = tasks.map(() => perWorkerMinor);
   }
+
   const maxGpuSecondsPerWorker = rate > 0 ? Math.max(1, Math.floor(perWorkerMinor / rate)) : DEFAULT_GPU_SECONDS_PER_WORKER;
-  const aggregateMinor = perWorkerMinor * agentSlots;
+  const aggregateMinor = workerBudgets.reduce((a, b) => a + b, 0) + (request.aggregatorTask ? perWorkerMinor : 0);
 
   // Idempotency: a replayed key returns the original run without re-charging.
   const existing = (
@@ -246,6 +277,11 @@ export async function spawnSwarm(
         .where(eq(schema.swarmAgents.id, workerRowId));
     }
 
+    // Use per-worker budget for this slot (workerBudgets[index]), or perWorkerMinor
+    // for the aggregator (index === tasks.length).
+    const thisWorkerBudget = index < workerBudgets.length ? (workerBudgets[index] ?? perWorkerMinor) : perWorkerMinor;
+    const thisGpuSeconds = rate > 0 ? Math.max(1, Math.floor(thisWorkerBudget / rate)) : DEFAULT_GPU_SECONDS_PER_WORKER;
+
     const { job } = await createJobCore(dbJobStore(db), getJobQueue(), {
       organizationId: ctx.organizationId,
       createdByUserId,
@@ -255,16 +291,16 @@ export async function spawnSwarm(
         task: taskFor(agent.instructions, agent.previousOutput),
         resourceBundleId: bundleId,
         model,
-        priceMinor: perWorkerMinor,
+        priceMinor: thisWorkerBudget,
         priceCurrency: currency,
       },
-      input: { task: taskFor(agent.instructions, agent.previousOutput), maxGpuSeconds: maxGpuSecondsPerWorker, rateMinorPerSecond: rate, currency },
+      input: { task: taskFor(agent.instructions, agent.previousOutput), maxGpuSeconds: thisGpuSeconds, rateMinorPerSecond: rate, currency },
       idempotencyKey: `${run.id}-${index}-${attempt}`,
       currency,
     });
 
     await reserveBudget(
-      { organizationId: ctx.organizationId, jobId: job.id, amountMinor: perWorkerMinor, currency },
+      { organizationId: ctx.organizationId, jobId: job.id, amountMinor: thisWorkerBudget, currency },
       db,
     );
     reservedJobIds.push(job.id);
