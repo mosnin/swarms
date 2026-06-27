@@ -27,6 +27,7 @@ import { releaseBudget } from "@/server/budget/releaseBudget";
 import { reserveBudget } from "@/server/budget/reserveBudget";
 import { executeSwarm, type ChildOutcome, type PlannedAgent } from "@/server/swarms/executeSwarm";
 import { detectDuplicateTasks, type DuplicateWarning } from "@/server/swarms/task-dedup";
+import { enqueueWebhook } from "@/modules/webhooks/webhook-service";
 import { getJobQueue } from "@/server/queue/queue";
 
 type Db = ReturnType<typeof getDb>;
@@ -71,6 +72,12 @@ export interface SpawnSwarmRequest {
    * Default false — warnings are surfaced but execution continues.
    */
   deduplicateStrict?: boolean;
+  /**
+   * When provided, a signed `swarm.succeeded` / `swarm.failed` webhook is
+   * enqueued after the swarm reaches a terminal state. Delivery is best-effort
+   * and non-blocking — failures here never surface to the caller.
+   */
+  callbackUrl?: string;
 }
 
 export interface SwarmWorkerView {
@@ -385,11 +392,34 @@ export async function spawnSwarm(
       .returning()
   )[0];
 
+  const finalStatus = finished?.status ?? "succeeded";
+  const finalCostMinor = finished?.costMinor ?? result.totalCostMinor;
+
+  // Best-effort webhook: enqueue and never let failures surface to the caller.
+  if (request.callbackUrl) {
+    enqueueWebhook(
+      {
+        organizationId: ctx.organizationId,
+        swarmRunId: run.id,
+        eventType: `swarm.${finalStatus}`,
+        url: request.callbackUrl,
+        data: {
+          swarmRunId: run.id,
+          status: finalStatus,
+          workerCount: tasks.length,
+          costMinor: finalCostMinor,
+          currency,
+        },
+      },
+      db,
+    ).catch(() => undefined);
+  }
+
   return {
     swarmRunId: run.id,
-    status: finished?.status ?? "succeeded",
+    status: finalStatus,
     workerCount: tasks.length,
-    costMinor: finished?.costMinor ?? result.totalCostMinor,
+    costMinor: finalCostMinor,
     currency,
     maxGpuSecondsPerWorker,
     workers: result.agents.map((a) => ({

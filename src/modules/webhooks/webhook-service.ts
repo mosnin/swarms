@@ -19,7 +19,10 @@ export const EVENT_HEADER = "x-swarms-event";
 
 export interface WebhookEventInput {
   organizationId: string;
-  jobId: string;
+  /** Set for job lifecycle events; omit for swarm events. */
+  jobId?: string;
+  /** Set for swarm lifecycle events; omit for job events. */
+  swarmRunId?: string;
   eventType: string;
   url: string;
   data: Record<string, unknown>;
@@ -33,7 +36,8 @@ export interface WebhookEventInput {
 export function buildEventBody(input: WebhookEventInput, occurredAt: string): string {
   return canonicalize({
     type: input.eventType,
-    jobId: input.jobId,
+    ...(input.jobId !== undefined ? { jobId: input.jobId } : {}),
+    ...(input.swarmRunId !== undefined ? { swarmRunId: input.swarmRunId } : {}),
     organizationId: input.organizationId,
     occurredAt,
     data: input.data,
@@ -47,7 +51,7 @@ export async function enqueueWebhook(input: WebhookEventInput, db: Db = getDb())
   const signature = signWebhook(webhookSecret(), body);
   await db.insert(schema.webhookDeliveries).values({
     organizationId: input.organizationId,
-    jobId: input.jobId,
+    jobId: input.jobId ?? null,
     eventType: input.eventType,
     url: input.url,
     payload: JSON.parse(body),
@@ -104,15 +108,17 @@ export async function deliverPendingWebhooks(
   if (due.length === 0) return 0;
 
   for (const delivery of due) {
+    const storedPayload = delivery.payload as { data?: Record<string, unknown>; occurredAt?: string; swarmRunId?: string };
     const body = buildEventBody(
       {
         organizationId: delivery.organizationId,
-        jobId: delivery.jobId ?? "",
+        jobId: delivery.jobId ?? undefined,
+        swarmRunId: storedPayload.swarmRunId,
         eventType: delivery.eventType,
         url: delivery.url,
-        data: (delivery.payload as { data?: Record<string, unknown> })?.data ?? {},
+        data: storedPayload.data ?? {},
       },
-      (delivery.payload as { occurredAt?: string })?.occurredAt ?? delivery.createdAt.toISOString(),
+      storedPayload.occurredAt ?? delivery.createdAt.toISOString(),
     );
 
     const attempts = delivery.attempts + 1;

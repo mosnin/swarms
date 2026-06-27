@@ -59,6 +59,12 @@ const body = z
      * continues.
      */
     deduplicateStrict: z.boolean().optional(),
+    /**
+     * When provided, a signed webhook is POSTed to this URL after the swarm
+     * reaches a terminal state. Event type is `swarm.succeeded` or `swarm.failed`.
+     * Delivery is best-effort with exponential-backoff retries.
+     */
+    callbackUrl: z.string().url().optional(),
   })
   .refine((d) => d.templateId !== undefined || (d.tasks !== undefined && d.tasks.length > 0), {
     message: "Provide tasks or templateId",
@@ -106,7 +112,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
     if (parsed.data.organizationId) requireOrganization(ctx, parsed.data.organizationId);
 
-    const { idempotencyKey, budgetUsd, templateId, workerTimeouts, deduplicateStrict, ...rest } = parsed.data;
+    const { idempotencyKey, budgetUsd, templateId, workerTimeouts, deduplicateStrict, callbackUrl, ...rest } = parsed.data;
 
     // Expand template defaults, then apply any caller overrides.
     let tasks = rest.tasks;
@@ -151,6 +157,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       sequential,
       workerTimeouts,
       deduplicateStrict,
+      callbackUrl,
     });
     return ok(response, 201);
   });
