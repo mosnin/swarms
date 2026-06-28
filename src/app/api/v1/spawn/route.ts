@@ -56,8 +56,11 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
     if (parsed.data.organizationId) requireOrganization(ctx, parsed.data.organizationId);
 
-    // SSRF guard: validate callbackUrl before it reaches the webhook delivery path.
+    // SSRF guard: validate callbackUrl and MCP server URLs before they reach downstream transports.
     if (parsed.data.callbackUrl !== undefined) assertSafeUrl(parsed.data.callbackUrl, "callbackUrl");
+    for (const server of parsed.data.resources?.mcpServers ?? []) {
+      assertSafeUrl(server.url, `mcpServers[${server.name}].url`);
+    }
 
     const { idempotencyKey, budgetUsd, ...rest } = parsed.data;
     const budgetMinor = rest.budgetMinor ?? (budgetUsd !== undefined ? usdToMinor(budgetUsd) : undefined);

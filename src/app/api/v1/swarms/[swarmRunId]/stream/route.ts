@@ -24,8 +24,10 @@ import { eq, and } from "drizzle-orm";
 
 import { getDb } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
+import { isAppError } from "@/lib/errors";
 import { authenticateRequest } from "@/modules/identity/service";
 import { requireOrganization } from "@/modules/identity/access-control";
+import { enforceRateLimit } from "@/server/ratelimit/enforce";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -52,6 +54,16 @@ export async function GET(
     return new Response(
       sseEvent("error", { code: "UNAUTHORIZED", message: "Authentication required" }),
       { status: 401, headers: { "Content-Type": "text/event-stream" } },
+    );
+  }
+
+  try {
+    await enforceRateLimit(ctx, "execute");
+  } catch (err) {
+    const status = isAppError(err) ? err.status : 429;
+    return new Response(
+      sseEvent("error", { code: "RATE_LIMITED", message: "Rate limit exceeded" }),
+      { status, headers: { "Content-Type": "text/event-stream" } },
     );
   }
 

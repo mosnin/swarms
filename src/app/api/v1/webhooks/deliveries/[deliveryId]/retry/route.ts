@@ -18,6 +18,7 @@ import * as schema from "@/lib/db/schema";
 import { Errors } from "@/lib/errors";
 import { requirePermission } from "@/modules/identity/access-control";
 import { authenticateRequest } from "@/modules/identity/service";
+import { enforceRateLimit } from "@/server/ratelimit/enforce";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,6 +30,7 @@ export async function POST(
   return route(async () => {
     const db = getDb();
     const ctx = await authenticateRequest(request);
+    await enforceRateLimit(ctx, "execute");
     requirePermission(ctx, "org.manage");
 
     const { deliveryId } = await params;

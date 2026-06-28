@@ -119,8 +119,11 @@ export async function POST(request: NextRequest): Promise<Response> {
 
     const { idempotencyKey, budgetUsd, templateId, workerTimeouts, deduplicateStrict, callbackUrl, ...rest } = parsed.data;
 
-    // SSRF guard: validate callbackUrl before it reaches the webhook delivery path.
+    // SSRF guard: validate callbackUrl and MCP server URLs before they reach downstream transports.
     if (callbackUrl !== undefined) assertSafeUrl(callbackUrl, "callbackUrl");
+    for (const server of rest.resources?.mcpServers ?? []) {
+      assertSafeUrl(server.url, `mcpServers[${server.name}].url`);
+    }
 
     // Expand template defaults, then apply any caller overrides.
     let tasks = rest.tasks;

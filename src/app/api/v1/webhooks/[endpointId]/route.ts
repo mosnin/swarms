@@ -7,6 +7,7 @@ import type { NextRequest } from "next/server";
 import { ok, route } from "@/lib/api";
 import { authenticateRequest } from "@/modules/identity/service";
 import { deleteWebhookEndpoint } from "@/modules/webhooks/endpoint-service";
+import { enforceRateLimit } from "@/server/ratelimit/enforce";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,6 +18,7 @@ export async function DELETE(
 ): Promise<Response> {
   return route(async () => {
     const ctx = await authenticateRequest(request);
+    await enforceRateLimit(ctx, "execute");
     const { endpointId } = await params;
     await deleteWebhookEndpoint(ctx, endpointId);
     return ok({ deleted: true });

@@ -7,6 +7,7 @@
 
 import { z } from "zod";
 
+import { assertSafeUrl } from "@/lib/ssrf-guard";
 import type { Runner, RunnerContext, RunnerOutcome } from "@/server/runners/types";
 
 const configSchema = z.object({
@@ -29,6 +30,19 @@ export class HttpRunner implements Runner {
     }
 
     const { url, method, headers } = parsed.data;
+
+    // Defense-in-depth: reject attempts to call private/metadata endpoints via
+    // http runner, even though runnerConfig is operator-controlled, not end-user.
+    try {
+      assertSafeUrl(url, "runnerConfig.url");
+    } catch (err) {
+      return {
+        ok: false,
+        error: { code: "CONFIG_ERROR", message: err instanceof Error ? err.message : "Blocked URL" },
+        logs: [{ level: "error", message: "http runner blocked by SSRF guard" }],
+      };
+    }
+
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), context.maxRuntimeMs);
 
