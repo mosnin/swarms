@@ -10,6 +10,7 @@ import { getDb } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
 import { logger } from "@/lib/logger";
 import { canonicalize } from "@/lib/canonical";
+import { assertSafeUrl } from "@/lib/ssrf-guard";
 import { signWebhook, webhookSecret } from "@/modules/webhooks/signing";
 import { enabledEndpointUrls } from "@/modules/webhooks/endpoint-service";
 
@@ -145,6 +146,8 @@ export async function deliverPendingWebhooks(
 
     const attempts = delivery.attempts + 1;
     try {
+      // Defense-in-depth: re-validate before fetching in case stored URL was tampered.
+      assertSafeUrl(delivery.url, "webhook delivery URL");
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 10_000);
       const res = await fetchImpl(delivery.url, {

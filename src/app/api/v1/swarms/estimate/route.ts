@@ -24,6 +24,7 @@ import { Errors } from "@/lib/errors";
 import { env } from "@/lib/env";
 import { usdToMinor } from "@/lib/money";
 import { authenticateRequest } from "@/modules/identity/service";
+import { enforceRateLimit } from "@/server/ratelimit/enforce";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,7 +47,8 @@ const MAX_WORKERS = 16;
 
 export async function POST(request: NextRequest): Promise<Response> {
   return route(async () => {
-    await authenticateRequest(request);
+    const ctx = await authenticateRequest(request);
+    await enforceRateLimit(ctx, "execute");
 
     const json = await request.json().catch(() => null);
     const parsed = body.safeParse(json);
