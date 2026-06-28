@@ -29,6 +29,12 @@ export const swarmRuns = pgTable(
   (table) => [
     index("swarm_runs_org_idx").on(table.organizationId),
     uniqueIndex("swarm_runs_org_idempotency_uq").on(table.organizationId, table.idempotencyKey),
+    // Compound index for the common list query: filter by org+status, order by createdAt DESC.
+    index("swarm_runs_org_status_created_idx").on(
+      table.organizationId,
+      table.status,
+      table.createdAt,
+    ),
   ],
 );
 

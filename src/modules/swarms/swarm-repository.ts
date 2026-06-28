@@ -4,7 +4,7 @@
  * agent-workforce path (see spawn-swarm.ts).
  */
 
-import { and, asc, desc, eq, lt } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lt } from "drizzle-orm";
 
 import { getDb } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
@@ -55,7 +55,8 @@ export async function listSwarmRuns(
     conditions.push(eq(schema.swarmRuns.status, opts.status as never));
   }
   if (opts.cursor) {
-    // Fetch runs created before the cursor item (descending order).
+    // Resolve the cursor's createdAt and add it as the page boundary.
+    // This is a single extra query only when a cursor is supplied.
     const cursorRun = (
       await db
         .select({ createdAt: schema.swarmRuns.createdAt })
@@ -141,22 +142,28 @@ export async function getSwarmLogs(ctx: AuthContext, swarmRunId: string, db: Db 
     .from(schema.swarmAgents)
     .where(eq(schema.swarmAgents.swarmRunId, swarmRunId));
 
-  const logs: Array<{ role: string; level: string; message: string; loggedAt: string }> = [];
-  for (const agent of agentRows) {
-    if (!agent.jobId) continue;
-    const jobLogs = await db
-      .select()
-      .from(schema.executionLogs)
-      .where(
-        and(
-          eq(schema.executionLogs.jobId, agent.jobId),
-          eq(schema.executionLogs.organizationId, ctx.organizationId),
-        ),
-      )
-      .orderBy(asc(schema.executionLogs.loggedAt));
-    for (const l of jobLogs) {
-      logs.push({ role: agent.role, level: l.level, message: l.message, loggedAt: l.loggedAt.toISOString() });
-    }
-  }
-  return logs;
+  // Collect all job IDs in a single set and fetch all logs in ONE query
+  // instead of one query per agent (avoids N+1 for swarms with many workers).
+  const jobIds = agentRows.map((a) => a.jobId).filter((id): id is string => id !== null);
+  if (jobIds.length === 0) return [];
+
+  const roleByJobId = new Map(agentRows.map((a) => [a.jobId, a.role]));
+
+  const allLogs = await db
+    .select()
+    .from(schema.executionLogs)
+    .where(
+      and(
+        inArray(schema.executionLogs.jobId, jobIds),
+        eq(schema.executionLogs.organizationId, ctx.organizationId),
+      ),
+    )
+    .orderBy(asc(schema.executionLogs.loggedAt));
+
+  return allLogs.map((l) => ({
+    role: roleByJobId.get(l.jobId) ?? "unknown",
+    level: l.level,
+    message: l.message,
+    loggedAt: l.loggedAt.toISOString(),
+  }));
 }
