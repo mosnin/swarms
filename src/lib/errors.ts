@@ -152,7 +152,8 @@ export const Errors = {
     new AppError(ErrorCode.PAYMENT_REQUIRED, message, { details }),
   budgetExceeded: (message = "Budget exceeded", details?: Record<string, unknown>) =>
     new AppError(ErrorCode.BUDGET_EXCEEDED, message, { details }),
-  rateLimited: (message = "Rate limit exceeded") => new AppError(ErrorCode.RATE_LIMITED, message),
+  rateLimited: (message = "Rate limit exceeded", details?: Record<string, unknown>) =>
+    new AppError(ErrorCode.RATE_LIMITED, message, { details }),
   sandboxFailure: (message = "Sandbox execution failed", cause?: unknown) =>
     new AppError(ErrorCode.SANDBOX_FAILURE, message, { cause }),
   upstream: (message = "Upstream call failed", cause?: unknown) =>

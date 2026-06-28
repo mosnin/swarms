@@ -11,6 +11,7 @@ import { z } from "zod";
 
 import { ok, route } from "@/lib/api";
 import { Errors } from "@/lib/errors";
+import { assertSafeUrl } from "@/lib/ssrf-guard";
 import { authenticateRequest } from "@/modules/identity/service";
 import {
   createWebhookEndpoint,
@@ -43,6 +44,8 @@ export async function POST(request: NextRequest): Promise<Response> {
         issues: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`),
       });
     }
+    // SSRF guard: validate the webhook URL before persisting it.
+    assertSafeUrl(parsed.data.url, "url");
     const endpoint = await createWebhookEndpoint(ctx, parsed.data);
     return ok({ endpoint }, 201);
   });

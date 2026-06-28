@@ -40,7 +40,8 @@ export async function enforceRateLimit(
 
   if (!decision.allowed) {
     throw Errors.rateLimited(
-      `Rate limit exceeded; retry in ${Math.max(0, decision.retryAtMs - Date.now())}ms`,
+      `Rate limit exceeded; retry in ${Math.max(0, Math.ceil((decision.retryAtMs - Date.now()) / 1000))}s`,
+      { retryAtMs: decision.retryAtMs },
     );
   }
 }

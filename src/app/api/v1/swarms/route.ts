@@ -4,6 +4,7 @@ import { z } from "zod";
 import { ok, route } from "@/lib/api";
 import { Errors } from "@/lib/errors";
 import { deriveIdempotencyKey, idempotencyKeySchema } from "@/lib/idempotency";
+import { assertSafeUrl } from "@/lib/ssrf-guard";
 import { formatResponse } from "@/lib/format-response";
 import { usdToMinor } from "@/lib/money";
 import { requireOrganization } from "@/modules/identity/access-control";
@@ -117,6 +118,9 @@ export async function POST(request: NextRequest): Promise<Response> {
     if (parsed.data.organizationId) requireOrganization(ctx, parsed.data.organizationId);
 
     const { idempotencyKey, budgetUsd, templateId, workerTimeouts, deduplicateStrict, callbackUrl, ...rest } = parsed.data;
+
+    // SSRF guard: validate callbackUrl before it reaches the webhook delivery path.
+    if (callbackUrl !== undefined) assertSafeUrl(callbackUrl, "callbackUrl");
 
     // Expand template defaults, then apply any caller overrides.
     let tasks = rest.tasks;

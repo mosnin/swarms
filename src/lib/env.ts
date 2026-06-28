@@ -55,6 +55,11 @@ export const envSchema = z.object({
   // secret. Optional in dev (a fixed dev secret is used); set in production.
   WEBHOOK_SIGNING_SECRET: z.string().min(16).optional(),
 
+  // Shared secret for the /api/internal/* endpoints. The standalone worker
+  // sends this in the x-internal-secret header. Required in production to
+  // prevent external callers from triggering job processing.
+  INTERNAL_WORKER_SECRET: z.string().min(32).optional(),
+
   // Rate-limit backend: in-process (single instance) or shared Postgres.
   RATE_LIMIT_BACKEND: z.enum(["memory", "postgres"]).default("memory"),
 
@@ -95,6 +100,9 @@ export const envSchema = z.object({
     }
     if (!data.CONNECTOR_ENCRYPTION_KEY) {
       ctx.addIssue({ code: "custom", path: ["CONNECTOR_ENCRYPTION_KEY"], message: "Required in production" });
+    }
+    if (!data.INTERNAL_WORKER_SECRET) {
+      ctx.addIssue({ code: "custom", path: ["INTERNAL_WORKER_SECRET"], message: "Required in production" });
     }
   }
 });

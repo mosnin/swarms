@@ -5,6 +5,7 @@ import { ok, route } from "@/lib/api";
 import { Errors } from "@/lib/errors";
 import { deriveIdempotencyKey, idempotencyKeySchema } from "@/lib/idempotency";
 import { usdToMinor } from "@/lib/money";
+import { assertSafeUrl } from "@/lib/ssrf-guard";
 import { requireOrganization } from "@/modules/identity/access-control";
 import { authenticateRequest } from "@/modules/identity/service";
 import { spawnAgent } from "@/modules/agents/spawn-service";
@@ -54,6 +55,9 @@ export async function POST(request: NextRequest): Promise<Response> {
       });
     }
     if (parsed.data.organizationId) requireOrganization(ctx, parsed.data.organizationId);
+
+    // SSRF guard: validate callbackUrl before it reaches the webhook delivery path.
+    if (parsed.data.callbackUrl !== undefined) assertSafeUrl(parsed.data.callbackUrl, "callbackUrl");
 
     const { idempotencyKey, budgetUsd, ...rest } = parsed.data;
     const budgetMinor = rest.budgetMinor ?? (budgetUsd !== undefined ? usdToMinor(budgetUsd) : undefined);

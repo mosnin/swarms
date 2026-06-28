@@ -18,6 +18,7 @@
 import { z } from "zod";
 
 import { logger } from "@/lib/logger";
+import { assertSafeUrl } from "@/lib/ssrf-guard";
 import type { McpServerSpec, ResourceBundle } from "@/modules/resources/resource-bundle";
 
 /** A model-callable tool. `parameters` is a Zod object schema (SDK-compatible). */
@@ -51,6 +52,12 @@ const MCP_BACKOFF_MS = [0, 500, 2_000];
  * agent so its loop can react.
  */
 export const defaultMcpTransport: McpTransport = async ({ server, toolName, args }) => {
+  // SSRF guard: validate each MCP server URL before making the outbound call.
+  try {
+    assertSafeUrl(server.url, "mcpServer.url");
+  } catch {
+    return { ok: false, content: { code: "UPSTREAM_ERROR", message: `MCP server "${server.name}" URL is not safe` } };
+  }
   const headers: Record<string, string> = {
     "content-type": "application/json",
     accept: "application/json, text/event-stream",

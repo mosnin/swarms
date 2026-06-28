@@ -14,6 +14,7 @@ import { requestIdFrom } from "@/lib/request-id";
 import { Errors } from "@/lib/errors";
 import { roleOf } from "@/modules/identity/access-control";
 import { authenticateRequest } from "@/modules/identity/service";
+import { enforceRateLimit } from "@/server/ratelimit/enforce";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,6 +25,7 @@ export async function GET(request: NextRequest): Promise<Response> {
     if (roleOf(ctx) !== "owner") {
       throw Errors.forbidden("Diagnostics require the owner role");
     }
+    await enforceRateLimit(ctx, "execute");
     const db = getDb();
     const org = ctx.organizationId;
 
