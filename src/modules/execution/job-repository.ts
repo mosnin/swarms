@@ -25,7 +25,7 @@ import {
   type JobStatus,
   type JobStore,
 } from "@/modules/execution/job-service";
-import { checkBudget } from "@/server/budget/checkBudget";
+import { checkAndReserveBudget } from "@/server/budget/checkAndReserve";
 import { releaseBudget } from "@/server/budget/releaseBudget";
 import { getJobQueue } from "@/server/queue/queue";
 
@@ -270,11 +270,27 @@ export async function approveJob(
   requirePermission(ctx, "policies.manage");
   const job = await loadJobInOrg(ctx, jobId, db);
 
-  // Enforce the budget hard-stop at approval time (state may have changed).
-  await checkBudget(ctx.organizationId, job.costMinor || 0, job.costCurrency, db, {
-    apiKeyId: job.apiKeyId,
-    userId: job.createdByUserId,
-  });
+  // Reconstruct the estimated cost from the stored execution input (costMinor is
+  // 0 until the job actually runs). This is the same estimate the worker uses.
+  const input = (job.input ?? {}) as { maxGpuSeconds?: number; rateMinorPerSecond?: number };
+  const estimateMinor = Math.max(
+    0,
+    Math.floor((input.maxGpuSeconds ?? 0) * (input.rateMinorPerSecond ?? 0)),
+  );
+
+  // Approval bypassed reservation at spawn time, so reserve now — atomically,
+  // under the budget row lock — before enqueueing. Without this, an approved
+  // job runs with no outstanding hold and the hard ceiling undercounts it.
+  await checkAndReserveBudget(
+    {
+      organizationId: ctx.organizationId,
+      jobId: job.id,
+      amountMinor: estimateMinor,
+      currency: job.costCurrency,
+      context: { apiKeyId: job.apiKeyId, userId: job.createdByUserId },
+    },
+    db,
+  );
 
   const queued = await approveJobCore(dbJobStore(db), getJobQueue(), jobId);
   await writeAudit(ctx, {

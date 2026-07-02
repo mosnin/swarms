@@ -96,9 +96,12 @@ describe("majorToMinor / usdToMinor", () => {
   it("converts fractional dollars, rounding correctly", () => {
     expect(usdToMinor(1.5)).toBe(150);
     expect(usdToMinor(0.01)).toBe(1);
-    // Classic float trap: 1.005 * 100 = 100.49999... → Math.round → 100
-    // We don't guarantee sub-cent precision; agents should use cents directly for that.
     expect(usdToMinor(1.99)).toBe(199);
+    // Classic float trap: 1.005 * 100 = 100.49999… in IEEE-754. The 15-sig-fig
+    // normalization collapses the noise so this now rounds half-away-from-zero.
+    expect(usdToMinor(1.005)).toBe(101);
+    expect(usdToMinor(2.675)).toBe(268);
+    expect(usdToMinor(-1.005)).toBe(-101);
   });
 
   it("handles currencies with no minor unit (JPY)", () => {

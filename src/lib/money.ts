@@ -163,9 +163,18 @@ export function equals(a: Money, b: Money): boolean {
  * Only use this at API boundaries — all internal math operates on minor units.
  */
 export function majorToMinor(majorAmount: number, currency: string): number {
+  if (!Number.isFinite(majorAmount)) {
+    throw new RangeError(`majorAmount must be finite, received ${majorAmount}`);
+  }
   const formatter = new Intl.NumberFormat("en-US", { style: "currency", currency });
   const exponent = formatter.resolvedOptions().maximumFractionDigits ?? 2;
-  return Math.round(majorAmount * 10 ** exponent);
+  // Strip binary-representation noise before the integer round: `1.005 * 100`
+  // is `100.49999999999999` in IEEE-754, which naive rounding sends to 100.
+  // Re-rounding to 15 significant figures collapses that to `100.5`, so
+  // half-away-from-zero yields the intended 101. Money never rides a raw float.
+  const scaled = Number((majorAmount * 10 ** exponent).toPrecision(15));
+  const rounded = scaled < 0 ? -Math.round(-scaled) : Math.round(scaled);
+  return rounded;
 }
 
 /** Convenience wrapper for the common USD case. */

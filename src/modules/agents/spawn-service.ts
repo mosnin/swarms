@@ -20,7 +20,7 @@ import {
   type ResourceBundle,
 } from "@/modules/resources/resource-bundle";
 import { checkBudget } from "@/server/budget/checkBudget";
-import { reserveBudget } from "@/server/budget/reserveBudget";
+import { checkAndReserveBudget } from "@/server/budget/checkAndReserve";
 import { evaluatePolicy } from "@/server/policy/evaluatePolicy";
 import { getJobQueue } from "@/server/queue/queue";
 
@@ -124,10 +124,29 @@ export async function spawnAgent(
     if (requireApproval) {
       await writeAudit(ctx, { action: "policy.approval_required", resourceType: "job", resourceId: job.id }, db);
     } else {
-      await reserveBudget(
-        { organizationId: ctx.organizationId, jobId: job.id, amountMinor: estimatedCostMinor, currency },
-        db,
-      );
+      // Atomic check-and-reserve under a budget row lock: closes the TOCTOU race
+      // where two concurrent spawns both pass the pre-check and over-commit. If
+      // a concurrent reservation won the ceiling, fail this job so it never bills.
+      try {
+        await checkAndReserveBudget(
+          {
+            organizationId: ctx.organizationId,
+            jobId: job.id,
+            amountMinor: estimatedCostMinor,
+            currency,
+            context: {
+              apiKeyId: ctx.actor.kind === "agent" ? ctx.actor.apiKeyId : null,
+              userId: ctx.actor.kind === "user" ? ctx.actor.userId : null,
+            },
+          },
+          db,
+        );
+      } catch (err) {
+        await dbJobStore(db)
+          .update(job.id, { status: "failed", finishedAt: new Date(), updatedAt: new Date() })
+          .catch(() => undefined);
+        throw err;
+      }
     }
     await writeAudit(ctx, { action: "agent.spawned", resourceType: "job", resourceId: job.id, after: { model, maxGpuSeconds } }, db);
   }

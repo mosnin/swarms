@@ -15,7 +15,7 @@ import { getDb } from "@/lib/db";
 import { createJob } from "@/modules/execution/job-service";
 import { dbJobStore } from "@/modules/execution/job-repository";
 import { checkBudget } from "@/server/budget/checkBudget";
-import { reserveBudget } from "@/server/budget/reserveBudget";
+import { checkAndReserveBudget } from "@/server/budget/checkAndReserve";
 import { getJobQueue } from "@/server/queue/queue";
 
 export type TestDb = ReturnType<typeof getDb>;
@@ -91,6 +91,7 @@ export async function enqueueAgentJob(
   const priceMinor = maxGpuSeconds * rate;
   const task = opts.task ?? "echo";
 
+  // Pre-check for a fast, deterministic BUDGET_EXCEEDED before creating a job.
   await checkBudget(opts.organizationId, priceMinor, currency, db, {
     apiKeyId: opts.apiKeyId ?? null,
     userId: opts.userId ?? null,
@@ -109,8 +110,15 @@ export async function enqueueAgentJob(
   });
 
   if (!replay && priceMinor > 0) {
-    await reserveBudget(
-      { organizationId: opts.organizationId, jobId: job.id, amountMinor: priceMinor, currency },
+    // Atomic check-and-reserve, matching the production spawn path.
+    await checkAndReserveBudget(
+      {
+        organizationId: opts.organizationId,
+        jobId: job.id,
+        amountMinor: priceMinor,
+        currency,
+        context: { apiKeyId: opts.apiKeyId ?? null, userId: opts.userId ?? null },
+      },
       db,
     );
   }
