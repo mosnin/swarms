@@ -128,6 +128,16 @@ export function dbJobStore(db: Db = getDb()): JobStore {
       if (!row) throw Errors.internal("Failed to update job");
       return toJobRecord(row);
     },
+    async compareAndUpdate(id, expectedStatus, patch) {
+      const row = (
+        await db
+          .update(schema.jobs)
+          .set(patch)
+          .where(and(eq(schema.jobs.id, id), eq(schema.jobs.status, expectedStatus)))
+          .returning()
+      )[0];
+      return row ? toJobRecord(row) : null;
+    },
     async appendLog(record) {
       const row = (
         await db

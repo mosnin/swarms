@@ -35,6 +35,17 @@ class InMemoryJobStore implements JobStore {
     this.jobs.set(id, next);
     return next;
   }
+  async compareAndUpdate(
+    id: string,
+    expectedStatus: JobRecord["status"],
+    patch: Partial<JobRecord>,
+  ): Promise<JobRecord | null> {
+    const existing = this.jobs.get(id);
+    if (!existing || existing.status !== expectedStatus) return null;
+    const next = { ...existing, ...patch };
+    this.jobs.set(id, next);
+    return next;
+  }
   async appendLog(record: JobLogRecord): Promise<JobLogRecord> {
     this.logs.push(record);
     return record;

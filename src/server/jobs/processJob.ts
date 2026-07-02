@@ -187,7 +187,10 @@ export async function processJob(
       costMinor: outcome.costMinor,
       finishedAt,
     });
-    const settled = await deps.jobStore.update(job.id, {
+    // CAS running → succeeded. If the job was cancelled or reaped while the
+    // runner executed, this returns null: we must NOT overwrite the terminal
+    // state and must NOT charge. The cancellation path already released the hold.
+    const settled = await deps.jobStore.compareAndUpdate(job.id, "running", {
       status: "succeeded",
       output: outcome.output,
       costMinor: outcome.costMinor,
@@ -195,6 +198,12 @@ export async function processJob(
       finishedAt,
       updatedAt: finishedAt,
     });
+    if (!settled) {
+      logger.warn("processJob: job left 'running' before settle (cancelled/reaped); skipping charge", {
+        jobId: job.id,
+      });
+      return (await deps.jobStore.findById(job.id)) ?? running;
+    }
     if (deps.onCharge && outcome.costMinor > 0) {
       try {
         await deps.onCharge(settled, outcome.costMinor, resolved.currency);
@@ -241,11 +250,20 @@ async function settleFailure(
     loggedAt: finishedAt,
   });
   // running → failed (or queued → failed when resolution failed pre-run).
+  // CAS on the captured status so a job cancelled/reaped concurrently is not
+  // overwritten back to failed (its terminal state + hold release already stand).
   assertTransition(job.status, "failed");
-  return deps.jobStore.update(job.id, {
+  const failed = await deps.jobStore.compareAndUpdate(job.id, job.status, {
     status: "failed",
     error,
     finishedAt,
     updatedAt: finishedAt,
   });
+  if (!failed) {
+    logger.warn("processJob: job left its running/queued state before failure settle; leaving as-is", {
+      jobId: job.id,
+    });
+    return (await deps.jobStore.findById(job.id)) ?? job;
+  }
+  return failed;
 }

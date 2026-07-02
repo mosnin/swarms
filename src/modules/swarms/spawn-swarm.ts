@@ -404,6 +404,9 @@ export async function spawnSwarm(
     throw err;
   }
 
+  // CAS running → terminal: if the run was cancelled mid-flight, do NOT flip it
+  // back to succeeded/failed (which would also misreport cost). Only a run still
+  // "running" is settled here.
   const finished = (
     await db
       .update(schema.swarmRuns)
@@ -417,11 +420,22 @@ export async function spawnSwarm(
         costMinor: result.totalCostMinor,
         finishedAt: new Date(),
       })
-      .where(eq(schema.swarmRuns.id, run.id))
+      .where(and(eq(schema.swarmRuns.id, run.id), eq(schema.swarmRuns.status, "running")))
       .returning()
   )[0];
 
-  const finalStatus = finished?.status ?? "succeeded";
+  // When the CAS matched nothing the run was cancelled concurrently — report its
+  // actual current status rather than pretending it succeeded.
+  const currentStatus =
+    finished?.status ??
+    (
+      await db
+        .select({ status: schema.swarmRuns.status })
+        .from(schema.swarmRuns)
+        .where(eq(schema.swarmRuns.id, run.id))
+        .limit(1)
+    )[0]?.status;
+  const finalStatus = currentStatus ?? "succeeded";
   const finalCostMinor = finished?.costMinor ?? result.totalCostMinor;
 
   // Best-effort swarm lifecycle webhook. Fan-out goes to both the per-request

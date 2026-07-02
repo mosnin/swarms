@@ -112,6 +112,26 @@ export const envSchema = z.object({
     if (!data.SESSION_SECRET) {
       ctx.addIssue({ code: "custom", path: ["SESSION_SECRET"], message: "Required in production" });
     }
+    // Untrusted agent + caller-supplied tool code must run isolated in
+    // production. The in-process `openrouter` runtime provides no isolation and
+    // the `mock` runtime does no real work; only `modal` (remote sandbox) is
+    // acceptable unless a real container sandbox provider is configured.
+    const hasContainerSandbox = data.SANDBOX_PROVIDER === "docker" || data.SANDBOX_PROVIDER === "podman";
+    if (data.AGENT_RUNTIME !== "modal" && !hasContainerSandbox) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["AGENT_RUNTIME"],
+        message:
+          "In production, agent execution must be isolated: set AGENT_RUNTIME=modal or configure SANDBOX_PROVIDER=docker|podman",
+      });
+    }
+    if (data.AGENT_RUNTIME === "modal" && (!data.MODAL_RUN_URL || !data.MODAL_TOKEN)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["MODAL_RUN_URL"],
+        message: "MODAL_RUN_URL and MODAL_TOKEN are required when AGENT_RUNTIME=modal",
+      });
+    }
   }
 });
 

@@ -80,6 +80,18 @@ export interface JobStore {
   insert(record: JobRecord): Promise<JobRecord>;
   findById(id: string): Promise<JobRecord | null>;
   update(id: string, patch: Partial<JobRecord>): Promise<JobRecord>;
+  /**
+   * Compare-and-swap update: apply `patch` only if the row is still in
+   * `expectedStatus`. Returns the updated record, or `null` when the status no
+   * longer matches — e.g. the job was cancelled or reaped while a worker ran it.
+   * Terminal transitions use this so a cancelled job is never overwritten back
+   * to succeeded (and never billed).
+   */
+  compareAndUpdate(
+    id: string,
+    expectedStatus: JobRecord["status"],
+    patch: Partial<JobRecord>,
+  ): Promise<JobRecord | null>;
   appendLog(record: JobLogRecord): Promise<JobLogRecord>;
   listLogs(jobId: string, organizationId?: string): Promise<JobLogRecord[]>;
 }

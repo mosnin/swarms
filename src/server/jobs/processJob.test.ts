@@ -28,6 +28,13 @@ class InMemoryJobStore implements JobStore {
     this.jobs.set(id, next);
     return next;
   }
+  async compareAndUpdate(id: string, expectedStatus: JobRecord["status"], patch: Partial<JobRecord>) {
+    const current = this.jobs.get(id);
+    if (!current || current.status !== expectedStatus) return null;
+    const next = { ...current, ...patch };
+    this.jobs.set(id, next);
+    return next;
+  }
   async appendLog(r: JobLogRecord) {
     this.logs.push(r);
     return r;
@@ -135,6 +142,30 @@ describe("processJob", () => {
     expect(runs[0]?.status).toBe("succeeded");
     expect(runs[0]?.costMinor).toBe(200);
     expect(jobStore.logs.some((l) => l.message.includes("started"))).toBe(true);
+  });
+
+  it("does not charge or overwrite a job cancelled mid-run (CAS terminal write)", async () => {
+    const store = new InMemoryJobStore();
+    await store.insert({ ...queuedJob(), status: "running", startedAt: clock.now() });
+    // Simulate a cancel that lands between 'running' and the terminal settle:
+    // the CAS on running→succeeded must miss, so no charge and no overwrite.
+    const original = store.compareAndUpdate.bind(store);
+    store.compareAndUpdate = async (id, expected, patch) => {
+      const j = store.jobs.get(id);
+      if (j && expected === "running" && j.status === "running") {
+        store.jobs.set(id, { ...j, status: "cancelled", finishedAt: clock.now() });
+      }
+      return original(id, expected, patch);
+    };
+
+    const result = await processJob(
+      makeDeps(store, workerRunStore, mockExec, charges),
+      "job_1",
+      { preClaimed: true },
+    );
+
+    expect(result.status).toBe("cancelled");
+    expect(charges).toEqual([]); // billing never happened
   });
 
   it("charges the usage ledger on success", async () => {
