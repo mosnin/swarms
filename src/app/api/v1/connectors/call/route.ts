@@ -14,7 +14,6 @@ const body = z.object({
   connectorSlug: z.string().min(1),
   toolName: z.string().min(1),
   input: z.unknown(),
-  grantedScopes: z.array(z.string()).default([]),
   jobId: z.string().optional(),
 });
 
@@ -33,7 +32,6 @@ export async function POST(request: NextRequest): Promise<Response> {
       connectorSlug: parsed.data.connectorSlug,
       toolName: parsed.data.toolName,
       input: parsed.data.input,
-      grantedScopes: parsed.data.grantedScopes,
       jobId: parsed.data.jobId,
     });
     return ok(result);

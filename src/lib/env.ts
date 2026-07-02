@@ -60,6 +60,11 @@ export const envSchema = z.object({
   // prevent external callers from triggering job processing.
   INTERNAL_WORKER_SECRET: z.string().min(32).optional(),
 
+  // HMAC secret for signing human dashboard session cookies. Without a valid
+  // signature the cookie value cannot be trusted as an identity. Required in
+  // production; a fixed dev secret is used otherwise.
+  SESSION_SECRET: z.string().min(32).optional(),
+
   // Rate-limit backend: in-process (single instance) or shared Postgres.
   RATE_LIMIT_BACKEND: z.enum(["memory", "postgres"]).default("memory"),
 
@@ -103,6 +108,9 @@ export const envSchema = z.object({
     }
     if (!data.INTERNAL_WORKER_SECRET) {
       ctx.addIssue({ code: "custom", path: ["INTERNAL_WORKER_SECRET"], message: "Required in production" });
+    }
+    if (!data.SESSION_SECRET) {
+      ctx.addIssue({ code: "custom", path: ["SESSION_SECRET"], message: "Required in production" });
     }
   }
 });

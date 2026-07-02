@@ -8,6 +8,8 @@
  * membership + role) happens in `service.ts`.
  */
 
+import { verifySessionToken } from "@/modules/identity/session-token";
+
 export const SESSION_COOKIE = "swarms_session";
 export const SESSION_USER_HEADER = "x-swarms-user-id";
 export const ACTIVE_ORG_COOKIE = "swarms_active_org";
@@ -29,18 +31,26 @@ interface RequestLike {
  * Extract a session reference from request headers/cookies. Returns `null` when
  * no session identifier is present.
  *
+ * The session cookie value is a signed token (see {@link verifySessionToken}):
+ * its signature and expiry are verified before the embedded userId is trusted,
+ * so a raw/forged cookie can never impersonate a user in any environment.
+ *
  * LOCAL DEV ADAPTER: the `x-swarms-user-id` header path accepts an unverified
  * userId for local development convenience. It is BLOCKED in production — in a
- * real deployment the user id must come from a verified, signed session cookie
- * set by the IdP callback. `service.ts` also supports a `DEV_AUTH_USER_EMAIL`
- * fallback, which is similarly dev-only.
+ * real deployment the user id must come from the verified signed cookie.
+ * `service.ts` also supports a `DEV_AUTH_USER_EMAIL` fallback, dev-only.
  */
-export function readSessionRef(request: RequestLike): SessionRef | null {
+export function readSessionRef(request: RequestLike, now: number = Date.now()): SessionRef | null {
   // Never trust the raw user-id header in production — an attacker who can set
   // request headers would otherwise be able to impersonate any user.
   const isProduction = process.env.NODE_ENV === "production";
   const headerUser = isProduction ? null : request.headers.get(SESSION_USER_HEADER);
-  const cookieUser = request.cookies?.get(SESSION_COOKIE)?.value;
+
+  // The cookie is a signed token; verify its signature + expiry before trusting
+  // the identity. A missing/invalid/expired signature yields no cookie identity.
+  const rawCookie = request.cookies?.get(SESSION_COOKIE)?.value;
+  const cookieUser = rawCookie ? verifySessionToken(rawCookie, now) : null;
+
   const userId = headerUser ?? cookieUser;
   if (!userId) return null;
 

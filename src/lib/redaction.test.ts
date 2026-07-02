@@ -18,8 +18,9 @@ describe("redact", () => {
     expect(out.note).toBe(`use ${REDACTED} to auth`);
   });
 
-  it("masks Swarms API keys embedded in strings", () => {
-    expect(redact("key is hc_live_ZZZ999")).toBe(`key is ${REDACTED}`);
+  it("masks Swarms API keys (hk_ + 40 chars) embedded in strings", () => {
+    const key = `hk_${"a1B2c3D4e5".repeat(4)}`; // hk_ + exactly 40 base62 chars
+    expect(redact(`key is ${key} ok`)).toBe(`key is ${REDACTED} ok`);
   });
 
   it("redacts inside arrays", () => {

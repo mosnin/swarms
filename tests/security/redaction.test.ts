@@ -27,8 +27,9 @@ describe("secret redaction", () => {
   });
 
   it("redacts secret-shaped values even under innocuous keys", () => {
-    const out = redact({ message: "token hc_live_LEAKED was used" });
-    expect(out.message).not.toContain("hc_live_LEAKED");
+    const key = `hk_${"a1B2c3D4e5".repeat(4)}`; // real hk_ + 40-char key shape
+    const out = redact({ message: `token ${key} was used` });
+    expect(out.message).not.toContain(key);
     expect(out.message).toContain(REDACTED);
   });
 
