@@ -1,0 +1,2 @@
+ALTER TABLE "swarm_runs" ADD COLUMN "idempotency_key" varchar(255);--> statement-breakpoint
+CREATE UNIQUE INDEX "swarm_runs_org_idempotency_uq" ON "swarm_runs" USING btree ("organization_id","idempotency_key");

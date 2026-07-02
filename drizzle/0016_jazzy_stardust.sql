@@ -1,0 +1,1 @@
+CREATE INDEX "swarm_runs_org_status_created_idx" ON "swarm_runs" USING btree ("organization_id","status","created_at");

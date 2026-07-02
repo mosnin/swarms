@@ -1,0 +1,52 @@
+# Local full-stack: Postgres + web control plane + worker.
+# Usage: docker compose up --build
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: swarms
+      POSTGRES_PASSWORD: swarms
+      POSTGRES_DB: swarms
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U swarms"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgres://swarms:swarms@postgres:5432/swarms
+      NODE_ENV: production
+      WEBHOOK_SIGNING_SECRET: change-me-in-production-please
+      CONNECTOR_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      X402_PROVIDER: mock
+      RATE_LIMIT_BACKEND: postgres
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    environment:
+      DATABASE_URL: postgres://swarms:swarms@postgres:5432/swarms
+      NODE_ENV: production
+      WEBHOOK_SIGNING_SECRET: change-me-in-production-please
+      CONNECTOR_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      # SANDBOX_PROVIDER: docker  # enable with a mounted docker socket for real isolation
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:

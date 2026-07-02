@@ -1,0 +1,9 @@
+# Swarms — standalone worker (separate process from the web control plane).
+FROM node:20-slim
+WORKDIR /app
+ENV NODE_ENV=production
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY . .
+# The worker polls Postgres for queued jobs; no inbound port needed.
+CMD ["npm", "run", "worker"]

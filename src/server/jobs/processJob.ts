@@ -1,0 +1,296 @@
+/**
+ * Job processor. This is the worker-side execution path: claim a queued job,
+ * transition it through the state machine, invoke the appropriate runner, record
+ * the worker run + execution logs + cost, and settle the job (succeeded/failed).
+ *
+ * It depends only on ports + the runner registry, so the entire loop can be
+ * unit-tested in memory (mock runner) and run against Postgres in the worker.
+ * NOTE: this never runs inside a Next.js request handler — it is invoked by the
+ * worker process / a queue consumer.
+ */
+
+import { isRetryableCode } from "@/lib/errors";
+import { newId, IdPrefix } from "@/lib/ids";
+import { logger } from "@/lib/logger";
+import { systemClock, type Clock } from "@/lib/time";
+import type { JobRecord, JobStore } from "@/modules/execution/job-service";
+import { assertTransition } from "@/server/jobs/stateMachine";
+import { getRunner } from "@/server/runners/runnerRegistry";
+import type { RunnerType } from "@/server/runners/types";
+
+export interface WorkerRunRecord {
+  id: string;
+  organizationId: string;
+  jobId: string;
+  workerId: string;
+  runnerType: string | null;
+  status: JobRecord["status"];
+  input: unknown;
+  output: unknown;
+  error: unknown;
+  durationMs: number | null;
+  costMinor: number;
+  costCurrency: string;
+  startedAt: Date | null;
+  finishedAt: Date | null;
+}
+
+export interface WorkerRunStore {
+  insert(record: WorkerRunRecord): Promise<WorkerRunRecord>;
+  update(id: string, patch: Partial<WorkerRunRecord>): Promise<WorkerRunRecord>;
+}
+
+/** Execution parameters resolved from the pinned skill version. */
+export interface ResolvedExecution {
+  runnerType: RunnerType;
+  runnerConfig: unknown;
+  maxRuntimeMs: number;
+  priceMinor: number;
+  currency: string;
+}
+
+export interface ProcessDeps {
+  jobStore: JobStore;
+  workerRunStore: WorkerRunStore;
+  /** Resolve the execution config for a job's pinned skill version. */
+  resolve(job: JobRecord): Promise<ResolvedExecution | null>;
+  /** Record a usage charge on success (append-only ledger). Optional. */
+  onCharge?(job: JobRecord, costMinor: number, currency: string): Promise<void>;
+  /**
+   * Called when `onCharge` throws after the job is already marked succeeded.
+   * Must release the outstanding budget hold so headroom is not permanently
+   * consumed. Errors are swallowed — the job is already terminal.
+   */
+  onReleaseHold?(job: JobRecord, currency: string): Promise<void>;
+  workerId: string;
+  clock?: Clock;
+}
+
+const DEFAULT_MAX_RUNTIME_MS = 30_000;
+
+/**
+ * Process a single job. Safe to call on a job that is no longer `queued`
+ * (returns it unchanged) so redelivery cannot double-execute.
+ *
+ * `opts.preClaimed` is set by a multi-worker poller that has ALREADY atomically
+ * claimed the job (`queued → running` via `SELECT ... FOR UPDATE SKIP LOCKED`),
+ * so this function must not re-transition it.
+ */
+export async function processJob(
+  deps: ProcessDeps,
+  jobId: string,
+  opts: { preClaimed?: boolean } = {},
+): Promise<JobRecord> {
+  const clock = deps.clock ?? systemClock;
+  const job = await deps.jobStore.findById(jobId);
+  if (!job) {
+    logger.warn("processJob: job not found", { jobId });
+    throw new Error(`Job ${jobId} not found`);
+  }
+  // Idempotent: only an eligible job runs. A pre-claimed job is already
+  // `running`; an unclaimed job must still be `queued`.
+  if (opts.preClaimed) {
+    if (job.status !== "running") return job;
+  } else if (job.status !== "queued") {
+    return job;
+  }
+
+  const resolved = await deps.resolve(job);
+  if (!resolved) {
+    return settleFailure(deps, job, clock, {
+      code: "CAPABILITY_NOT_FOUND",
+      message: "Could not resolve execution config for job",
+    });
+  }
+
+  const startedAt = job.startedAt ?? clock.now();
+  const startMono = clock.monotonicMs();
+  // queued → running (skipped when the poller already claimed it).
+  let running = job;
+  if (!opts.preClaimed) {
+    assertTransition(job.status, "running");
+    running = await deps.jobStore.update(job.id, {
+      status: "running",
+      startedAt,
+      attempt: job.attempt + 1,
+      updatedAt: startedAt,
+    });
+  }
+
+  const workerRun = await deps.workerRunStore.insert({
+    id: newId(IdPrefix.workerRun),
+    organizationId: job.organizationId,
+    jobId: job.id,
+    workerId: deps.workerId,
+    runnerType: resolved.runnerType,
+    status: "running",
+    input: job.input,
+    output: null,
+    error: null,
+    durationMs: null,
+    costMinor: 0,
+    costCurrency: resolved.currency,
+    startedAt,
+    finishedAt: null,
+  });
+
+  await deps.jobStore.appendLog({
+    id: newId(IdPrefix.executionLog),
+    organizationId: job.organizationId,
+    jobId: job.id,
+    level: "info",
+    message: `Worker ${deps.workerId} started ${resolved.runnerType} runner`,
+    data: { workerRunId: workerRun.id },
+    loggedAt: startedAt,
+  });
+
+  let outcome;
+  try {
+    outcome = await getRunner(resolved.runnerType).run({
+      jobId: job.id,
+      organizationId: job.organizationId,
+      input: job.input,
+      runnerConfig: resolved.runnerConfig,
+      maxRuntimeMs: resolved.maxRuntimeMs || DEFAULT_MAX_RUNTIME_MS,
+      priceMinor: resolved.priceMinor,
+      currency: resolved.currency,
+    });
+  } catch (error) {
+    outcome = {
+      ok: false as const,
+      error: { code: "SANDBOX_FAILURE", message: "Runner threw unexpectedly" },
+      logs: [{ level: "error" as const, message: "Runner threw", data: String(error) }],
+    };
+  }
+
+  const finishedAt = clock.now();
+  const durationMs = Math.max(0, Math.round(clock.monotonicMs() - startMono));
+
+  // Persist runner logs as execution logs.
+  for (const log of outcome.logs) {
+    await deps.jobStore.appendLog({
+      id: newId(IdPrefix.executionLog),
+      organizationId: job.organizationId,
+      jobId: job.id,
+      level: log.level,
+      message: log.message,
+      data: { ...(log.data !== undefined ? { detail: log.data } : {}), workerRunId: workerRun.id },
+      loggedAt: finishedAt,
+    });
+  }
+
+  if (outcome.ok) {
+    assertTransition(running.status, "succeeded");
+    await deps.workerRunStore.update(workerRun.id, {
+      status: "succeeded",
+      output: outcome.output,
+      durationMs,
+      costMinor: outcome.costMinor,
+      finishedAt,
+    });
+    // CAS running → succeeded. If the job was cancelled or reaped while the
+    // runner executed, this returns null: we must NOT overwrite the terminal
+    // state and must NOT charge. The cancellation path already released the hold.
+    const settled = await deps.jobStore.compareAndUpdate(job.id, "running", {
+      status: "succeeded",
+      output: outcome.output,
+      costMinor: outcome.costMinor,
+      costCurrency: resolved.currency,
+      finishedAt,
+      updatedAt: finishedAt,
+    });
+    if (!settled) {
+      logger.warn("processJob: job left 'running' before settle (cancelled/reaped); skipping charge", {
+        jobId: job.id,
+      });
+      return (await deps.jobStore.findById(job.id)) ?? running;
+    }
+    if (deps.onCharge && outcome.costMinor > 0) {
+      try {
+        await deps.onCharge(settled, outcome.costMinor, resolved.currency);
+      } catch (chargeError) {
+        // The job is already terminal (succeeded). The charge failed — log it
+        // and release the hold so budget headroom is not permanently consumed.
+        logger.error("processJob: onCharge failed after job succeeded; releasing hold", {
+          jobId: job.id,
+          error: chargeError,
+        });
+        await deps.onReleaseHold?.(settled, resolved.currency).catch(() => undefined);
+      }
+    }
+    return settled;
+  }
+
+  return settleFailure(deps, running, clock, outcome.error, workerRun.id, durationMs);
+}
+
+async function settleFailure(
+  deps: ProcessDeps,
+  job: JobRecord,
+  clock: Clock,
+  error: { code: string; message: string; details?: unknown },
+  workerRunId?: string,
+  durationMs?: number,
+): Promise<JobRecord> {
+  const finishedAt = clock.now();
+  if (workerRunId) {
+    await deps.workerRunStore.update(workerRunId, {
+      status: "failed",
+      error,
+      durationMs: durationMs ?? null,
+      finishedAt,
+    });
+  }
+  // Retry a transient failure by requeueing, bounded by maxAttempts. `attempt`
+  // was already incremented when the job was claimed, so `attempt < maxAttempts`
+  // means at least one attempt remains. The budget hold is kept across the retry.
+  const canRetry = isRetryableCode(error.code) && job.attempt < job.maxAttempts;
+  if (canRetry) {
+    await deps.jobStore.appendLog({
+      id: newId(IdPrefix.executionLog),
+      organizationId: job.organizationId,
+      jobId: job.id,
+      level: "warn",
+      message: `Transient failure (${error.code}); requeueing for retry (attempt ${job.attempt}/${job.maxAttempts})`,
+      data: { code: error.code },
+      loggedAt: finishedAt,
+    });
+    assertTransition(job.status, "queued");
+    const requeued = await deps.jobStore.compareAndUpdate(job.id, job.status, {
+      status: "queued",
+      startedAt: null,
+      updatedAt: finishedAt,
+    });
+    if (requeued) return requeued;
+    // Lost a race (cancelled/reaped) — fall through to report current state.
+    logger.warn("processJob: job left its state before retry requeue; leaving as-is", { jobId: job.id });
+    return (await deps.jobStore.findById(job.id)) ?? job;
+  }
+
+  await deps.jobStore.appendLog({
+    id: newId(IdPrefix.executionLog),
+    organizationId: job.organizationId,
+    jobId: job.id,
+    level: "error",
+    message: `Job failed: ${error.message}`,
+    data: { code: error.code },
+    loggedAt: finishedAt,
+  });
+  // running → failed (or queued → failed when resolution failed pre-run).
+  // CAS on the captured status so a job cancelled/reaped concurrently is not
+  // overwritten back to failed (its terminal state + hold release already stand).
+  assertTransition(job.status, "failed");
+  const failed = await deps.jobStore.compareAndUpdate(job.id, job.status, {
+    status: "failed",
+    error,
+    finishedAt,
+    updatedAt: finishedAt,
+  });
+  if (!failed) {
+    logger.warn("processJob: job left its running/queued state before failure settle; leaving as-is", {
+      jobId: job.id,
+    });
+    return (await deps.jobStore.findById(job.id)) ?? job;
+  }
+  return failed;
+}

@@ -1,0 +1,199 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Swarms API",
+    "version": "0.1.0",
+    "description": "Paid execution layer for autonomous agents. Agents spawn sandboxed worker agents that inherit their context, secrets, files, and tools, metered per GPU-second. See docs/API.md."
+  },
+  "servers": [{ "url": "/", "description": "Deployment origin" }],
+  "security": [{ "bearerAuth": [] }],
+  "tags": [
+    { "name": "execution" },
+    { "name": "swarms" },
+    { "name": "connectors" },
+    { "name": "ops" }
+  ],
+  "paths": {
+    "/api/v1/spawn": {
+      "post": {
+        "tags": ["agents"],
+        "summary": "Spawn a sandboxed worker agent that inherits your resources",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/SpawnRequest" } }
+          }
+        },
+        "responses": {
+          "201": { "description": "Agent spawned" },
+          "402": { "description": "Budget exceeded", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } },
+          "403": { "description": "Policy denied or forbidden" },
+          "409": { "description": "Idempotency conflict" }
+        }
+      }
+    },
+    "/api/v1/jobs/{jobId}": {
+      "get": {
+        "tags": ["execution"],
+        "summary": "Get a job",
+        "parameters": [{ "name": "jobId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Job" }, "404": { "description": "Not found" } }
+      }
+    },
+    "/api/v1/jobs/{jobId}/logs": {
+      "get": {
+        "tags": ["execution"],
+        "summary": "Get job logs",
+        "parameters": [{ "name": "jobId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Logs" } }
+      }
+    },
+    "/api/v1/jobs/{jobId}/cancel": {
+      "post": {
+        "tags": ["execution"],
+        "summary": "Cancel a job",
+        "parameters": [{ "name": "jobId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Cancelled" }, "409": { "description": "Terminal job" } }
+      }
+    },
+    "/api/v1/jobs/{jobId}/approve": {
+      "post": {
+        "tags": ["execution"],
+        "summary": "Approve a job awaiting approval",
+        "parameters": [{ "name": "jobId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Queued" } }
+      }
+    },
+    "/api/v1/swarms": {
+      "post": {
+        "tags": ["swarms"],
+        "summary": "Spawn a workforce: one worker agent per task, sharing inherited resources",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SwarmSpawnRequest" } } } },
+        "responses": {
+          "201": { "description": "Swarm spawned" },
+          "402": { "description": "Budget exceeded", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } }
+        }
+      }
+    },
+    "/api/v1/swarms/{swarmRunId}": {
+      "get": {
+        "tags": ["swarms"],
+        "summary": "Get a swarm run",
+        "parameters": [{ "name": "swarmRunId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Swarm run" } }
+      }
+    },
+    "/api/v1/swarms/{swarmRunId}/logs": {
+      "get": {
+        "tags": ["swarms"],
+        "summary": "Get swarm logs",
+        "parameters": [{ "name": "swarmRunId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Logs" } }
+      }
+    },
+    "/api/connectors": {
+      "get": { "tags": ["connectors"], "summary": "List connector catalog", "responses": { "200": { "description": "Connectors" } } }
+    },
+    "/api/v1/connectors/call": {
+      "post": {
+        "tags": ["connectors"],
+        "summary": "Call a connector tool (scoped)",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConnectorCallRequest" } } } },
+        "responses": { "200": { "description": "Tool result" }, "403": { "description": "Not granted / approval required" } }
+      }
+    },
+    "/api/health": { "get": { "tags": ["ops"], "summary": "Liveness", "security": [], "responses": { "200": { "description": "OK" } } } },
+    "/api/ready": { "get": { "tags": ["ops"], "summary": "Readiness", "security": [], "responses": { "200": { "description": "Ready" }, "503": { "description": "Not ready" } } } }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": { "type": "http", "scheme": "bearer", "description": "Swarms API key" }
+    },
+    "schemas": {
+      "Resources": {
+        "type": "object",
+        "description": "Resources the worker inherits.",
+        "properties": {
+          "env": { "type": "object", "additionalProperties": { "type": "string" } },
+          "files": { "type": "object", "additionalProperties": { "type": "string" } },
+          "mcpServers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["name", "url"],
+              "properties": {
+                "name": { "type": "string" },
+                "url": { "type": "string", "format": "uri" },
+                "token": { "type": "string" }
+              }
+            }
+          },
+          "context": { "type": "string" }
+        }
+      },
+      "SpawnRequest": {
+        "type": "object",
+        "required": ["task", "idempotencyKey"],
+        "properties": {
+          "task": { "type": "string" },
+          "resources": { "$ref": "#/components/schemas/Resources" },
+          "model": { "type": "string" },
+          "idempotencyKey": { "type": "string", "minLength": 8, "maxLength": 255 },
+          "budgetMinor": { "type": "integer", "minimum": 0 },
+          "currency": { "type": "string", "minLength": 3, "maxLength": 3 },
+          "callbackUrl": { "type": "string", "format": "uri" }
+        }
+      },
+      "SwarmSpawnRequest": {
+        "type": "object",
+        "required": ["tasks", "idempotencyKey"],
+        "properties": {
+          "tasks": { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": 16 },
+          "objective": { "type": "string" },
+          "resources": { "$ref": "#/components/schemas/Resources" },
+          "model": { "type": "string" },
+          "idempotencyKey": { "type": "string", "minLength": 8, "maxLength": 255 },
+          "budgetMinor": { "type": "integer", "minimum": 0 },
+          "currency": { "type": "string", "minLength": 3, "maxLength": 3 }
+        }
+      },
+      "PaymentRequirements": {
+        "type": "object",
+        "properties": {
+          "scheme": { "type": "string" },
+          "network": { "type": "string" },
+          "payTo": { "type": "string" },
+          "amountMinor": { "type": "integer" },
+          "currency": { "type": "string" },
+          "nonce": { "type": "string" },
+          "binding": { "type": "string" },
+          "expiresAt": { "type": "string" }
+        }
+      },
+      "ConnectorCallRequest": {
+        "type": "object",
+        "required": ["connectorSlug", "toolName"],
+        "properties": {
+          "connectorSlug": { "type": "string" },
+          "toolName": { "type": "string" },
+          "input": {},
+          "grantedScopes": { "type": "array", "items": { "type": "string" } },
+          "jobId": { "type": "string" }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" },
+          "retryable": { "type": "boolean" },
+          "details": { "type": "object" }
+        }
+      },
+      "ErrorEnvelope": {
+        "type": "object",
+        "properties": { "error": { "$ref": "#/components/schemas/Error" } }
+      }
+    }
+  }
+}
