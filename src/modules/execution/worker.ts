@@ -294,27 +294,47 @@ export async function reapExpiredJobs(db: Db = getDb(), maxRunMs = 660_000): Pro
       id: schema.jobs.id,
       organizationId: schema.jobs.organizationId,
       costCurrency: schema.jobs.costCurrency,
+      attempt: schema.jobs.attempt,
+      maxAttempts: schema.jobs.maxAttempts,
     })
     .from(schema.jobs)
     .where(and(eq(schema.jobs.status, "running"), lt(schema.jobs.startedAt, cutoff)));
 
   let reaped = 0;
   for (const job of stuck) {
-    // Guard the transition: only fail a job that is STILL running. A job that
+    // A dead worker's lease expiry is transient: if attempts remain, requeue the
+    // job (keeping its budget hold) rather than permanently failing paid work.
+    const willRetry = job.attempt < job.maxAttempts;
+
+    // Guard the transition: only act on a job that is STILL running. A job that
     // finished between the select and this update must not be flipped from
-    // succeeded/failed back to failed (and its budget must not be re-released).
+    // succeeded/failed and its budget must not be re-released.
     const updated = await db
       .update(schema.jobs)
-      .set({
-        status: "failed",
-        error: { code: "LEASE_EXPIRED", message: "Worker lease expired; job reaped" },
-        finishedAt: new Date(),
-      })
+      .set(
+        willRetry
+          ? { status: "queued", startedAt: null, updatedAt: new Date() }
+          : {
+              status: "failed",
+              error: { code: "LEASE_EXPIRED", message: "Worker lease expired; job reaped" },
+              finishedAt: new Date(),
+            },
+      )
       .where(and(eq(schema.jobs.id, job.id), eq(schema.jobs.status, "running")))
       .returning({ id: schema.jobs.id });
     if (updated.length === 0) continue; // finished concurrently — leave it alone
 
     reaped += 1;
+    if (willRetry) {
+      await writeAuditSystem(job.organizationId, {
+        action: "job.requeued",
+        resourceType: "job",
+        resourceId: job.id,
+        after: { reason: "lease_expired", attempt: job.attempt, maxAttempts: job.maxAttempts },
+      }, db);
+      continue; // keep the hold; the job will be re-claimed
+    }
+    // Attempts exhausted — release the hold and record the terminal failure.
     await releaseBudget(
       { organizationId: job.organizationId, jobId: job.id, currency: job.costCurrency },
       db,

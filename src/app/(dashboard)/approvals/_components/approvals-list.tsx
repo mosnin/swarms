@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { format } from "@/lib/money";
 
 export interface ApprovalItem {
   id: string;
@@ -43,6 +44,7 @@ export function ApprovalsList({ initial }: { initial: ApprovalItem[] }) {
           <thead className="border-b text-muted-foreground">
             <tr>
               <th className="p-3 font-medium">Job</th>
+              <th className="p-3 font-medium">Estimated cost</th>
               <th className="p-3 font-medium">Created</th>
               <th className="p-3"></th>
             </tr>
@@ -51,6 +53,9 @@ export function ApprovalsList({ initial }: { initial: ApprovalItem[] }) {
             {items.map((item) => (
               <tr key={item.id} className="border-b last:border-0">
                 <td className="p-3 font-mono text-xs">{item.id}</td>
+                <td className="p-3 font-medium tabular-nums">
+                  {format({ amountMinor: item.costMinor, currency: item.costCurrency })}
+                </td>
                 <td className="p-3 text-xs">{new Date(item.createdAt).toLocaleString()}</td>
                 <td className="p-3 text-right">
                   <div className="flex justify-end gap-2">

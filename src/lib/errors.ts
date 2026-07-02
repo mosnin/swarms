@@ -120,6 +120,15 @@ export function isAppError(value: unknown): value is AppError {
 }
 
 /**
+ * Whether an error code is retryable (transient). Used by the job processor to
+ * decide whether a failed job should be requeued for another attempt. Unknown
+ * codes are treated as non-retryable (fail-closed).
+ */
+export function isRetryableCode(code: string): boolean {
+  return DEFAULT_RETRYABLE[code as ErrorCode] ?? false;
+}
+
+/**
  * Normalize an unknown thrown value into an {@link AppError}. Unknown errors
  * collapse to `INTERNAL` with a generic message so internals never leak.
  */

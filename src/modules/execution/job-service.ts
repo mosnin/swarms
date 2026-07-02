@@ -19,6 +19,14 @@ import { newId, IdPrefix } from "@/lib/ids";
 import { systemClock, type Clock } from "@/lib/time";
 import type { JobMessage, JobQueue } from "@/server/queue/types";
 
+/**
+ * Default attempt budget for a job. >1 so a transient failure (or a worker
+ * dying mid-run) requeues rather than permanently losing paid work. Terminal,
+ * non-retryable failures (validation, policy, budget) stop after one attempt
+ * regardless — the processor only requeues retryable error codes.
+ */
+const DEFAULT_MAX_ATTEMPTS = 3;
+
 export type JobStatus =
   | "queued"
   | "running"
@@ -212,7 +220,7 @@ export async function createJob(
     status: gated ? "awaiting_approval" : "queued",
     priority: 0,
     attempt: 0,
-    maxAttempts: 1,
+    maxAttempts: DEFAULT_MAX_ATTEMPTS,
     costMinor: 0,
     costCurrency: currency,
     queuedAt: gated ? null : now,

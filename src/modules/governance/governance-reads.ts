@@ -47,6 +47,7 @@ export async function listPendingApprovals(
       id: schema.jobs.id,
       costMinor: schema.jobs.costMinor,
       costCurrency: schema.jobs.costCurrency,
+      input: schema.jobs.input,
       createdAt: schema.jobs.createdAt,
     })
     .from(schema.jobs)
@@ -57,5 +58,14 @@ export async function listPendingApprovals(
       ),
     )
     .orderBy(desc(schema.jobs.createdAt));
-  return rows;
+  return rows.map(({ input, costMinor, ...r }) => {
+    // costMinor is 0 until the job runs; surface the up-front estimate the
+    // approver is authorizing (max GPU-seconds × rate), same as the worker uses.
+    const i = (input ?? {}) as { maxGpuSeconds?: number; rateMinorPerSecond?: number };
+    const estimateMinor = Math.max(
+      0,
+      Math.floor((i.maxGpuSeconds ?? 0) * (i.rateMinorPerSecond ?? 0)),
+    );
+    return { ...r, costMinor: costMinor > 0 ? costMinor : estimateMinor };
+  });
 }

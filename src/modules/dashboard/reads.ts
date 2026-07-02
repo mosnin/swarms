@@ -3,7 +3,7 @@
  * permission; all queries are scoped to the caller's organization.
  */
 
-import { and, count, desc, eq } from "drizzle-orm";
+import { and, count, desc, eq, inArray } from "drizzle-orm";
 
 import { getDb } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
@@ -41,7 +41,17 @@ export async function overviewMetrics(ctx: AuthContext, db: Db = getDb()): Promi
     jobCount(db, org),
     jobCount(db, org, "succeeded"),
     jobCount(db, org, "failed"),
-    jobCount(db, org, "awaiting_approval"),
+    // In-flight = queued + running (this is the "Running now" card; it must not
+    // duplicate the awaiting-approval count).
+    db
+      .select({ c: count() })
+      .from(schema.jobs)
+      .where(
+        and(
+          eq(schema.jobs.organizationId, org),
+          inArray(schema.jobs.status, ["queued", "running"]),
+        ),
+      ),
     db
       .select({ c: count() })
       .from(schema.jobs)
@@ -63,7 +73,7 @@ export async function overviewMetrics(ctx: AuthContext, db: Db = getDb()): Promi
     totalJobs: total,
     succeededJobs: succeeded,
     failedJobs: failed,
-    queuedJobs: queued,
+    queuedJobs: queued[0]?.c ?? 0,
     spendThisMonthMinor: committedMinor(monthEntries),
     activeConnectors: listConnectors().length,
     pendingApprovals: approvals[0]?.c ?? 0,

@@ -29,6 +29,13 @@ function getClient(): ReturnType<typeof postgres> {
       max: 5,
       idle_timeout: 20,
       connect_timeout: 5,
+      // Bound every statement so a lock-contended or slow query can never hang a
+      // request or the worker tick indefinitely; also cap idle-in-transaction so
+      // an abandoned transaction can't hold locks forever.
+      connection: {
+        statement_timeout: 30_000,
+        idle_in_transaction_session_timeout: 15_000,
+      },
     });
   }
   return client;
@@ -44,9 +51,15 @@ export function getDb(): PostgresJsDatabase<typeof schema> {
 
 /**
  * Lightweight connectivity check for readiness probes. Returns a `Result` and
- * never throws, so the readiness endpoint can degrade gracefully.
+ * never throws, so the readiness endpoint can degrade gracefully. The query is
+ * bounded by a short deadline so a wedged database yields a fast negative rather
+ * than a hanging probe.
  */
-export async function pingDatabase(): Promise<boolean> {
-  const result = await fromPromise(getClient()`select 1`);
+export async function pingDatabase(timeoutMs = 2_000): Promise<boolean> {
+  const ping = fromPromise(getClient()`select 1`);
+  const deadline = new Promise<{ ok: false }>((resolve) =>
+    setTimeout(() => resolve({ ok: false }), timeoutMs),
+  );
+  const result = await Promise.race([ping, deadline]);
   return result.ok;
 }

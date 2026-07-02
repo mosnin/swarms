@@ -16,13 +16,15 @@ describe("job state machine", () => {
     expect(canTransition("awaiting_approval", "queued")).toBe(true);
     expect(canTransition("awaiting_payment", "queued")).toBe(true);
     expect(canTransition("queued", "cancelled")).toBe(true);
+    // Retry requeue: a transiently-failed running job returns to the queue.
+    expect(canTransition("running", "queued")).toBe(true);
   });
 
   it("forbids illegal transitions", () => {
     expect(canTransition("succeeded", "running")).toBe(false);
     expect(canTransition("failed", "queued")).toBe(false);
     expect(canTransition("cancelled", "running")).toBe(false);
-    expect(canTransition("running", "queued")).toBe(false);
+    expect(canTransition("succeeded", "queued")).toBe(false);
   });
 
   it("treats success/failure/cancellation as terminal", () => {

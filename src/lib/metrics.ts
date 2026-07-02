@@ -14,13 +14,18 @@ export interface Metrics {
   timing(name: string, ms: number, tags?: MetricTags): void;
 }
 
-/** Default adapter: emit metrics as structured logs (debug level). */
+/**
+ * Default adapter: emit metrics as structured logs at INFO so they are visible
+ * under the default production LOG_LEVEL. (Emitting at debug meant metrics were
+ * silently dropped in production, leaving the system unobservable.) A real
+ * deployment swaps in a StatsD/OTEL sink via {@link setMetrics}.
+ */
 export class LogMetrics implements Metrics {
   increment(name: string, value = 1, tags: MetricTags = {}): void {
-    logger.debug("metric.increment", { name, value, ...tags });
+    logger.info("metric.increment", { metric: name, value, ...tags });
   }
   timing(name: string, ms: number, tags: MetricTags = {}): void {
-    logger.debug("metric.timing", { name, ms, ...tags });
+    logger.info("metric.timing", { metric: name, ms, ...tags });
   }
 }
 

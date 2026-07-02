@@ -9,6 +9,7 @@
  * worker process / a queue consumer.
  */
 
+import { isRetryableCode } from "@/lib/errors";
 import { newId, IdPrefix } from "@/lib/ids";
 import { logger } from "@/lib/logger";
 import { systemClock, type Clock } from "@/lib/time";
@@ -240,6 +241,32 @@ async function settleFailure(
       finishedAt,
     });
   }
+  // Retry a transient failure by requeueing, bounded by maxAttempts. `attempt`
+  // was already incremented when the job was claimed, so `attempt < maxAttempts`
+  // means at least one attempt remains. The budget hold is kept across the retry.
+  const canRetry = isRetryableCode(error.code) && job.attempt < job.maxAttempts;
+  if (canRetry) {
+    await deps.jobStore.appendLog({
+      id: newId(IdPrefix.executionLog),
+      organizationId: job.organizationId,
+      jobId: job.id,
+      level: "warn",
+      message: `Transient failure (${error.code}); requeueing for retry (attempt ${job.attempt}/${job.maxAttempts})`,
+      data: { code: error.code },
+      loggedAt: finishedAt,
+    });
+    assertTransition(job.status, "queued");
+    const requeued = await deps.jobStore.compareAndUpdate(job.id, job.status, {
+      status: "queued",
+      startedAt: null,
+      updatedAt: finishedAt,
+    });
+    if (requeued) return requeued;
+    // Lost a race (cancelled/reaped) — fall through to report current state.
+    logger.warn("processJob: job left its state before retry requeue; leaving as-is", { jobId: job.id });
+    return (await deps.jobStore.findById(job.id)) ?? job;
+  }
+
   await deps.jobStore.appendLog({
     id: newId(IdPrefix.executionLog),
     organizationId: job.organizationId,

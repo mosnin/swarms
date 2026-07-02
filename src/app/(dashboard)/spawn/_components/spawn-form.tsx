@@ -74,8 +74,12 @@ export function SpawnForm() {
       if (!res.ok) throw new Error(body?.error?.message ?? "Failed to spawn agent");
       setResult(body.data);
 
-      // Dev convenience: drive the local worker so the result appears immediately.
-      await fetch("/api/internal/jobs/process", { method: "POST" }).catch(() => undefined);
+      // Dev convenience only: drive the local worker so the result appears
+      // immediately. In production the standalone worker drains the queue, so
+      // the browser must never call the internal endpoint.
+      if (process.env.NODE_ENV !== "production") {
+        await fetch("/api/internal/jobs/process", { method: "POST" }).catch(() => undefined);
+      }
       const logsRes = await fetch(`/api/v1/jobs/${body.data.jobId}/logs`);
       const logsBody = await logsRes.json().catch(() => null);
       if (logsRes.ok) setLogs((logsBody.data.logs ?? []).map((l: { message: string }) => l.message));

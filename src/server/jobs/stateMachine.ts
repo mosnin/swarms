@@ -10,7 +10,9 @@ import type { JobStatus } from "@/modules/execution/job-service";
 
 const TRANSITIONS: Record<JobStatus, readonly JobStatus[]> = {
   queued: ["running", "awaiting_payment", "awaiting_approval", "failed", "cancelled"],
-  running: ["succeeded", "failed", "awaiting_approval", "cancelled"],
+  // running → queued is a retry requeue after a transient failure (bounded by
+  // maxAttempts); the job keeps its budget hold across the retry.
+  running: ["succeeded", "failed", "queued", "awaiting_approval", "cancelled"],
   awaiting_approval: ["queued", "cancelled"],
   awaiting_payment: ["queued", "cancelled"],
   // Terminal states.
