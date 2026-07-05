@@ -101,13 +101,16 @@ export async function deliverPendingWebhooks(
 ): Promise<number> {
   // Atomic claim: flip status to 'delivering' in a single UPDATE ... WHERE id IN
   // (SELECT ... FOR UPDATE SKIP LOCKED). Workers that lose the race see no rows.
-  const now = new Date();
+  // Bind the cutoff as an ISO string: a raw JS Date interpolated into
+  // db.execute(sql`…`) is not serialized by the postgres-js driver (it reaches
+  // the protocol layer as a Date and throws), even though pglite tolerates it.
+  const nowIso = new Date().toISOString();
   const claimed = await db.execute(sql`
     UPDATE webhook_deliveries
     SET status = 'delivering', updated_at = now()
     WHERE id IN (
       SELECT id FROM webhook_deliveries
-      WHERE status = 'pending' AND next_attempt_at <= ${now}
+      WHERE status = 'pending' AND next_attempt_at <= ${nowIso}
       ORDER BY next_attempt_at ASC
       LIMIT ${batchSize}
       FOR UPDATE SKIP LOCKED

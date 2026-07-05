@@ -10,14 +10,15 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
 import { env } from "@/lib/env";
-import { transientCookie } from "@/modules/identity/session-cookie";
+import {
+  OAUTH_STATE_COOKIE,
+  OAUTH_VERIFIER_COOKIE,
+  transientCookie,
+} from "@/modules/identity/session-cookie";
 import { buildAuthorizeUrl, generatePkce, generateState } from "@/server/auth/oauth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-export const OAUTH_STATE_COOKIE = "swarms_oauth_state";
-export const OAUTH_VERIFIER_COOKIE = "swarms_oauth_verifier";
 
 export async function GET(_request: NextRequest): Promise<Response> {
   if (env.AUTH_MODE !== "oauth") {

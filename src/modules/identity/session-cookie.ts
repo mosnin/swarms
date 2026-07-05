@@ -9,6 +9,10 @@ import { env } from "@/lib/env";
 import { SESSION_COOKIE } from "@/modules/identity/session";
 import { SESSION_TTL_MS, signSessionToken } from "@/modules/identity/session-token";
 
+/** Short-lived cookies that carry the OAuth anti-CSRF state + PKCE verifier. */
+export const OAUTH_STATE_COOKIE = "swarms_oauth_state";
+export const OAUTH_VERIFIER_COOKIE = "swarms_oauth_verifier";
+
 function secureAttr(): string {
   return env.NODE_ENV === "production" ? "; Secure" : "";
 }

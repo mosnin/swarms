@@ -15,11 +15,12 @@ import { getDb } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { resolveOrCreateUserByEmail } from "@/modules/identity/provisioning";
 import {
+  OAUTH_STATE_COOKIE,
+  OAUTH_VERIFIER_COOKIE,
   clearTransientCookie,
   sessionSetCookie,
 } from "@/modules/identity/session-cookie";
 import { exchangeCodeForToken, fetchUserInfo } from "@/server/auth/oauth";
-import { OAUTH_STATE_COOKIE, OAUTH_VERIFIER_COOKIE } from "@/app/api/auth/login/route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

@@ -1,24 +1,35 @@
 import Link from "next/link";
 
 import { SignInNotice } from "@/app/(dashboard)/_components/sign-in-notice";
+import { SwarmSpawnForm } from "@/app/(dashboard)/swarms/_components/swarm-spawn-form";
+import { SwarmLive } from "@/app/(dashboard)/swarms/[swarmRunId]/_components/swarm-live";
 import { format } from "@/lib/money";
 import { tryCurrentContext } from "@/modules/identity/current";
 import { listSwarmRuns } from "@/modules/dashboard/reads";
 
 export const dynamic = "force-dynamic";
 
+const TERMINAL = new Set(["succeeded", "failed", "cancelled", "partial"]);
+
 export default async function SwarmsPage() {
   const ctx = await tryCurrentContext();
   if (!ctx) return <SignInNotice />;
 
   const runs = await listSwarmRuns(ctx);
+  const anyActive = runs.some((r) => !TERMINAL.has(r.status));
 
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-2xl font-bold">Swarms</h1>
-        <p className="text-sm text-muted-foreground">Multi-agent runs and their rolled-up cost.</p>
+      <header className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">Swarms</h1>
+          <p className="text-sm text-muted-foreground">Multi-agent runs and their rolled-up cost.</p>
+        </div>
+        {/* Refresh the list while any run is still working. */}
+        {anyActive && <SwarmLive status="running" />}
       </header>
+
+      <SwarmSpawnForm />
 
       <div className="rounded-lg border">
         <table className="w-full text-left text-sm">

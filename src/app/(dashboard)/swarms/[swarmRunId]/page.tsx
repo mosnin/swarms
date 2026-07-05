@@ -2,10 +2,13 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { SignInNotice } from "@/app/(dashboard)/_components/sign-in-notice";
+import { SwarmLive } from "@/app/(dashboard)/swarms/[swarmRunId]/_components/swarm-live";
 import { format } from "@/lib/money";
 import { isAppError } from "@/lib/errors";
 import { tryCurrentContext } from "@/modules/identity/current";
 import { getSwarmRun } from "@/modules/swarms/swarm-repository";
+
+const TERMINAL = new Set(["succeeded", "failed", "cancelled", "partial"]);
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +35,10 @@ export default async function SwarmDetailPage({
           </Link>{" "}
           / {run.id}
         </p>
-        <h1 className="text-2xl font-bold">Swarm {run.status}</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold">Swarm {run.status}</h1>
+          <SwarmLive status={run.status} />
+        </div>
         <p className="mt-1 text-sm text-muted-foreground">{run.objective}</p>
       </header>
 
@@ -80,9 +86,17 @@ export default async function SwarmDetailPage({
 
       <section className="space-y-2">
         <h2 className="text-sm font-semibold">Merged result</h2>
-        <pre className="overflow-x-auto rounded-lg border bg-muted/30 p-4 text-xs">
-          {JSON.stringify(run.output, null, 2)}
-        </pre>
+        {TERMINAL.has(run.status) && run.output != null ? (
+          <pre className="overflow-x-auto rounded-lg border bg-muted/30 p-4 text-xs">
+            {JSON.stringify(run.output, null, 2)}
+          </pre>
+        ) : (
+          <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+            {TERMINAL.has(run.status)
+              ? "No merged result was produced."
+              : "The workforce is still running. The merged result will appear here when the swarm completes."}
+          </p>
+        )}
       </section>
     </div>
   );
