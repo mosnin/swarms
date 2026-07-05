@@ -16,6 +16,7 @@ import { createHash } from "node:crypto";
 import { Errors } from "@/lib/errors";
 import { newId, IdPrefix } from "@/lib/ids";
 import { systemClock, type Clock } from "@/lib/time";
+import { appendEntry, type LedgerStore } from "@/modules/billing/ledger-service";
 import type {
   PaymentBinding,
   PaymentProof,
@@ -117,13 +118,15 @@ export interface SettleResult {
 export async function settlePayment(
   store: PaymentStore,
   provider: PaymentProvider,
+  ledger: LedgerStore,
   binding: PaymentBinding,
   proof: PaymentProof,
   clock: Clock = systemClock,
 ): Promise<SettleResult> {
   const digest = bindingDigest(binding);
 
-  // (2) Idempotent replay: this exact request was already paid.
+  // (2) Idempotent replay: this exact request was already paid. No new ledger
+  // entry — the credit was appended when the receipt was first created.
   const existingForBinding = await store.findReceiptByBinding(binding.organizationId, digest);
   if (existingForBinding) {
     return { receipt: existingForBinding, replay: true };
@@ -179,6 +182,24 @@ export async function settlePayment(
     providerRef: verification.providerRef ?? null,
     createdAt: now,
   });
+
+  // Record inbound funds in the append-only ledger so balances reflect money
+  // paid IN (not just charges out) and reconciliation finds a matching credit
+  // for every receipt. Written once per new receipt (replays return early above).
+  await appendEntry(
+    ledger,
+    {
+      organizationId: binding.organizationId,
+      direction: "credit",
+      kind: "payment",
+      amountMinor: binding.amountMinor,
+      currency: binding.currency,
+      description: "x402 payment settlement",
+      refType: "payment_receipt",
+      refId: receipt.id,
+    },
+    clock,
+  );
 
   return { receipt, replay: false };
 }
