@@ -10,8 +10,24 @@ import {
   type PaymentReceiptRecord,
   type PaymentStore,
 } from "@/modules/billing/payment-service";
+import { reconcile } from "@/modules/billing/reconciliation";
+import type { LedgerEntryRecord, LedgerStore } from "@/modules/billing/ledger-service";
 import { MockPaymentProvider } from "@/server/payments/mockProvider";
 import type { PaymentBinding, PaymentProof } from "@/server/payments/types";
+
+class InMemoryLedgerStore implements LedgerStore {
+  readonly entries: LedgerEntryRecord[] = [];
+  async insert(record: LedgerEntryRecord) {
+    this.entries.push(record);
+    return record;
+  }
+  async findById(id: string) {
+    return this.entries.find((e) => e.id === id) ?? null;
+  }
+  async listByOrganization(organizationId: string) {
+    return this.entries.filter((e) => e.organizationId === organizationId);
+  }
+}
 
 class InMemoryPaymentStore implements PaymentStore {
   readonly attempts: PaymentAttemptRecord[] = [];
@@ -76,44 +92,79 @@ describe("issueChallenge (unpaid path)", () => {
 
 describe("settlePayment", () => {
   let store: InMemoryPaymentStore;
+  let ledger: InMemoryLedgerStore;
   beforeEach(() => {
     store = new InMemoryPaymentStore();
+    ledger = new InMemoryLedgerStore();
   });
 
   it("settles a valid proof and issues a receipt", async () => {
-    const { receipt, replay } = await settlePayment(store, provider, binding, validProof(), clock);
+    const { receipt, replay } = await settlePayment(store, provider, ledger, binding, validProof(), clock);
     expect(replay).toBe(false);
     expect(receipt.amountMinor).toBe(500);
     expect(receipt.txRef).toBe("0xtx_abcdef12");
     expect(store.receipts).toHaveLength(1);
   });
 
-  it("is idempotent: re-settling the same binding returns the same receipt (no double charge)", async () => {
-    const first = await settlePayment(store, provider, binding, validProof(), clock);
-    const second = await settlePayment(store, provider, binding, validProof(binding, "0xDIFFERENTtx"), clock);
+  it("writes a payment ledger credit that reconciles against the receipt", async () => {
+    const { receipt } = await settlePayment(store, provider, ledger, binding, validProof(), clock);
+
+    // Exactly one payment credit, bound to the receipt, for the right amount.
+    expect(ledger.entries).toHaveLength(1);
+    const entry = ledger.entries[0]!;
+    expect(entry).toMatchObject({
+      direction: "credit",
+      kind: "payment",
+      amountMinor: 500,
+      currency: "USD",
+      refType: "payment_receipt",
+      refId: receipt.id,
+    });
+
+    // Reconciliation finds no drift for this receipt.
+    const discrepancies = reconcile(
+      [{ id: receipt.id, jobId: null, amountMinor: receipt.amountMinor, currency: receipt.currency }],
+      [],
+      ledger.entries.map((e) => ({
+        kind: e.kind,
+        refType: e.refType,
+        refId: e.refId,
+        jobId: e.jobId,
+        amountMinor: e.amountMinor,
+        currency: e.currency,
+      })),
+    );
+    expect(discrepancies).toEqual([]);
+  });
+
+  it("is idempotent: re-settling the same binding returns the same receipt and no extra ledger entry", async () => {
+    const first = await settlePayment(store, provider, ledger, binding, validProof(), clock);
+    const second = await settlePayment(store, provider, ledger, binding, validProof(binding, "0xDIFFERENTtx"), clock);
     expect(second.replay).toBe(true);
     expect(second.receipt.id).toBe(first.receipt.id);
     expect(store.receipts).toHaveLength(1);
+    expect(ledger.entries).toHaveLength(1); // no double credit on replay
   });
 
   it("rejects a proof not bound to this request", async () => {
     const wrong = { ...validProof(), binding: "deadbeef" };
-    await expect(settlePayment(store, provider, binding, wrong, clock)).rejects.toMatchObject({
+    await expect(settlePayment(store, provider, ledger, binding, wrong, clock)).rejects.toMatchObject({
       code: "PAYMENT_REQUIRED",
     });
+    expect(ledger.entries).toHaveLength(0);
   });
 
   it("rejects reusing a settlement reference for a different request (duplicate)", async () => {
-    await settlePayment(store, provider, binding, validProof(binding, "0xshared_tx"), clock);
+    await settlePayment(store, provider, ledger, binding, validProof(binding, "0xshared_tx"), clock);
     const otherBinding = { ...binding, idempotencyKey: "idem-pay-0002" };
     await expect(
-      settlePayment(store, provider, otherBinding, validProof(otherBinding, "0xshared_tx"), clock),
+      settlePayment(store, provider, ledger, otherBinding, validProof(otherBinding, "0xshared_tx"), clock),
     ).rejects.toMatchObject({ code: "CONFLICT" });
   });
 
   it("rejects an unverifiable proof (bad scheme)", async () => {
     const badScheme = { ...validProof(), scheme: "not-x402" };
-    await expect(settlePayment(store, provider, binding, badScheme, clock)).rejects.toMatchObject({
+    await expect(settlePayment(store, provider, ledger, binding, badScheme, clock)).rejects.toMatchObject({
       code: "PAYMENT_REQUIRED",
     });
   });

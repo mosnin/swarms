@@ -65,6 +65,19 @@ export const envSchema = z.object({
   // production; a fixed dev secret is used otherwise.
   SESSION_SECRET: z.string().min(32).optional(),
 
+  // OAuth 2.0 (authorization-code + PKCE) login. Provider-agnostic: point these
+  // at any compliant IdP (Auth0, Okta, Google, Keycloak, ...). When AUTH_MODE is
+  // "oauth" in production these are required; in "dev" mode the dev-login route
+  // is used instead. See src/server/auth/oauth.ts.
+  AUTH_MODE: z.enum(["dev", "oauth"]).default("dev"),
+  OAUTH_CLIENT_ID: z.string().min(1).optional(),
+  OAUTH_CLIENT_SECRET: z.string().min(1).optional(),
+  OAUTH_AUTHORIZE_URL: z.string().url().optional(),
+  OAUTH_TOKEN_URL: z.string().url().optional(),
+  OAUTH_USERINFO_URL: z.string().url().optional(),
+  OAUTH_REDIRECT_URL: z.string().url().optional(),
+  OAUTH_SCOPES: z.string().min(1).default("openid email profile"),
+
   // Rate-limit backend: in-process (single instance) or shared Postgres.
   RATE_LIMIT_BACKEND: z.enum(["memory", "postgres"]).default("memory"),
 
@@ -111,6 +124,23 @@ export const envSchema = z.object({
     }
     if (!data.SESSION_SECRET) {
       ctx.addIssue({ code: "custom", path: ["SESSION_SECRET"], message: "Required in production" });
+    }
+    // When production login is OAuth, the provider endpoints + client creds are
+    // mandatory (a misconfigured IdP must fail at boot, not on first sign-in).
+    if (data.AUTH_MODE === "oauth") {
+      const required = [
+        "OAUTH_CLIENT_ID",
+        "OAUTH_CLIENT_SECRET",
+        "OAUTH_AUTHORIZE_URL",
+        "OAUTH_TOKEN_URL",
+        "OAUTH_USERINFO_URL",
+        "OAUTH_REDIRECT_URL",
+      ] as const;
+      for (const key of required) {
+        if (!data[key]) {
+          ctx.addIssue({ code: "custom", path: [key], message: "Required when AUTH_MODE=oauth" });
+        }
+      }
     }
     // Untrusted agent + caller-supplied tool code must run isolated in
     // production. The in-process `openrouter` runtime provides no isolation and

@@ -17,13 +17,16 @@ export default function Home() {
 
       <div className="mt-8 flex gap-3">
         <Link
+          href="/login"
+          className="rounded-md bg-primary px-5 py-3 text-sm font-medium text-primary-foreground transition-all hover:opacity-90 active:scale-[0.99]"
+        >
+          Sign in
+        </Link>
+        <Link
           href="/dashboard"
-          className="rounded-md bg-primary px-5 py-3 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          className="rounded-md border px-5 py-3 text-sm font-medium transition-colors hover:bg-muted"
         >
           Open dashboard
-        </Link>
-        <Link href="/spawn" className="rounded-md border px-5 py-3 text-sm font-medium hover:bg-muted">
-          Spawn an agent
         </Link>
       </div>
 

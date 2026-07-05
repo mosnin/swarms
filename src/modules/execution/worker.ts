@@ -6,7 +6,7 @@
  * (the standalone worker in Phase 16 reuses the same core).
  */
 
-import { and, eq, lt, sql } from "drizzle-orm";
+import { and, eq, inArray, lt, sql } from "drizzle-orm";
 
 import { getDb } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
@@ -139,9 +139,16 @@ async function resolveExecution(db: Db, job: JobRecord): Promise<ResolvedExecuti
       currency,
       aggregatorTask: input.aggregatorTask,
       sequential: input.sequential,
+      workerTimeouts: input.workerTimeouts,
+      deduplicateStrict: input.deduplicateStrict,
+      callbackUrl: input.callbackUrl,
       apiKeyId: job.apiKeyId,
       createdByUserId: job.createdByUserId,
-      idempotencyKey: `director-${job.id}`,
+      // Child swarm idempotency: bind to the pre-created run when present so a
+      // director retry re-executes into the same run rather than forking a new one.
+      idempotencyKey: input.existingRunId ? `swarm-run-${input.existingRunId}` : `director-${job.id}`,
+      existingRunId: input.existingRunId,
+      resourceBundleId: input.resourceBundleId,
     };
     return {
       runnerType: "swarm",
@@ -287,8 +294,16 @@ export async function claimAndProcessJobs(db: Db = getDb(), batchSize = 5): Prom
 // Default lease horizon exceeds the maximum permitted job runtime (600s, see
 // resolveExecution) plus a margin, so a legitimately long-running job on a live
 // worker is never reaped mid-flight.
-export async function reapExpiredJobs(db: Db = getDb(), maxRunMs = 660_000): Promise<number> {
+export async function reapExpiredJobs(
+  db: Db = getDb(),
+  maxRunMs = 660_000,
+  // A swarm director orchestrates up to 16 sequential sub-jobs (each ~600s), so
+  // it legitimately runs far longer than a single agent job. Give it a much
+  // larger lease so a healthy long director isn't falsely reaped mid-fleet.
+  swarmMaxRunMs = 16 * 660_000,
+): Promise<number> {
   const cutoff = new Date(Date.now() - maxRunMs);
+  const swarmCutoff = new Date(Date.now() - swarmMaxRunMs);
   const stuck = await db
     .select({
       id: schema.jobs.id,
@@ -296,12 +311,18 @@ export async function reapExpiredJobs(db: Db = getDb(), maxRunMs = 660_000): Pro
       costCurrency: schema.jobs.costCurrency,
       attempt: schema.jobs.attempt,
       maxAttempts: schema.jobs.maxAttempts,
+      capabilityKind: schema.jobs.capabilityKind,
+      startedAt: schema.jobs.startedAt,
     })
     .from(schema.jobs)
     .where(and(eq(schema.jobs.status, "running"), lt(schema.jobs.startedAt, cutoff)));
 
   let reaped = 0;
   for (const job of stuck) {
+    // Swarm directors get the larger lease — skip ones that haven't exceeded it.
+    if (job.capabilityKind === "swarm" && job.startedAt && job.startedAt >= swarmCutoff) {
+      continue;
+    }
     // A dead worker's lease expiry is transient: if attempts remain, requeue the
     // job (keeping its budget hold) rather than permanently failing paid work.
     const willRetry = job.attempt < job.maxAttempts;
@@ -344,6 +365,82 @@ export async function reapExpiredJobs(db: Db = getDb(), maxRunMs = 660_000): Pro
       resourceType: "job",
       resourceId: job.id,
       after: { reason: "lease_expired" },
+    }, db);
+  }
+  return reaped;
+}
+
+/**
+ * Swarm-run reaper: recover swarm runs orphaned by a dead director. A director
+ * that dies mid-fleet is failed by {@link reapExpiredJobs} (maxAttempts=1, so it
+ * is failed rather than requeued), but that leaves the swarm_runs row stuck
+ * non-terminal forever with worker holds outstanding. This finds runs whose
+ * director job has reached a terminal FAILURE while the run is still
+ * running/queued, settles the run to `failed`, and releases outstanding worker
+ * holds. Keyed off the director's terminal state (not a time guess), so a live
+ * long-running director is never touched.
+ */
+export async function reapOrphanedSwarmRuns(db: Db = getDb()): Promise<number> {
+  const openRuns = await db
+    .select({
+      id: schema.swarmRuns.id,
+      organizationId: schema.swarmRuns.organizationId,
+      costCurrency: schema.swarmRuns.costCurrency,
+    })
+    .from(schema.swarmRuns)
+    .where(inArray(schema.swarmRuns.status, ["running", "queued"]));
+
+  let reaped = 0;
+  for (const run of openRuns) {
+    const director = (
+      await db
+        .select({ status: schema.jobs.status })
+        .from(schema.jobs)
+        .where(
+          and(
+            eq(schema.jobs.organizationId, run.organizationId),
+            eq(schema.jobs.idempotencyKey, `swarm-director-${run.id}`),
+          ),
+        )
+        .limit(1)
+    )[0];
+
+    // Only reap when the director has terminally FAILED. If it's still
+    // running/queued the fleet may be live; if it succeeded the run was settled.
+    if (!director || (director.status !== "failed" && director.status !== "cancelled")) {
+      continue;
+    }
+
+    const updated = await db
+      .update(schema.swarmRuns)
+      .set({
+        status: "failed",
+        output: { error: "director_orphaned", reason: "director job failed before the swarm settled" },
+        finishedAt: new Date(),
+      })
+      .where(and(eq(schema.swarmRuns.id, run.id), inArray(schema.swarmRuns.status, ["running", "queued"])))
+      .returning({ id: schema.swarmRuns.id });
+    if (updated.length === 0) continue; // settled concurrently
+
+    reaped += 1;
+    // Release outstanding holds for any worker jobs of this run.
+    const agents = await db
+      .select({ jobId: schema.swarmAgents.jobId })
+      .from(schema.swarmAgents)
+      .where(eq(schema.swarmAgents.swarmRunId, run.id));
+    for (const agent of agents) {
+      if (agent.jobId) {
+        await releaseBudget(
+          { organizationId: run.organizationId, jobId: agent.jobId, currency: run.costCurrency },
+          db,
+        ).catch(() => undefined);
+      }
+    }
+    await writeAuditSystem(run.organizationId, {
+      action: "swarm_run.failed",
+      resourceType: "swarm_run",
+      resourceId: run.id,
+      after: { reason: "director_orphaned" },
     }, db);
   }
   return reaped;

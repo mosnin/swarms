@@ -14,10 +14,19 @@ import { __setTestDb } from "@/lib/db";
 import { userContext } from "@/modules/identity/access-control";
 import { SESSION_USER_HEADER } from "@/modules/identity/session";
 import { spawnSwarm } from "@/modules/swarms/spawn-swarm";
+import { claimAndProcessJobs } from "@/modules/execution/worker";
 import { LocalQueue } from "@/server/queue/localQueue";
 import { setJobQueue } from "@/server/queue/queue";
 import { createTestDb, seedOrg, type TestDb } from "./harness";
 import { POST } from "@/app/api/v1/swarms/[swarmRunId]/replay/route";
+
+/** Drain the DB-backed queue (director job → fleet) until nothing is left. */
+async function runWorker(db: TestDb): Promise<void> {
+  for (let i = 0; i < 20; i++) {
+    const processed = await claimAndProcessJobs(db, 10);
+    if (processed === 0) break;
+  }
+}
 
 function makeReplayRequest(swarmRunId: string, userId: string, overrides: Record<string, unknown> = {}): NextRequest {
   return new NextRequest(`http://test.local/api/v1/swarms/${swarmRunId}/replay`, {
@@ -61,12 +70,21 @@ describe("integration: POST /api/v1/swarms/:id/replay", () => {
     const req = makeReplayRequest(original.swarmRunId, userId);
     const res = await POST(req as never, { params: Promise.resolve({ swarmRunId: original.swarmRunId }) });
 
-    expect(res.status).toBe(201);
+    // Async: the replay is accepted (202) and queued; the fleet runs on the worker.
+    expect(res.status).toBe(202);
     const body = await res.json() as { data: { swarmRunId: string; replayedFrom: string; status: string; workerCount: number } };
     expect(body.data.replayedFrom).toBe(original.swarmRunId);
     expect(body.data.swarmRunId).not.toBe(original.swarmRunId);
-    expect(body.data.status).toBe("succeeded");
+    expect(body.data.status).toBe("queued");
     expect(body.data.workerCount).toBe(2);
+
+    // Drive the worker: the director job executes the fleet into the queued run.
+    await runWorker(db);
+    const [replayed] = await db
+      .select()
+      .from(schema.swarmRuns)
+      .where(eq(schema.swarmRuns.id, body.data.swarmRunId));
+    expect(replayed?.status).toBe("succeeded");
 
     // Verify both runs exist in DB.
     const allRuns = await db.select().from(schema.swarmRuns).where(eq(schema.swarmRuns.organizationId, organizationId));
@@ -90,7 +108,7 @@ describe("integration: POST /api/v1/swarms/:id/replay", () => {
     const req = makeReplayRequest(original.swarmRunId, userId);
     const res = await POST(req as never, { params: Promise.resolve({ swarmRunId: original.swarmRunId }) });
 
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(202);
     const body = await res.json() as { data: { workerCount: number } };
     expect(body.data.workerCount).toBe(3);
   });
@@ -108,9 +126,15 @@ describe("integration: POST /api/v1/swarms/:id/replay", () => {
     const req = makeReplayRequest(original.swarmRunId, userId, { budgetMinor: 200 });
     const res = await POST(req as never, { params: Promise.resolve({ swarmRunId: original.swarmRunId }) });
 
-    expect(res.status).toBe(201);
-    const body = await res.json() as { data: { status: string } };
-    expect(body.data.status).toBe("succeeded");
+    expect(res.status).toBe(202);
+    const body = await res.json() as { data: { status: string; swarmRunId: string } };
+    expect(body.data.status).toBe("queued");
+    await runWorker(db);
+    const [replayed] = await db
+      .select()
+      .from(schema.swarmRuns)
+      .where(eq(schema.swarmRuns.id, body.data.swarmRunId));
+    expect(replayed?.status).toBe("succeeded");
   });
 
   it("uses a fresh idempotency key so the same replay can be called again", async () => {
@@ -133,8 +157,8 @@ describe("integration: POST /api/v1/swarms/:id/replay", () => {
       { params: Promise.resolve({ swarmRunId: original.swarmRunId }) },
     );
 
-    expect(res1.status).toBe(201);
-    expect(res2.status).toBe(201);
+    expect(res1.status).toBe(202);
+    expect(res2.status).toBe(202);
     const b1 = await res1.json() as { data: { swarmRunId: string } };
     const b2 = await res2.json() as { data: { swarmRunId: string } };
     expect(b1.data.swarmRunId).not.toBe(b2.data.swarmRunId);

@@ -16,6 +16,7 @@ import { createHash } from "node:crypto";
 import { Errors } from "@/lib/errors";
 import { newId, IdPrefix } from "@/lib/ids";
 import { systemClock, type Clock } from "@/lib/time";
+import { appendEntry, type LedgerStore } from "@/modules/billing/ledger-service";
 import type {
   PaymentBinding,
   PaymentProof,
@@ -117,15 +118,20 @@ export interface SettleResult {
 export async function settlePayment(
   store: PaymentStore,
   provider: PaymentProvider,
+  ledger: LedgerStore,
   binding: PaymentBinding,
   proof: PaymentProof,
   clock: Clock = systemClock,
 ): Promise<SettleResult> {
   const digest = bindingDigest(binding);
 
-  // (2) Idempotent replay: this exact request was already paid.
+  // (2) Idempotent replay: this exact request was already paid. Self-heal the
+  // ledger credit if a prior settlement crashed after inserting the receipt but
+  // before appending the credit — otherwise that inbound payment would be lost
+  // from the balance forever (reconciliation would flag it indefinitely).
   const existingForBinding = await store.findReceiptByBinding(binding.organizationId, digest);
   if (existingForBinding) {
+    await ensurePaymentCredit(ledger, existingForBinding, clock);
     return { receipt: existingForBinding, replay: true };
   }
 
@@ -180,7 +186,45 @@ export async function settlePayment(
     createdAt: now,
   });
 
+  // Record inbound funds in the append-only ledger so balances reflect money
+  // paid IN (not just charges out) and reconciliation finds a matching credit
+  // for every receipt.
+  await ensurePaymentCredit(ledger, receipt, clock);
+
   return { receipt, replay: false };
+}
+
+/**
+ * Append the `payment` ledger credit for a receipt unless one already exists.
+ * Idempotent: safe to call on both the fresh-settlement and replay paths, so a
+ * settlement that crashed after the receipt insert but before the credit heals
+ * on the next attempt. The receipt binding (refType/refId) is the idempotency key.
+ */
+async function ensurePaymentCredit(
+  ledger: LedgerStore,
+  receipt: PaymentReceiptRecord,
+  clock: Clock,
+): Promise<void> {
+  const existing = await ledger.listByOrganization(receipt.organizationId);
+  const alreadyCredited = existing.some(
+    (e) => e.kind === "payment" && e.refType === "payment_receipt" && e.refId === receipt.id,
+  );
+  if (alreadyCredited) return;
+
+  await appendEntry(
+    ledger,
+    {
+      organizationId: receipt.organizationId,
+      direction: "credit",
+      kind: "payment",
+      amountMinor: receipt.amountMinor,
+      currency: receipt.currency,
+      description: "x402 payment settlement",
+      refType: "payment_receipt",
+      refId: receipt.id,
+    },
+    clock,
+  );
 }
 
 /** Decode the base64 JSON `X-PAYMENT` header into a proof, or `null`. */

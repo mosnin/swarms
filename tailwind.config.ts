@@ -1,7 +1,9 @@
 import type { Config } from "tailwindcss";
 
 const config: Config = {
-  darkMode: ["class"],
+  // System-driven: `dark:` variants track prefers-color-scheme, matching the
+  // token switch in globals.css (there is no manual theme toggle).
+  darkMode: "media",
   content: ["./src/app/**/*.{ts,tsx}", "./src/components/**/*.{ts,tsx}", "./src/**/*.{ts,tsx}"],
   theme: {
     container: {
