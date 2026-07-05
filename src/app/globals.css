@@ -43,5 +43,85 @@
   }
   body {
     @apply bg-background text-foreground;
+    /* Apple-grade text rendering. */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  html {
+    scroll-behavior: smooth;
+  }
+  /* Calm, consistent focus ring instead of the harsh default outline. */
+  :focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px hsl(var(--background)), 0 0 0 4px hsl(var(--ring) / 0.55);
+    border-radius: var(--radius);
+  }
+  ::selection {
+    background: hsl(var(--primary) / 0.15);
+  }
+}
+
+/* Respect the viewer's system theme — the app now feels native on dark macOS/iOS
+   (previously the dark palette existed but was never activated). */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 212.7 26.8% 83.9%;
+    --primary: 210 40% 98%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+  }
+}
+
+@layer utilities {
+  /* Content settles into place — subtle rise + fade, spring-like easing. */
+  @keyframes page-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  .animate-page-in {
+    animation: page-in 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  /* A gentle rising fade for list rows / cards, staggerable via inline delay. */
+  @keyframes rise-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  .animate-rise-in {
+    animation: rise-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+}
+
+/* Honor reduced-motion: kill all motion for viewers who ask for it. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
   }
 }
