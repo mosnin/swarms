@@ -114,24 +114,46 @@ export class X402FacilitatorProvider implements PaymentProvider {
     path: string,
     body: unknown,
   ): Promise<{ ok: true; body: Record<string, unknown> } | { ok: false; reason: string }> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.opts.timeoutMs ?? 10_000);
-    try {
-      const res = await this.doFetch(`${this.opts.facilitatorUrl.replace(/\/+$/, "")}${path}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-      if (!res.ok) return { ok: false, reason: `facilitator ${path} returned ${res.status}` };
-      const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-      return { ok: true, body: json };
-    } catch (error) {
-      const aborted = error instanceof Error && error.name === "AbortError";
-      logger.error("x402 facilitator call failed", { path, aborted });
-      return { ok: false, reason: aborted ? "facilitator call timed out" : "facilitator call failed" };
-    } finally {
-      clearTimeout(timer);
+    // Bounded retry with exponential backoff. /verify and /settle are idempotent
+    // at the facilitator, so retrying a transient failure (network error or 5xx)
+    // is safe and does not double-move funds. 4xx and timeouts are terminal.
+    const url = `${this.opts.facilitatorUrl.replace(/\/+$/, "")}${path}`;
+    const payload = JSON.stringify(body);
+    const backoffMs = [0, 500, 1500];
+    let lastReason = "facilitator call failed";
+
+    for (let attempt = 0; attempt < backoffMs.length; attempt++) {
+      if (backoffMs[attempt]! > 0) {
+        await new Promise((r) => setTimeout(r, backoffMs[attempt]!));
+      }
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), this.opts.timeoutMs ?? 10_000);
+      try {
+        const res = await this.doFetch(url, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: payload,
+          signal: controller.signal,
+        });
+        if (res.ok) {
+          const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+          return { ok: true, body: json };
+        }
+        lastReason = `facilitator ${path} returned ${res.status}`;
+        // Retry only transient 5xx; 4xx is terminal.
+        if (res.status < 500 || attempt === backoffMs.length - 1) {
+          return { ok: false, reason: lastReason };
+        }
+      } catch (error) {
+        const aborted = error instanceof Error && error.name === "AbortError";
+        logger.warn("x402 facilitator call failed", { path, aborted, attempt: attempt + 1 });
+        if (aborted) return { ok: false, reason: "facilitator call timed out" };
+        lastReason = "facilitator call failed";
+        if (attempt === backoffMs.length - 1) return { ok: false, reason: lastReason };
+      } finally {
+        clearTimeout(timer);
+      }
     }
+    return { ok: false, reason: lastReason };
   }
 }
