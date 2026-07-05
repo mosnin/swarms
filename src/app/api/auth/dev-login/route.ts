@@ -18,8 +18,7 @@ import { getDb } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
 import { env } from "@/lib/env";
 import { Errors } from "@/lib/errors";
-import { SESSION_COOKIE } from "@/modules/identity/session";
-import { SESSION_TTL_MS, signSessionToken } from "@/modules/identity/session-token";
+import { sessionSetCookie } from "@/modules/identity/session-cookie";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,18 +45,8 @@ export async function POST(request: NextRequest): Promise<Response> {
     )[0];
     if (!user) throw Errors.notFound("No user with that email");
 
-    const token = signSessionToken(user.id, Date.now());
     const response = ok({ userId: user.id, email: user.email });
-    response.headers.append(
-      "Set-Cookie",
-      cookieHeader(SESSION_COOKIE, token, Math.floor(SESSION_TTL_MS / 1000)),
-    );
+    response.headers.append("Set-Cookie", sessionSetCookie(user.id, Date.now()));
     return response;
   });
-}
-
-/** Build a hardened Set-Cookie header value. */
-function cookieHeader(name: string, value: string, maxAgeSeconds: number): string {
-  const secure = env.NODE_ENV === "production" ? "; Secure" : "";
-  return `${name}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}${secure}`;
 }
