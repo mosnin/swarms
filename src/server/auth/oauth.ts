@@ -153,6 +153,15 @@ export async function fetchUserInfo(accessToken: string): Promise<OAuthUserInfo>
   if (!parsed.success) {
     throw Errors.upstream("OAuth userinfo response was malformed or missing email");
   }
+
+  // Fail closed on an unverified email. Local identity is keyed on email, so
+  // trusting an unverified claim from a provider that lets users set an arbitrary
+  // address would be an account-takeover primitive. When the IdP omits the claim
+  // entirely we cannot prove verification, so we reject rather than assume.
+  if (parsed.data.email_verified !== true) {
+    throw Errors.unauthorized("OAuth email is not verified by the identity provider");
+  }
+
   return {
     subject: parsed.data.sub ?? null,
     email: parsed.data.email.toLowerCase(),

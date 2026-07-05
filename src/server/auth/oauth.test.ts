@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { buildAuthorizeUrl, generatePkce, generateState } from "@/server/auth/oauth";
+import { buildAuthorizeUrl, fetchUserInfo, generatePkce, generateState } from "@/server/auth/oauth";
 
 const OAUTH_ENV = {
   OAUTH_AUTHORIZE_URL: "https://idp.example.com/authorize",
@@ -47,5 +47,34 @@ describe("buildAuthorizeUrl", () => {
 
   it("throws a config error when OAuth is not configured", () => {
     expect(() => buildAuthorizeUrl("s", "c")).toThrowError();
+  });
+});
+
+describe("fetchUserInfo — email_verified enforcement", () => {
+  afterEach(() => {
+    delete process.env.OAUTH_USERINFO_URL;
+    vi.unstubAllGlobals();
+  });
+
+  function stubUserinfo(body: unknown) {
+    process.env.OAUTH_USERINFO_URL = "https://idp.example.com/userinfo";
+    vi.stubGlobal("fetch", async () => new Response(JSON.stringify(body), { status: 200 }));
+  }
+
+  it("accepts a verified email", async () => {
+    stubUserinfo({ sub: "s1", email: "Alice@Example.com", email_verified: true, name: "Alice" });
+    const info = await fetchUserInfo("tok");
+    expect(info.email).toBe("alice@example.com"); // normalized
+    expect(info.subject).toBe("s1");
+  });
+
+  it("rejects an unverified email (account-takeover guard)", async () => {
+    stubUserinfo({ sub: "s2", email: "victim@example.com", email_verified: false });
+    await expect(fetchUserInfo("tok")).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  });
+
+  it("rejects when email_verified is absent (cannot prove verification)", async () => {
+    stubUserinfo({ sub: "s3", email: "victim@example.com" });
+    await expect(fetchUserInfo("tok")).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   });
 });
