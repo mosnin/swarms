@@ -9,7 +9,7 @@ import { formatResponse } from "@/lib/format-response";
 import { usdToMinor } from "@/lib/money";
 import { requireOrganization } from "@/modules/identity/access-control";
 import { authenticateRequest } from "@/modules/identity/service";
-import { spawnSwarm } from "@/modules/swarms/spawn-swarm";
+import { enqueueSwarm } from "@/modules/swarms/spawn-swarm";
 import { listSwarmRuns } from "@/modules/swarms/swarm-repository";
 import { enforceRateLimit } from "@/server/ratelimit/enforce";
 import { expandTemplate, findTemplate } from "@/server/swarms/swarm-templates";
@@ -156,7 +156,10 @@ export async function POST(request: NextRequest): Promise<Response> {
         templateId,
       });
 
-    const response = await spawnSwarm(ctx, {
+    // Async: enqueue the swarm (creates the run + a director job) and return
+    // immediately with status "queued". The worker executes the fleet off the
+    // request thread; clients poll GET /swarms/:id or stream for the result.
+    const response = await enqueueSwarm(ctx, {
       tasks,
       objective: rest.objective,
       resources: rest.resources,
@@ -170,6 +173,6 @@ export async function POST(request: NextRequest): Promise<Response> {
       deduplicateStrict,
       callbackUrl,
     });
-    return ok(response, 201);
+    return ok(response, 202);
   });
 }

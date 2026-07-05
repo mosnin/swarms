@@ -139,9 +139,16 @@ async function resolveExecution(db: Db, job: JobRecord): Promise<ResolvedExecuti
       currency,
       aggregatorTask: input.aggregatorTask,
       sequential: input.sequential,
+      workerTimeouts: input.workerTimeouts,
+      deduplicateStrict: input.deduplicateStrict,
+      callbackUrl: input.callbackUrl,
       apiKeyId: job.apiKeyId,
       createdByUserId: job.createdByUserId,
-      idempotencyKey: `director-${job.id}`,
+      // Child swarm idempotency: bind to the pre-created run when present so a
+      // director retry re-executes into the same run rather than forking a new one.
+      idempotencyKey: input.existingRunId ? `swarm-run-${input.existingRunId}` : `director-${job.id}`,
+      existingRunId: input.existingRunId,
+      resourceBundleId: input.resourceBundleId,
     };
     return {
       runnerType: "swarm",

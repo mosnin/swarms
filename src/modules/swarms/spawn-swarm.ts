@@ -116,14 +116,69 @@ export interface SpawnSwarmResponse {
   createdAt: string;
 }
 
-/** Spawn a workforce of sandboxed worker agents — one per task. */
-export async function spawnSwarm(
-  ctx: AuthContext,
-  request: SpawnSwarmRequest,
-  db: Db = getDb(),
-): Promise<SpawnSwarmResponse> {
-  requirePermission(ctx, "jobs.create");
+/**
+ * Options for the worker-side execution path. When `existingRunId` is set, the
+ * swarm run row and its resource bundle were already created by
+ * {@link enqueueSwarm} in the request handler — this call (running inside the
+ * worker, NOT a request handler) adopts that row and executes the workforce into
+ * it, rather than creating a new run. This is what makes swarm execution async:
+ * the HTTP request returns immediately after enqueue, and the fleet runs here.
+ */
+export interface SpawnSwarmExecuteOpts {
+  /** Adopt this pre-created swarm run instead of creating a new one. */
+  existingRunId?: string;
+  /** Reuse this pre-stored resource bundle instead of re-encrypting resources. */
+  resourceBundleId?: string;
+}
 
+/** Build the API response from a persisted swarm run + its agent rows. */
+function swarmRunToResponse(
+  run: typeof schema.swarmRuns.$inferSelect,
+  agents: (typeof schema.swarmAgents.$inferSelect)[],
+  maxGpuSecondsPerWorker: number,
+): SpawnSwarmResponse {
+  const input = (run.input ?? {}) as { workerCount?: number };
+  return {
+    swarmRunId: run.id,
+    status: run.status,
+    workerCount: input.workerCount ?? agents.length,
+    costMinor: run.costMinor,
+    currency: run.costCurrency,
+    maxGpuSecondsPerWorker,
+    workers: agents.map((a) => ({
+      role: a.role,
+      status: a.status,
+      jobId: a.jobId ?? null,
+      costMinor: a.costMinor,
+      output: a.output ?? null,
+      error: a.error ?? null,
+    })),
+    createdAt: run.createdAt.toISOString(),
+  };
+}
+
+/** Fully-resolved swarm plan: validated tasks, per-worker budgets, and totals. */
+interface SwarmPlan {
+  tasks: string[];
+  aggregatorTask?: string;
+  sequential?: boolean;
+  duplicateWarnings: DuplicateWarning[];
+  currency: string;
+  rate: number;
+  model: string;
+  perWorkerMinor: number;
+  workerBudgets: number[];
+  maxGpuSecondsPerWorker: number;
+  aggregateMinor: number;
+}
+
+/**
+ * Pure validation + budget math shared by {@link enqueueSwarm} (request-side,
+ * for a fast synchronous reject + aggregate precheck) and {@link spawnSwarm}
+ * (worker-side execution), so the two paths can never diverge. Throws the same
+ * validation/budget errors either place.
+ */
+function computeSwarmPlan(request: SpawnSwarmRequest): SwarmPlan {
   // Template expansion: apply template defaults, then let caller overrides win.
   let rawTasks = request.tasks ?? [];
   let aggregatorTask = request.aggregatorTask;
@@ -162,7 +217,6 @@ export async function spawnSwarm(
   const currency = request.currency ?? env.GPU_RATE_CURRENCY ?? "USD";
   const rate = env.GPU_RATE_MINOR_PER_SECOND ?? 2;
   const model = request.model ?? env.AGENT_DEFAULT_MODEL ?? "deepseek/deepseek-chat-v4";
-  const resources = request.resources ?? {};
 
   // Per-worker timeout overrides: if provided, each worker gets an explicit
   // GPU-second budget; otherwise fall back to an even split of budgetMinor.
@@ -177,28 +231,27 @@ export async function spawnSwarm(
   let workerBudgets: number[];
 
   if (request.workerTimeouts !== undefined) {
-    // Explicit per-worker budgets.
     workerBudgets = request.workerTimeouts.map((sec) => Math.max(1, Math.floor(sec * rate)));
     const workerTotal = workerBudgets.reduce((a, b) => a + b, 0);
-    // Aggregator (if any) gets the average worker budget.
     perWorkerMinor = Math.floor(workerTotal / tasks.length);
     const aggregatorBudget = aggregatorTask ? perWorkerMinor : 0;
     const totalNeeded = workerTotal + aggregatorBudget;
     if (request.budgetMinor && request.budgetMinor > 0 && totalNeeded > request.budgetMinor) {
-      throw Errors.budgetExceeded(
-        "workerTimeouts exceed budgetMinor",
-        { budgetMinor: request.budgetMinor, workerTotal, aggregatorBudget },
-      );
+      throw Errors.budgetExceeded("workerTimeouts exceed budgetMinor", {
+        budgetMinor: request.budgetMinor,
+        workerTotal,
+        aggregatorBudget,
+      });
     }
   } else {
-    // Uniform split across all slots.
     if (request.budgetMinor && request.budgetMinor > 0) {
       perWorkerMinor = Math.floor(request.budgetMinor / agentSlots);
       if (perWorkerMinor < rate) {
-        throw Errors.budgetExceeded(
-          "budgetMinor is too low to fund one GPU-second per worker",
-          { budgetMinor: request.budgetMinor, workers: tasks.length, minPerWorkerMinor: rate },
-        );
+        throw Errors.budgetExceeded("budgetMinor is too low to fund one GPU-second per worker", {
+          budgetMinor: request.budgetMinor,
+          workers: tasks.length,
+          minPerWorkerMinor: rate,
+        });
       }
     } else {
       perWorkerMinor = DEFAULT_GPU_SECONDS_PER_WORKER * rate;
@@ -206,84 +259,134 @@ export async function spawnSwarm(
     workerBudgets = tasks.map(() => perWorkerMinor);
   }
 
-  const maxGpuSecondsPerWorker = rate > 0 ? Math.max(1, Math.floor(perWorkerMinor / rate)) : DEFAULT_GPU_SECONDS_PER_WORKER;
+  const maxGpuSecondsPerWorker =
+    rate > 0 ? Math.max(1, Math.floor(perWorkerMinor / rate)) : DEFAULT_GPU_SECONDS_PER_WORKER;
   const aggregateMinor = workerBudgets.reduce((a, b) => a + b, 0) + (aggregatorTask ? perWorkerMinor : 0);
 
+  return {
+    tasks,
+    aggregatorTask,
+    sequential,
+    duplicateWarnings,
+    currency,
+    rate,
+    model,
+    perWorkerMinor,
+    workerBudgets,
+    maxGpuSecondsPerWorker,
+    aggregateMinor,
+  };
+}
+
+/** Spawn a workforce of sandboxed worker agents — one per task. */
+export async function spawnSwarm(
+  ctx: AuthContext,
+  request: SpawnSwarmRequest,
+  db: Db = getDb(),
+  opts: SpawnSwarmExecuteOpts = {},
+): Promise<SpawnSwarmResponse> {
+  requirePermission(ctx, "jobs.create");
+
+  const plan = computeSwarmPlan(request);
+  const { tasks, aggregatorTask, sequential, duplicateWarnings, currency, rate, model } = plan;
+  const { perWorkerMinor, workerBudgets, maxGpuSecondsPerWorker, aggregateMinor } = plan;
+  const resources = request.resources ?? {};
+
   // Idempotency: a replayed key returns the original run without re-charging.
-  const existing = (
-    await db
-      .select()
-      .from(schema.swarmRuns)
-      .where(
-        and(
-          eq(schema.swarmRuns.organizationId, ctx.organizationId),
-          eq(schema.swarmRuns.idempotencyKey, request.idempotencyKey),
-        ),
-      )
-      .limit(1)
-  )[0];
+  // Skipped on the execute path (existingRunId) — enqueueSwarm already resolved
+  // idempotency when it created the run row.
+  const existing = opts.existingRunId
+    ? undefined
+    : (
+        await db
+          .select()
+          .from(schema.swarmRuns)
+          .where(
+            and(
+              eq(schema.swarmRuns.organizationId, ctx.organizationId),
+              eq(schema.swarmRuns.idempotencyKey, request.idempotencyKey),
+            ),
+          )
+          .limit(1)
+      )[0];
   if (existing) {
     const agents = await db
       .select()
       .from(schema.swarmAgents)
       .where(eq(schema.swarmAgents.swarmRunId, existing.id));
-    return {
-      swarmRunId: existing.id,
-      status: existing.status,
-      workerCount: agents.length,
-      costMinor: existing.costMinor,
-      currency: existing.costCurrency,
-      maxGpuSecondsPerWorker: maxGpuSecondsPerWorker,
-      workers: agents.map((a) => ({
-        role: a.role,
-        status: a.status,
-        jobId: a.jobId ?? null,
-        costMinor: a.costMinor,
-        output: a.output ?? null,
-        error: a.error ?? null,
-      })),
-      createdAt: existing.createdAt.toISOString(),
-    };
+    return swarmRunToResponse(existing, agents, maxGpuSecondsPerWorker);
   }
 
-  // One budget pre-flight for the whole workforce.
-  await checkBudget(ctx.organizationId, aggregateMinor, currency, db, {
-    apiKeyId: ctx.actor.kind === "agent" ? ctx.actor.apiKeyId : null,
-    userId: ctx.actor.kind === "user" ? ctx.actor.userId : null,
-  });
-
-  // Encrypt + store the inherited resources ONCE; every worker shares the bundle.
   const createdByUserId = ctx.actor.kind === "user" ? ctx.actor.userId : null;
-  const bundleId = await storeResourceBundle(ctx.organizationId, resources, createdByUserId, db);
 
-  const run = (
-    await db
-      .insert(schema.swarmRuns)
-      .values({
-        organizationId: ctx.organizationId,
-        idempotencyKey: request.idempotencyKey,
-        status: "running",
-        input: {
-        objective: request.objective ?? null,
-        workerCount: tasks.length,
-        model: model,
-        sequential: sequential ?? false,
-        aggregatorTask: aggregatorTask ?? null,
-        budgetMinor: request.budgetMinor ?? null,
-        currency,
-      },
-        costCurrency: currency,
-        startedAt: new Date(),
-      })
-      .returning()
-  )[0];
-  if (!run) throw Errors.internal("Failed to create swarm run");
+  let run: typeof schema.swarmRuns.$inferSelect;
+  let bundleId: string;
 
-  await writeAudit(
-    ctx,
-    { action: "swarm.spawned", resourceType: "swarm_run", resourceId: run.id, after: { workers: tasks.length, model } },
-    db,
-  );
+  if (opts.existingRunId) {
+    // Execute path: adopt the run row enqueueSwarm created and flip it to running.
+    // The CAS (queued → running) ensures a run cancelled before pickup is not
+    // executed. The budget precheck + resource bundle were done at enqueue time.
+    bundleId = opts.resourceBundleId ?? (await storeResourceBundle(ctx.organizationId, resources, createdByUserId, db));
+    const claimed = (
+      await db
+        .update(schema.swarmRuns)
+        .set({ status: "running", startedAt: new Date() })
+        .where(and(eq(schema.swarmRuns.id, opts.existingRunId), eq(schema.swarmRuns.status, "queued")))
+        .returning()
+    )[0];
+    if (!claimed) {
+      // Not queued anymore — already running, cancelled, or finished. Return its state.
+      const current = (
+        await db.select().from(schema.swarmRuns).where(eq(schema.swarmRuns.id, opts.existingRunId)).limit(1)
+      )[0];
+      if (!current) throw Errors.notFound("Swarm run not found");
+      const agents = await db
+        .select()
+        .from(schema.swarmAgents)
+        .where(eq(schema.swarmAgents.swarmRunId, current.id));
+      return swarmRunToResponse(current, agents, maxGpuSecondsPerWorker);
+    }
+    run = claimed;
+  } else {
+    // One budget pre-flight for the whole workforce.
+    await checkBudget(ctx.organizationId, aggregateMinor, currency, db, {
+      apiKeyId: ctx.actor.kind === "agent" ? ctx.actor.apiKeyId : null,
+      userId: ctx.actor.kind === "user" ? ctx.actor.userId : null,
+    });
+
+    // Encrypt + store the inherited resources ONCE; every worker shares the bundle.
+    bundleId = await storeResourceBundle(ctx.organizationId, resources, createdByUserId, db);
+
+    const created = (
+      await db
+        .insert(schema.swarmRuns)
+        .values({
+          organizationId: ctx.organizationId,
+          idempotencyKey: request.idempotencyKey,
+          status: "running",
+          input: {
+            objective: request.objective ?? null,
+            workerCount: tasks.length,
+            model: model,
+            sequential: sequential ?? false,
+            aggregatorTask: aggregatorTask ?? null,
+            budgetMinor: request.budgetMinor ?? null,
+            currency,
+          },
+          costCurrency: currency,
+          startedAt: new Date(),
+        })
+        .returning()
+    )[0];
+    if (!created) throw Errors.internal("Failed to create swarm run");
+    run = created;
+
+    await writeAudit(
+      ctx,
+      { action: "swarm.spawned", resourceType: "swarm_run", resourceId: run.id, after: { workers: tasks.length, model } },
+      db,
+    );
+  }
 
   const planned: PlannedAgent[] = tasks.map((task, i) => ({ role: `worker-${i + 1}`, instructions: task }));
   // Build the full prompt for a worker: shared objective + task + optional prior output.
@@ -504,5 +607,123 @@ export async function spawnSwarm(
     aggregatorOutput: result.aggregatorOutput,
     ...(duplicateWarnings.length > 0 ? { duplicateWarnings } : {}),
     createdAt: (finished ?? run).createdAt.toISOString(),
+  };
+}
+
+/**
+ * Request-side entry: validate + reserve nothing but create the swarm run row
+ * (status `queued`) and a cost-0 director job that carries the run id, then
+ * enqueue it and return IMMEDIATELY. The standalone worker picks up the director
+ * job and runs the fleet via {@link spawnSwarm} (with `existingRunId`) — so the
+ * agent workforce never executes inside the HTTP request handler. Clients poll
+ * `GET /api/v1/swarms/:id` or stream progress for the result.
+ */
+export async function enqueueSwarm(
+  ctx: AuthContext,
+  request: SpawnSwarmRequest,
+  db: Db = getDb(),
+): Promise<SpawnSwarmResponse> {
+  requirePermission(ctx, "jobs.create");
+
+  const plan = computeSwarmPlan(request);
+
+  // Idempotency: a replayed key returns the original run as-is.
+  const existing = (
+    await db
+      .select()
+      .from(schema.swarmRuns)
+      .where(
+        and(
+          eq(schema.swarmRuns.organizationId, ctx.organizationId),
+          eq(schema.swarmRuns.idempotencyKey, request.idempotencyKey),
+        ),
+      )
+      .limit(1)
+  )[0];
+  if (existing) {
+    const agents = await db
+      .select()
+      .from(schema.swarmAgents)
+      .where(eq(schema.swarmAgents.swarmRunId, existing.id));
+    return swarmRunToResponse(existing, agents, plan.maxGpuSecondsPerWorker);
+  }
+
+  // Fast aggregate budget gate so an over-budget swarm is rejected synchronously
+  // (per-worker atomic reservations still happen when the workers run).
+  await checkBudget(ctx.organizationId, plan.aggregateMinor, plan.currency, db, {
+    apiKeyId: ctx.actor.kind === "agent" ? ctx.actor.apiKeyId : null,
+    userId: ctx.actor.kind === "user" ? ctx.actor.userId : null,
+  });
+
+  const createdByUserId = ctx.actor.kind === "user" ? ctx.actor.userId : null;
+  const bundleId = await storeResourceBundle(ctx.organizationId, request.resources ?? {}, createdByUserId, db);
+
+  const run = (
+    await db
+      .insert(schema.swarmRuns)
+      .values({
+        organizationId: ctx.organizationId,
+        idempotencyKey: request.idempotencyKey,
+        status: "queued",
+        input: {
+          objective: request.objective ?? null,
+          workerCount: plan.tasks.length,
+          model: plan.model,
+          sequential: plan.sequential ?? false,
+          aggregatorTask: plan.aggregatorTask ?? null,
+          budgetMinor: request.budgetMinor ?? null,
+          currency: plan.currency,
+        },
+        costCurrency: plan.currency,
+      })
+      .returning()
+  )[0];
+  if (!run) throw Errors.internal("Failed to create swarm run");
+
+  // Cost-0 director job: it coordinates only; the workers carry the real spend.
+  // Its input is the DirectorSwarmConfig the worker's SwarmRunner will execute.
+  const { job } = await createJobCore(dbJobStore(db), getJobQueue(), {
+    organizationId: ctx.organizationId,
+    createdByUserId,
+    apiKeyId: ctx.actor.kind === "agent" ? ctx.actor.apiKeyId : null,
+    capability: {
+      kind: "swarm",
+      task: request.objective ?? "swarm",
+      model: plan.model,
+      priceMinor: 0,
+      priceCurrency: plan.currency,
+    },
+    input: {
+      existingRunId: run.id,
+      resourceBundleId: bundleId,
+      tasks: plan.tasks,
+      objective: request.objective,
+      model: plan.model,
+      budgetMinor: request.budgetMinor,
+      currency: plan.currency,
+      aggregatorTask: plan.aggregatorTask,
+      sequential: plan.sequential,
+      workerTimeouts: request.workerTimeouts,
+      deduplicateStrict: request.deduplicateStrict,
+      callbackUrl: request.callbackUrl,
+    },
+    idempotencyKey: `swarm-director-${run.id}`,
+    currency: plan.currency,
+  });
+
+  await writeAudit(
+    ctx,
+    {
+      action: "swarm.spawned",
+      resourceType: "swarm_run",
+      resourceId: run.id,
+      after: { workers: plan.tasks.length, model: plan.model, directorJobId: job.id, async: true },
+    },
+    db,
+  );
+
+  return {
+    ...swarmRunToResponse(run, [], plan.maxGpuSecondsPerWorker),
+    ...(plan.duplicateWarnings.length > 0 ? { duplicateWarnings: plan.duplicateWarnings } : {}),
   };
 }

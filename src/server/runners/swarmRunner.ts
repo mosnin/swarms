@@ -20,11 +20,21 @@ export interface DirectorSwarmConfig {
   currency?: string;
   aggregatorTask?: string;
   sequential?: boolean;
+  workerTimeouts?: number[];
+  deduplicateStrict?: boolean;
+  callbackUrl?: string;
   /** Propagated from the director job to construct the child auth context. */
   apiKeyId: string | null;
   createdByUserId: string | null;
   /** Child swarm idempotency key (set to director-<jobId> by resolveExecution). */
   idempotencyKey: string;
+  /**
+   * When set, execute into this pre-created swarm run (the async path: the run
+   * row + resource bundle were created by enqueueSwarm in the request handler).
+   * When absent, spawnSwarm creates a fresh run (legacy/director-of-director).
+   */
+  existingRunId?: string;
+  resourceBundleId?: string;
 }
 
 export class SwarmRunner implements Runner {
@@ -64,9 +74,13 @@ export class SwarmRunner implements Runner {
           currency: config.currency,
           aggregatorTask: config.aggregatorTask,
           sequential: config.sequential,
+          workerTimeouts: config.workerTimeouts,
+          deduplicateStrict: config.deduplicateStrict,
+          callbackUrl: config.callbackUrl,
           idempotencyKey: config.idempotencyKey,
         },
         getDb(),
+        { existingRunId: config.existingRunId, resourceBundleId: config.resourceBundleId },
       );
 
       return {

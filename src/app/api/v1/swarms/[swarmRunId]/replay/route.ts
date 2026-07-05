@@ -25,7 +25,7 @@ import { Errors } from "@/lib/errors";
 import { deriveIdempotencyKey } from "@/lib/idempotency";
 import { requireOrganization } from "@/modules/identity/access-control";
 import { authenticateRequest } from "@/modules/identity/service";
-import { spawnSwarm } from "@/modules/swarms/spawn-swarm";
+import { enqueueSwarm } from "@/modules/swarms/spawn-swarm";
 import { enforceRateLimit } from "@/server/ratelimit/enforce";
 
 export const runtime = "nodejs";
@@ -123,7 +123,7 @@ export async function POST(
       replayTag,
     });
 
-    const response = await spawnSwarm(ctx, {
+    const response = await enqueueSwarm(ctx, {
       tasks,
       objective,
       model,
@@ -134,6 +134,6 @@ export async function POST(
       idempotencyKey,
     });
 
-    return ok({ ...response, replayedFrom: swarmRunId }, 201);
+    return ok({ ...response, replayedFrom: swarmRunId }, 202);
   });
 }
