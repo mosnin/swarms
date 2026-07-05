@@ -6,26 +6,17 @@ export function SignInNotice() {
   return (
     <div className="mx-auto max-w-md rounded-lg border p-6 text-center">
       <h2 className="text-lg font-semibold">Not signed in</h2>
-      {oauth ? (
-        <>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Sign in to access your organization&apos;s dashboard.
-          </p>
-          <a
-            href="/api/auth/login"
-            className="mt-4 inline-block rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
-          >
-            Sign in
-          </a>
-        </>
-      ) : (
-        <p className="mt-2 text-sm text-muted-foreground">
-          No active session was found. In local development, set{" "}
-          <code className="rounded bg-muted px-1">DEV_AUTH_USER_EMAIL</code> in{" "}
-          <code>.env.local</code>, POST to <code>/api/auth/dev-login</code>, or send an{" "}
-          <code>x-swarms-user-id</code> header.
-        </p>
-      )}
+      <p className="mt-2 text-sm text-muted-foreground">
+        {oauth
+          ? "Sign in to access your organization's dashboard."
+          : "No active session was found. Sign in to continue."}
+      </p>
+      <a
+        href="/login"
+        className="mt-4 inline-block rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-all hover:opacity-90 active:scale-[0.99]"
+      >
+        Sign in
+      </a>
     </div>
   );
 }

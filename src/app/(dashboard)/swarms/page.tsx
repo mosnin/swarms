@@ -3,6 +3,9 @@ import Link from "next/link";
 import { SignInNotice } from "@/app/(dashboard)/_components/sign-in-notice";
 import { SwarmSpawnForm } from "@/app/(dashboard)/swarms/_components/swarm-spawn-form";
 import { SwarmLive } from "@/app/(dashboard)/swarms/[swarmRunId]/_components/swarm-live";
+import { PageHeader } from "@/components/ui/page-header";
+import { StatusPill } from "@/components/ui/status-pill";
+import { DataTable, EmptyRow, TD, TH, THead, TR } from "@/components/ui/table";
 import { format } from "@/lib/money";
 import { tryCurrentContext } from "@/modules/identity/current";
 import { listSwarmRuns } from "@/modules/dashboard/reads";
@@ -20,50 +23,43 @@ export default async function SwarmsPage() {
 
   return (
     <div className="space-y-6">
-      <header className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold">Swarms</h1>
-          <p className="text-sm text-muted-foreground">Multi-agent runs and their rolled-up cost.</p>
-        </div>
-        {/* Refresh the list while any run is still working. */}
-        {anyActive && <SwarmLive status="running" />}
-      </header>
+      <PageHeader
+        title="Swarms"
+        description="Multi-agent runs and their rolled-up cost."
+        actions={anyActive ? <SwarmLive status="running" /> : undefined}
+      />
 
       <SwarmSpawnForm />
 
-      <div className="rounded-lg border">
-        <table className="w-full text-left text-sm">
-          <thead className="border-b text-muted-foreground">
-            <tr>
-              <th className="p-3 font-medium">Run</th>
-              <th className="p-3 font-medium">Status</th>
-              <th className="p-3 font-medium">Cost</th>
-              <th className="p-3 font-medium">Created</th>
-            </tr>
-          </thead>
-          <tbody>
-            {runs.length === 0 && (
-              <tr>
-                <td className="p-6 text-center text-muted-foreground" colSpan={4}>
-                  No swarm runs yet.
-                </td>
-              </tr>
-            )}
-            {runs.map((r) => (
-              <tr key={r.id} className="border-b last:border-0 hover:bg-muted/40">
-                <td className="p-3 font-mono text-xs">
-                  <Link href={`/swarms/${r.id}`} className="hover:underline">
-                    {r.id}
-                  </Link>
-                </td>
-                <td className="p-3 text-xs">{r.status}</td>
-                <td className="p-3 text-xs">{format({ amountMinor: r.costMinor, currency: r.costCurrency })}</td>
-                <td className="p-3 text-xs">{r.createdAt.toLocaleString()}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <DataTable>
+        <THead>
+          <TR>
+            <TH>Run</TH>
+            <TH>Status</TH>
+            <TH>Cost</TH>
+            <TH>Created</TH>
+          </TR>
+        </THead>
+        <tbody>
+          {runs.length === 0 && <EmptyRow colSpan={4}>No swarm runs yet.</EmptyRow>}
+          {runs.map((r) => (
+            <TR key={r.id}>
+              <TD className="font-mono text-xs">
+                <Link href={`/swarms/${r.id}`} className="hover:underline">
+                  {r.id}
+                </Link>
+              </TD>
+              <TD>
+                <StatusPill status={r.status} />
+              </TD>
+              <TD className="text-xs tabular-nums">
+                {format({ amountMinor: r.costMinor, currency: r.costCurrency })}
+              </TD>
+              <TD className="text-xs text-muted-foreground">{r.createdAt.toLocaleString()}</TD>
+            </TR>
+          ))}
+        </tbody>
+      </DataTable>
     </div>
   );
 }
