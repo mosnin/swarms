@@ -137,6 +137,19 @@ export interface CreateJobInput {
    * a human must approve it (policy `require_approval`). Defaults to false.
    */
   requireApproval?: boolean;
+  /**
+   * When false, the job row is persisted but NOT published to the queue. Used
+   * by the swarm director, which runs its worker jobs in-process — enqueueing
+   * them too would let another worker replica claim and double-execute them.
+   * Defaults to true.
+   */
+  enqueue?: boolean;
+  /**
+   * Override the attempt budget. Defaults to {@link DEFAULT_MAX_ATTEMPTS}. The
+   * swarm director sets this to 1: a director retry cannot resume a partially
+   * run fleet (it would no-op and falsely report success), so it must not retry.
+   */
+  maxAttempts?: number;
 }
 
 export interface CreateJobResult {
@@ -220,7 +233,7 @@ export async function createJob(
     status: gated ? "awaiting_approval" : "queued",
     priority: 0,
     attempt: 0,
-    maxAttempts: DEFAULT_MAX_ATTEMPTS,
+    maxAttempts: input.maxAttempts ?? DEFAULT_MAX_ATTEMPTS,
     costMinor: 0,
     costCurrency: currency,
     queuedAt: gated ? null : now,
@@ -242,7 +255,9 @@ export async function createJob(
     data: { capabilityKind: job.capabilityKind, estimatedCostMinor },
     loggedAt: now,
   });
-  if (!gated) await queue.enqueue(messageFor(job));
+  // Enqueue unless gated (awaiting approval) or the caller runs it in-process
+  // (director-spawned worker jobs — see CreateJobInput.enqueue).
+  if (!gated && input.enqueue !== false) await queue.enqueue(messageFor(job));
 
   return { job, replay: false };
 }

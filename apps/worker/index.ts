@@ -13,7 +13,7 @@
 
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
-import { claimAndProcessJobs, reapExpiredJobs } from "@/modules/execution/worker";
+import { claimAndProcessJobs, reapExpiredJobs, reapOrphanedSwarmRuns } from "@/modules/execution/worker";
 import { deliverPendingWebhooks } from "@/modules/webhooks/webhook-service";
 
 const POLL_INTERVAL_MS = Number(process.env.WORKER_POLL_INTERVAL_MS ?? 1000);
@@ -45,6 +45,10 @@ async function tick(): Promise<void> {
       lastReapMs = now;
       const reaped = await reapExpiredJobs(undefined, MAX_RUN_MS);
       if (reaped > 0) logger.warn("Worker reaped stuck jobs", { reaped });
+      // Recover swarm runs orphaned by a dead director (settles them to failed
+      // and releases outstanding worker holds).
+      const runsReaped = await reapOrphanedSwarmRuns();
+      if (runsReaped > 0) logger.warn("Worker reaped orphaned swarm runs", { runsReaped });
     }
   } catch (error) {
     // Never crash the loop on a single failure; log and continue.

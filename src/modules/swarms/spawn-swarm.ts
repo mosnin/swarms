@@ -23,8 +23,8 @@ import { dbJobStore } from "@/modules/execution/job-repository";
 import { processJobInDb } from "@/modules/execution/worker";
 import { storeResourceBundle, type ResourceBundle } from "@/modules/resources/resource-bundle";
 import { checkBudget } from "@/server/budget/checkBudget";
+import { checkAndReserveBudget } from "@/server/budget/checkAndReserve";
 import { releaseBudget } from "@/server/budget/releaseBudget";
-import { reserveBudget } from "@/server/budget/reserveBudget";
 import { executeSwarm, type ChildOutcome, type PlannedAgent } from "@/server/swarms/executeSwarm";
 import { detectDuplicateTasks, type DuplicateWarning } from "@/server/swarms/task-dedup";
 import { findTemplate, expandTemplate } from "@/server/swarms/swarm-templates";
@@ -331,13 +331,28 @@ export async function spawnSwarm(
       await db
         .update(schema.swarmRuns)
         .set({ status: "running", startedAt: new Date() })
-        .where(and(eq(schema.swarmRuns.id, opts.existingRunId), eq(schema.swarmRuns.status, "queued")))
+        .where(
+          and(
+            eq(schema.swarmRuns.id, opts.existingRunId),
+            eq(schema.swarmRuns.organizationId, ctx.organizationId),
+            eq(schema.swarmRuns.status, "queued"),
+          ),
+        )
         .returning()
     )[0];
     if (!claimed) {
       // Not queued anymore — already running, cancelled, or finished. Return its state.
       const current = (
-        await db.select().from(schema.swarmRuns).where(eq(schema.swarmRuns.id, opts.existingRunId)).limit(1)
+        await db
+          .select()
+          .from(schema.swarmRuns)
+          .where(
+            and(
+              eq(schema.swarmRuns.id, opts.existingRunId),
+              eq(schema.swarmRuns.organizationId, ctx.organizationId),
+            ),
+          )
+          .limit(1)
       )[0];
       if (!current) throw Errors.notFound("Swarm run not found");
       const agents = await db
@@ -436,11 +451,27 @@ export async function spawnSwarm(
         .where(eq(schema.swarmAgents.id, workerRowId));
     }
 
+    // Cooperative cancellation: before spending money on this worker, re-check
+    // the run. If it was cancelled (or is no longer running), stop — don't spawn,
+    // reserve, or charge. This makes cancel actually halt an in-flight fleet.
+    const liveStatus = (
+      await db
+        .select({ status: schema.swarmRuns.status })
+        .from(schema.swarmRuns)
+        .where(eq(schema.swarmRuns.id, run.id))
+        .limit(1)
+    )[0]?.status;
+    if (liveStatus !== "running") {
+      return { output: null, error: { code: "CANCELLED", message: `swarm ${liveStatus}` }, costMinor: 0, jobId: undefined };
+    }
+
     // Use per-worker budget for this slot (workerBudgets[index]), or perWorkerMinor
     // for the aggregator (index === tasks.length).
     const thisWorkerBudget = index < workerBudgets.length ? (workerBudgets[index] ?? perWorkerMinor) : perWorkerMinor;
     const thisGpuSeconds = rate > 0 ? Math.max(1, Math.floor(thisWorkerBudget / rate)) : DEFAULT_GPU_SECONDS_PER_WORKER;
 
+    // enqueue:false — the director runs this worker in-process below; enqueueing
+    // it too would let another worker replica claim and double-execute it.
     const { job } = await createJobCore(dbJobStore(db), getJobQueue(), {
       organizationId: ctx.organizationId,
       createdByUserId,
@@ -456,16 +487,30 @@ export async function spawnSwarm(
       input: { task: taskFor(agent.instructions, agent.previousOutput), maxGpuSeconds: thisGpuSeconds, rateMinorPerSecond: rate, currency },
       idempotencyKey: `${run.id}-${index}-${attempt}`,
       currency,
+      enqueue: false,
     });
 
-    await reserveBudget(
-      { organizationId: ctx.organizationId, jobId: job.id, amountMinor: thisWorkerBudget, currency },
+    // Atomic check-and-reserve under the budget-row lock — the same hard-ceiling
+    // guard the single-agent path uses. Concurrent swarms can no longer over-commit.
+    await checkAndReserveBudget(
+      {
+        organizationId: ctx.organizationId,
+        jobId: job.id,
+        amountMinor: thisWorkerBudget,
+        currency,
+        context: {
+          apiKeyId: ctx.actor.kind === "agent" ? ctx.actor.apiKeyId : null,
+          userId: createdByUserId,
+        },
+      },
       db,
     );
     reservedJobIds.push(job.id);
 
     const processed = await processJobInDb(job.id, db);
 
+    // CAS the agent row: don't resurrect a slot that cancelSwarm set to "cancelled"
+    // while this worker was running.
     await db
       .update(schema.swarmAgents)
       .set({
@@ -475,7 +520,7 @@ export async function spawnSwarm(
         error: processed.error ?? null,
         costMinor: processed.costMinor,
       })
-      .where(eq(schema.swarmAgents.id, workerRowId));
+      .where(and(eq(schema.swarmAgents.id, workerRowId), eq(schema.swarmAgents.status, "queued")));
 
     return {
       output: processed.output,
@@ -709,6 +754,10 @@ export async function enqueueSwarm(
     },
     idempotencyKey: `swarm-director-${run.id}`,
     currency: plan.currency,
+    // The director is not resumable: a retry would find the run already
+    // "running", no-op, and falsely report success. Never retry it — orphaned
+    // runs are recovered by the swarm-run reaper instead.
+    maxAttempts: 1,
   });
 
   await writeAudit(
