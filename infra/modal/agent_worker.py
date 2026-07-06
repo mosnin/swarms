@@ -132,6 +132,7 @@ def _build_tools(resources: dict[str, Any]):
 async def _run_agent(spec: dict[str, Any]) -> dict[str, Any]:
     from agents import (
         Agent,
+        OpenAIChatCompletionsModel,
         Runner,
         set_default_openai_api,
         set_default_openai_client,
@@ -171,7 +172,15 @@ async def _run_agent(spec: dict[str, Any]) -> dict[str, Any]:
     )
 
     start = time.time()
-    agent = Agent(name="swarm-worker", instructions=system, model=model, tools=tools)
+    # Pass an explicit model bound to the OpenRouter client. A bare model string
+    # containing "/" (e.g. "deepseek/deepseek-chat-v4") is otherwise parsed by the
+    # SDK's multi-provider as a "<provider>/..." prefix → "Unknown prefix: deepseek".
+    agent = Agent(
+        name="swarm-worker",
+        instructions=system,
+        model=OpenAIChatCompletionsModel(model=model, openai_client=client),
+        tools=tools,
+    )
     result = await Runner.run(agent, task, max_turns=8)
     elapsed = time.time() - start
 
@@ -188,16 +197,21 @@ async def _run_agent(spec: dict[str, Any]) -> dict[str, Any]:
 
 
 def _web():
-    from fastapi import FastAPI, Header, HTTPException, Request
+    from typing import Any, Dict
+
+    from fastapi import Body, FastAPI, Header, HTTPException
 
     web_app = FastAPI()
 
     @web_app.post("/run")
-    async def run(request: Request, authorization: str = Header(default="")):
+    async def run(spec: Dict[str, Any] = Body(...), authorization: str = Header(default="")):
+        # Take the JSON body as an explicit Body param rather than injecting the
+        # raw `Request`: some FastAPI/starlette combinations fail to recognize a
+        # bare `request: Request` annotation and mis-treat it as a required query
+        # param, 422-ing every call before auth. An explicit body is unambiguous.
         expected = os.environ.get("SWARMS_WORKER_TOKEN", "")
         if not expected or authorization != f"Bearer {expected}":
             raise HTTPException(status_code=401, detail="unauthorized")
-        spec = await request.json()
         try:
             return await _run_agent(spec)
         except Exception as exc:  # noqa: BLE001 — map to the typed error shape the runtime expects
