@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 
 const COLS: { title: string; links: { href: string; label: string }[] }[] = [
@@ -31,11 +32,8 @@ export function Footer() {
     <footer className="mt-24 border-t bg-background/40">
       <div className="mx-auto grid max-w-5xl gap-10 px-6 py-14 sm:grid-cols-2 md:grid-cols-4">
         <div className="space-y-3">
-          <Link href="/" className="flex items-center gap-2 font-semibold tracking-tight">
-            <span className="grid h-7 w-7 place-items-center rounded-lg bg-primary text-[13px] font-bold text-primary-foreground">
-              S
-            </span>
-            Swarms
+          <Link href="/" className="inline-flex items-center" aria-label="Swarms — home">
+            <Image src="/logo.png" alt="Swarms" width={686} height={160} className="h-6 w-auto" />
           </Link>
           <p className="max-w-xs text-sm text-muted-foreground">
             An on-demand labor force for your AI agent. Rent GPU by the second, hard budget ceilings,

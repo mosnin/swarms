@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 
 import { DevLoginForm } from "@/app/login/_components/dev-login-form";
@@ -13,9 +14,7 @@ export default function LoginPage() {
     <main className="flex min-h-screen items-center justify-center bg-background px-6">
       <div className="animate-rise-in w-full max-w-sm">
         <div className="mb-8 flex flex-col items-center gap-3 text-center">
-          <span className="grid h-11 w-11 place-items-center rounded-xl bg-primary text-lg font-bold text-primary-foreground shadow-sm">
-            S
-          </span>
+          <Image src="/logo-mark.png" alt="Swarms" width={512} height={512} priority className="h-12 w-12" />
           <div>
             <h1 className="text-xl font-semibold tracking-tight">Sign in to Swarms</h1>
             <p className="mt-1 text-sm text-muted-foreground">

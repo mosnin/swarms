@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -256,11 +257,7 @@ export function Sidebar() {
   );
 }
 
-/** The dark rounded-square brand mark. */
+/** The swarm brand mark (dispersing-hexagons icon). */
 function Brand() {
-  return (
-    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-primary text-[13px] font-bold text-primary-foreground">
-      S
-    </span>
-  );
+  return <Image src="/logo-mark.png" alt="" width={512} height={512} className="-my-1 h-8 w-8 shrink-0" priority />;
 }
