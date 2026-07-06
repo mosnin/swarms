@@ -27,6 +27,23 @@ let running = true;
 let inFlight = false;
 let lastReapMs = 0;
 
+// A long-running poll loop must survive a single stray async failure. Node's
+// default is to terminate the process on an unhandled rejection / uncaught
+// exception — which for this worker turns a transient background DB connection
+// error (e.g. a pooled connection dropped by the database) into a full crash and
+// restart loop. Log and keep polling instead; the next tick reconnects. The
+// message is preserved so the real cause is still visible in the logs.
+process.on("unhandledRejection", (reason) => {
+  logger.error("Worker unhandledRejection (kept alive)", {
+    error: reason instanceof Error ? `${reason.name}: ${reason.message}` : String(reason),
+  });
+});
+process.on("uncaughtException", (error) => {
+  logger.error("Worker uncaughtException (kept alive)", {
+    error: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+  });
+});
+
 async function tick(): Promise<void> {
   if (inFlight) return;
   inFlight = true;
