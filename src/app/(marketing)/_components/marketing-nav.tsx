@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -23,11 +24,8 @@ export function MarketingNav() {
     <header className="sticky top-0 z-50 px-3 pt-3 sm:pt-4">
       <nav className="mx-auto flex max-w-5xl items-center justify-between gap-2 rounded-full border bg-background/75 py-1.5 pl-2 pr-1.5 shadow-[0_1px_2px_rgb(0_0_0/0.04),0_8px_30px_-12px_rgb(0_0_0/0.12)] backdrop-blur-xl">
         {/* Brand */}
-        <Link href="/" className="flex shrink-0 items-center gap-2 rounded-full px-2 py-1 font-semibold tracking-tight">
-          <span className="grid h-7 w-7 place-items-center rounded-lg bg-primary text-[13px] font-bold text-primary-foreground">
-            S
-          </span>
-          <span className="text-[15px]">Swarms</span>
+        <Link href="/" className="flex shrink-0 items-center rounded-full px-2.5 py-1" aria-label="Swarms — home">
+          <Image src="/logo.png" alt="Swarms" width={686} height={160} priority className="h-6 w-auto" />
         </Link>
 
         {/* Desktop links */}

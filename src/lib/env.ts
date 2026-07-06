@@ -77,6 +77,9 @@ export const envSchema = z.object({
   OAUTH_USERINFO_URL: z.string().url().optional(),
   OAUTH_REDIRECT_URL: z.string().url().optional(),
   OAUTH_SCOPES: z.string().min(1).default("openid email profile"),
+  // Human-readable name of the IdP, shown on the sign-in button (e.g. "Clerk",
+  // "Google"). Purely cosmetic; the flow is provider-agnostic regardless.
+  AUTH_PROVIDER_LABEL: z.string().min(1).default("your identity provider"),
 
   // Rate-limit backend: in-process (single instance) or shared Postgres.
   RATE_LIMIT_BACKEND: z.enum(["memory", "postgres"]).default("memory"),
