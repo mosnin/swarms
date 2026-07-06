@@ -9,9 +9,9 @@ export function Card({
   return (
     <div
       className={cn(
-        "rounded-xl border bg-background/60 shadow-[0_1px_2px_0_rgb(0_0_0/0.03)]",
+        "rounded-xl border bg-background shadow-[0_1px_2px_0_rgb(0_0_0/0.04)]",
         interactive &&
-          "transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_6px_20px_-6px_rgb(0_0_0/0.12)] motion-reduce:transition-none motion-reduce:hover:translate-y-0",
+          "transition-all duration-200 hover:-translate-y-0.5 hover:border-foreground/15 hover:shadow-[0_8px_24px_-8px_rgb(0_0_0/0.14)] motion-reduce:transition-none motion-reduce:hover:translate-y-0",
         className,
       )}
       {...props}
