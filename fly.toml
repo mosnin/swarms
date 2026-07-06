@@ -1,0 +1,39 @@
+# Swarms standalone worker — Fly.io deployment.
+#
+# The worker is a headless process (no inbound HTTP): it polls Postgres for
+# queued jobs, delivers signed webhooks, and runs the job/swarm reapers. Deploy
+# it separately from the Vercel-hosted web control plane; both share one Postgres.
+#
+#   fly launch --no-deploy --copy-config --name swarms-worker   # first time
+#   fly secrets set DATABASE_URL=... CONNECTOR_ENCRYPTION_KEY=... \
+#       WEBHOOK_SIGNING_SECRET=... INTERNAL_WORKER_SECRET=... \
+#       API_KEY_PEPPER=... SESSION_SECRET=... \
+#       AGENT_RUNTIME=modal MODAL_RUN_URL=... MODAL_TOKEN=...
+#   fly deploy
+#
+# The shared secrets (DATABASE_URL, CONNECTOR_ENCRYPTION_KEY,
+# WEBHOOK_SIGNING_SECRET) MUST hold the SAME values as the Vercel web app, or the
+# worker will read a different DB / fail to decrypt resource bundles. In
+# production `env.ts` requires AGENT_RUNTIME=modal (or a container sandbox), so a
+# compute provider must be configured for the worker to boot.
+
+app = "swarms-worker"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile.worker"
+
+# Headless poller: no [http_service] / [[services]] — nothing listens inbound.
+[env]
+  NODE_ENV = "production"
+  WORKER_POLL_INTERVAL_MS = "1000"
+  WORKER_BATCH_SIZE = "5"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+
+# Keep exactly one worker running (SELECT ... FOR UPDATE SKIP LOCKED makes it
+# safe to scale to N later with `fly scale count N`).
+[deploy]
+  strategy = "immediate"
