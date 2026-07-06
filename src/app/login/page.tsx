@@ -26,12 +26,17 @@ export default function LoginPage() {
 
         <div className="rounded-2xl border bg-background/60 p-6 shadow-[0_1px_2px_0_rgb(0_0_0/0.04)]">
           {oauth ? (
-            <a
-              href="/api/auth/login"
-              className="flex w-full items-center justify-center rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-all hover:opacity-90 active:scale-[0.99]"
-            >
-              Continue with your identity provider
-            </a>
+            <>
+              <a
+                href="/api/auth/login"
+                className="flex w-full items-center justify-center rounded-full bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-sm transition-all hover:bg-primary/90 active:scale-[0.98]"
+              >
+                Continue with {env.AUTH_PROVIDER_LABEL}
+              </a>
+              <p className="mt-4 text-center text-xs text-muted-foreground">
+                We only receive your verified email to provision your account.
+              </p>
+            </>
           ) : (
             <DevLoginForm />
           )}
