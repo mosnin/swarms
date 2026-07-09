@@ -45,7 +45,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       });
     }
     // SSRF guard: validate the webhook URL before persisting it.
-    assertSafeUrl(parsed.data.url, "url");
+    await assertSafeUrl(parsed.data.url, "url");
     const endpoint = await createWebhookEndpoint(ctx, parsed.data);
     return ok({ endpoint }, 201);
   });

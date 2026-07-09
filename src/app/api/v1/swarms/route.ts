@@ -46,7 +46,7 @@ const body = z
     budgetMinor: z.number().int().nonnegative().optional(),
     /** Human-friendly alternative to budgetMinor: dollars as a decimal (e.g. 3.00). */
     budgetUsd: z.number().positive().optional(),
-    currency: z.string().length(3).optional(),
+    currency: z.string().length(3).transform((c) => c.toUpperCase()).optional(),
     idempotencyKey: idempotencyKeySchema.optional(),
     aggregatorTask: z.string().min(1).max(20_000).optional(),
     sequential: z.boolean().optional(),
@@ -120,9 +120,9 @@ export async function POST(request: NextRequest): Promise<Response> {
     const { idempotencyKey, budgetUsd, templateId, workerTimeouts, deduplicateStrict, callbackUrl, ...rest } = parsed.data;
 
     // SSRF guard: validate callbackUrl and MCP server URLs before they reach downstream transports.
-    if (callbackUrl !== undefined) assertSafeUrl(callbackUrl, "callbackUrl");
+    if (callbackUrl !== undefined) await assertSafeUrl(callbackUrl, "callbackUrl");
     for (const server of rest.resources?.mcpServers ?? []) {
-      assertSafeUrl(server.url, `mcpServers[${server.name}].url`);
+      await assertSafeUrl(server.url, `mcpServers[${server.name}].url`);
     }
 
     // Expand template defaults, then apply any caller overrides.

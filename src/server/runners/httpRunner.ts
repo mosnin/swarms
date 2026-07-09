@@ -34,7 +34,7 @@ export class HttpRunner implements Runner {
     // Defense-in-depth: reject attempts to call private/metadata endpoints via
     // http runner, even though runnerConfig is operator-controlled, not end-user.
     try {
-      assertSafeUrl(url, "runnerConfig.url");
+      await assertSafeUrl(url, "runnerConfig.url");
     } catch (err) {
       return {
         ok: false,

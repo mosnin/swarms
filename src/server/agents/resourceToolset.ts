@@ -54,7 +54,7 @@ const MCP_BACKOFF_MS = [0, 500, 2_000];
 export const defaultMcpTransport: McpTransport = async ({ server, toolName, args }) => {
   // SSRF guard: validate each MCP server URL before making the outbound call.
   try {
-    assertSafeUrl(server.url, "mcpServer.url");
+    await assertSafeUrl(server.url, "mcpServer.url");
   } catch {
     return { ok: false, content: { code: "UPSTREAM_ERROR", message: `MCP server "${server.name}" URL is not safe` } };
   }

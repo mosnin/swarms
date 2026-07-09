@@ -150,7 +150,7 @@ export async function deliverPendingWebhooks(
     const attempts = delivery.attempts + 1;
     try {
       // Defense-in-depth: re-validate before fetching in case stored URL was tampered.
-      assertSafeUrl(delivery.url, "webhook delivery URL");
+      await assertSafeUrl(delivery.url, "webhook delivery URL");
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 10_000);
       const res = await fetchImpl(delivery.url, {

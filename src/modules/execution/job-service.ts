@@ -301,6 +301,20 @@ export async function cancelJob(
     throw Errors.conflict(`Job is already ${job.status} and cannot be cancelled`);
   }
   const now = clock.now();
+  // Compare-and-swap from the observed non-terminal state: a worker's CAS
+  // running→succeeded (which also commits the charge) can land between the read
+  // above and this write. A plain update would overwrite that terminal state,
+  // billing a job whose status then reads "cancelled". If the CAS misses, the job
+  // reached a terminal state concurrently — surface a conflict, don't clobber it.
+  const cancelled = await store.compareAndUpdate(jobId, job.status, {
+    status: "cancelled",
+    finishedAt: now,
+    updatedAt: now,
+  });
+  if (!cancelled) {
+    const current = await store.findById(jobId);
+    throw Errors.conflict(`Job is already ${current?.status ?? "terminal"} and cannot be cancelled`);
+  }
   await store.appendLog({
     id: newId(IdPrefix.executionLog),
     organizationId: job.organizationId,
@@ -310,5 +324,5 @@ export async function cancelJob(
     data: { previousStatus: job.status },
     loggedAt: now,
   });
-  return store.update(jobId, { status: "cancelled", finishedAt: now, updatedAt: now });
+  return cancelled;
 }

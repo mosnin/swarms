@@ -170,6 +170,21 @@ function deps(db: Db, workerId: string): ProcessDeps {
     resolve: (job) => resolveExecution(db, job),
     workerId,
     async onCharge(job, costMinor, currency) {
+      // A swarm DIRECTOR job coordinates only: every worker (and the aggregator)
+      // is its own job and is charged + budget-checked individually inside the
+      // child run. The director's reported cost is the SUM of those children, so
+      // charging it here would double-bill the org for work already paid for —
+      // and it carries no reservation hold. Record the aggregate for display /
+      // audit, but never write a second ledger charge for it.
+      if (job.capabilityKind === "swarm") {
+        await writeAuditSystem(job.organizationId, {
+          action: "job.succeeded",
+          resourceType: "job",
+          resourceId: job.id,
+          after: { costMinor, currency, note: "swarm-director-aggregate (children charged individually)" },
+        }, db);
+        return;
+      }
       // Commit the real usage charge and release the reservation hold so the
       // budget reflects committed spend only (no double count).
       await commitBudget(

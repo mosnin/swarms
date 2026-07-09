@@ -34,7 +34,7 @@ const body = z
     budgetMinor: z.number().int().nonnegative().optional(),
     /** Human-friendly alternative to budgetMinor: dollars as a decimal (e.g. 1.50). */
     budgetUsd: z.number().positive().optional(),
-    currency: z.string().length(3).optional(),
+    currency: z.string().length(3).transform((c) => c.toUpperCase()).optional(),
     idempotencyKey: idempotencyKeySchema.optional(),
     callbackUrl: z.string().url().optional(),
   })
@@ -57,9 +57,9 @@ export async function POST(request: NextRequest): Promise<Response> {
     if (parsed.data.organizationId) requireOrganization(ctx, parsed.data.organizationId);
 
     // SSRF guard: validate callbackUrl and MCP server URLs before they reach downstream transports.
-    if (parsed.data.callbackUrl !== undefined) assertSafeUrl(parsed.data.callbackUrl, "callbackUrl");
+    if (parsed.data.callbackUrl !== undefined) await assertSafeUrl(parsed.data.callbackUrl, "callbackUrl");
     for (const server of parsed.data.resources?.mcpServers ?? []) {
-      assertSafeUrl(server.url, `mcpServers[${server.name}].url`);
+      await assertSafeUrl(server.url, `mcpServers[${server.name}].url`);
     }
 
     const { idempotencyKey, budgetUsd, ...rest } = parsed.data;

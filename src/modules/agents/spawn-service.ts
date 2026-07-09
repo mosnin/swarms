@@ -71,6 +71,15 @@ export async function spawnAgent(
 
   // Budget is a HARD GPU-time ceiling. Without a budget, a default estimate.
   const estimatedCostMinor = request.budgetMinor ?? DEFAULT_GPU_SECONDS * rate;
+  // A caller-set budget that can't fund even one GPU-second must be rejected: the
+  // worker floors maxGpuSeconds to >=1 and would then charge a full `rate` — more
+  // than reserved and past the caller's hard ceiling (and budgetMinor=0 would run
+  // with no reservation at all). Mirrors the per-worker guard in the swarm path.
+  if (request.budgetMinor !== undefined && rate > 0 && estimatedCostMinor < rate) {
+    throw Errors.validation(
+      `budgetMinor is too low: at least ${rate} minor units are required to run one GPU-second at the current rate`,
+    );
+  }
   const maxGpuSeconds = rate > 0 ? Math.max(1, Math.floor(estimatedCostMinor / rate)) : DEFAULT_GPU_SECONDS;
 
   // Policy gate (deny / require approval / allow) before anything is created.
@@ -142,9 +151,20 @@ export async function spawnAgent(
           db,
         );
       } catch (err) {
-        await dbJobStore(db)
-          .update(job.id, { status: "failed", finishedAt: new Date(), updatedAt: new Date() })
-          .catch(() => undefined);
+        // Fail the job so it never bills — but only if it is still pre-execution.
+        // A worker (DB poller) can claim a freshly-inserted 'queued' row in the
+        // window before this reservation completes; if it already ran the job to a
+        // terminal state, a plain update would clobber that. CAS from queued only.
+        const store = dbJobStore(db);
+        const failedAt = new Date();
+        const settled = await store
+          .compareAndUpdate(job.id, "queued", { status: "failed", finishedAt: failedAt, updatedAt: failedAt })
+          .catch(() => null);
+        if (!settled) {
+          await store
+            .compareAndUpdate(job.id, "running", { status: "failed", finishedAt: failedAt, updatedAt: failedAt })
+            .catch(() => null);
+        }
         throw err;
       }
     }
