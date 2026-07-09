@@ -55,6 +55,12 @@ export const usageLedgerEntries = pgTable(
     uniqueIndex("ledger_job_charge_uq")
       .on(table.jobId)
       .where(sql`${table.kind} = 'charge' AND ${table.jobId} IS NOT NULL`),
+    // At most one 'payment' credit per settlement receipt (ref_id). Makes the
+    // credit exactly-once at the DB level so a concurrent replay of a settled
+    // payment cannot double-credit the org via check-then-insert.
+    uniqueIndex("ledger_payment_credit_uq")
+      .on(table.refId)
+      .where(sql`${table.kind} = 'payment' AND ${table.refId} IS NOT NULL`),
   ],
 );
 

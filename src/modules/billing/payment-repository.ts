@@ -56,6 +56,11 @@ function toReceipt(row: typeof schema.x402PaymentReceipts.$inferSelect): Payment
 export function dbPaymentStore(db: Db = getDb()): PaymentStore {
   return {
     async insertAttempt(record) {
+      // Upsert on (organizationId, idempotencyKey): issueChallenge creates the
+      // 'pending' attempt and settlePayment settles the SAME (org, key) binding.
+      // A plain insert would violate x402_attempts_org_idem_uq on settle, so the
+      // whole settlement path could never complete against the real store. On
+      // conflict, advance the existing attempt to the presented state.
       const row = (
         await db
           .insert(schema.x402PaymentAttempts)
@@ -75,6 +80,20 @@ export function dbPaymentStore(db: Db = getDb()): PaymentStore {
             providerRef: record.providerRef,
             settledAt: record.status === "settled" ? record.createdAt : null,
             createdAt: record.createdAt,
+          })
+          .onConflictDoUpdate({
+            target: [schema.x402PaymentAttempts.organizationId, schema.x402PaymentAttempts.idempotencyKey],
+            set: {
+              status: record.status,
+              scheme: record.scheme,
+              nonce: record.nonce,
+              binding: record.binding,
+              challenge: record.challenge ?? null,
+              proof: record.proof ?? null,
+              providerRef: record.providerRef,
+              settledAt: record.status === "settled" ? record.createdAt : null,
+              updatedAt: record.createdAt,
+            },
           })
           .returning()
       )[0];

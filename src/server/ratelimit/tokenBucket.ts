@@ -35,13 +35,28 @@ export interface RateLimiter {
 
 export class InMemoryRateLimiter implements RateLimiter {
   private readonly buckets = new Map<string, BucketState>();
+  private lastPruneMs = 0;
+  // A bucket untouched for longer than this has fully refilled for any sane rule,
+  // so it's indistinguishable from a fresh one — drop it to bound memory growth
+  // across many distinct principals.
+  private static readonly IDLE_TTL_MS = 10 * 60_000;
+  private static readonly PRUNE_INTERVAL_MS = 60_000;
 
   constructor(private readonly clock: Clock = systemClock) {}
+
+  private prune(now: number): void {
+    if (now - this.lastPruneMs < InMemoryRateLimiter.PRUNE_INTERVAL_MS) return;
+    this.lastPruneMs = now;
+    for (const [key, state] of this.buckets) {
+      if (now - state.lastRefillMs > InMemoryRateLimiter.IDLE_TTL_MS) this.buckets.delete(key);
+    }
+  }
 
   check(key: string, rule: RateLimitRule): RateLimitDecision {
     const capacity = rule.burst ?? rule.limit;
     const refillPerMs = rule.limit / rule.windowMs;
     const now = this.clock.epochMs();
+    this.prune(now);
 
     const state = this.buckets.get(key) ?? { tokens: capacity, lastRefillMs: now };
     // Refill based on elapsed time.

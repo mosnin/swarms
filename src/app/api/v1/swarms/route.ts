@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
-import { ok, route } from "@/lib/api";
+import { ok, readJsonBody, route } from "@/lib/api";
 import { Errors } from "@/lib/errors";
 import { deriveIdempotencyKey, idempotencyKeySchema } from "@/lib/idempotency";
 import { assertSafeUrl } from "@/lib/ssrf-guard";
@@ -108,7 +108,7 @@ export async function POST(request: NextRequest): Promise<Response> {
   return route(async () => {
     const ctx = await authenticateRequest(request);
     await enforceRateLimit(ctx, "swarmRun");
-    const json = await request.json().catch(() => null);
+    const json = await readJsonBody(request);
     const parsed = body.safeParse(json);
     if (!parsed.success) {
       throw Errors.validation("Invalid request body", {

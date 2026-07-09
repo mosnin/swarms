@@ -18,6 +18,8 @@ import { Errors } from "@/lib/errors";
 import * as schema from "@/lib/db/schema";
 import { requirePermission, type AuthContext } from "@/modules/identity/access-control";
 import { writeAudit } from "@/modules/governance/audit";
+import { loadPolicyRules } from "@/modules/governance/policy-repository";
+import { evaluatePolicy } from "@/server/policy/evaluatePolicy";
 import { createJob as createJobCore } from "@/modules/execution/job-service";
 import { dbJobStore } from "@/modules/execution/job-repository";
 import { processJobInDb } from "@/modules/execution/worker";
@@ -490,6 +492,11 @@ export async function spawnSwarm(
       enqueue: false,
       // Director drives this in-process; the DB poller must not also claim it.
       orchestrated: true,
+      // No job-level retry: the swarm's own retry layer (executeSwarm) re-runs a
+      // failed worker as a fresh attempt (new job). Requeuing here would strand
+      // the job (poller skips orchestrated) and leak its budget hold, since
+      // processJobInDb only releases the hold on a 'failed' terminal state.
+      maxAttempts: 1,
     });
 
     // Atomic check-and-reserve under the budget-row lock — the same hard-ceiling
@@ -673,6 +680,26 @@ export async function enqueueSwarm(
   requirePermission(ctx, "jobs.create");
 
   const plan = computeSwarmPlan(request);
+
+  // Governance gate on the AGGREGATE spend — same policy the single-agent path
+  // enforces. Without this, a deny/require_approval rule on high-cost jobs is
+  // bypassed simply by wrapping the same spend in a swarm.
+  const decision = evaluatePolicy(await loadPolicyRules(ctx.organizationId, db), {
+    costMinor: plan.aggregateMinor,
+    requiresExternalWrite: (request.resources?.mcpServers ?? []).length > 0,
+  });
+  if (decision.effect === "deny") {
+    await writeAudit(ctx, { action: "policy.denied", resourceType: "swarm", after: { reason: decision.reason } }, db);
+    throw Errors.policyDenied(decision.reason, { rule: decision.matchedRule?.name });
+  }
+  if (decision.effect === "require_approval") {
+    // Swarms have no per-run approval flow; rather than silently bypass the
+    // policy, refuse and point the caller at the approvable single-agent path.
+    throw Errors.policyDenied(
+      "This spend requires approval, which swarm runs do not support. Split it into individual agent jobs (which can be approved) or adjust the policy.",
+      { rule: decision.matchedRule?.name },
+    );
+  }
 
   // Idempotency: a replayed key returns the original run as-is.
   const existing = (

@@ -3,7 +3,7 @@
  * append-only ledger entries; these queries derive budget state from them.
  */
 
-import { and, eq, gte, type SQL } from "drizzle-orm";
+import { and, eq, gte, inArray, or, type SQL } from "drizzle-orm";
 
 import { getDb } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
@@ -59,23 +59,37 @@ export async function scopedEntriesSince(
   db: Db = getDb(),
   currency?: string,
 ): Promise<BudgetLedgerEntry[]> {
-  if (!isScoped(scope)) return entriesForOrgSince(organizationId, since, db, currency);
+  // Budget spend = committed charges IN THE PERIOD + reservations still
+  // outstanding RIGHT NOW. Charges are period-windowed, but a hold/release must
+  // be counted all-time: a hold placed just before the window and released just
+  // inside it would otherwise leave a windowed release with no matching hold,
+  // dragging `reservedMinor` down and letting a fresh reservation breach the
+  // ceiling. So: charges >= since, OR any hold/release regardless of time.
+  const periodOrOutstanding = or(
+    and(eq(schema.usageLedgerEntries.kind, "charge"), gte(schema.usageLedgerEntries.createdAt, since)),
+    inArray(schema.usageLedgerEntries.kind, ["hold", "release"]),
+  )!;
+  const base: SQL[] = [eq(schema.usageLedgerEntries.organizationId, organizationId), periodOrOutstanding];
+  if (currency) base.push(eq(schema.usageLedgerEntries.currency, currency.toUpperCase()));
 
-  const conds: SQL[] = [
-    eq(schema.usageLedgerEntries.organizationId, organizationId),
-    gte(schema.usageLedgerEntries.createdAt, since),
-  ];
-  if (currency) conds.push(eq(schema.usageLedgerEntries.currency, currency.toUpperCase()));
+  const select = {
+    direction: schema.usageLedgerEntries.direction,
+    kind: schema.usageLedgerEntries.kind,
+    amountMinor: schema.usageLedgerEntries.amountMinor,
+    currency: schema.usageLedgerEntries.currency,
+  };
+
+  if (!isScoped(scope)) {
+    const rows = await db.select(select).from(schema.usageLedgerEntries).where(and(...base));
+    return rows.map(toEntry);
+  }
+
+  const conds = [...base];
   if (scope.apiKeyId) conds.push(eq(schema.jobs.apiKeyId, scope.apiKeyId));
   if (scope.userId) conds.push(eq(schema.jobs.createdByUserId, scope.userId));
 
   const rows = await db
-    .select({
-      direction: schema.usageLedgerEntries.direction,
-      kind: schema.usageLedgerEntries.kind,
-      amountMinor: schema.usageLedgerEntries.amountMinor,
-      currency: schema.usageLedgerEntries.currency,
-    })
+    .select(select)
     .from(schema.usageLedgerEntries)
     .innerJoin(schema.jobs, eq(schema.usageLedgerEntries.jobId, schema.jobs.id))
     .where(and(...conds));

@@ -40,3 +40,22 @@ export async function pgRateLimitCheck(
   const retryAtMs = windowStartMs + rule.windowMs;
   return { allowed: count <= limit, remaining, retryAtMs };
 }
+
+/**
+ * Delete rate-limit counter rows for windows that have long since closed. Fixed
+ * windows are never read again once the wall-clock passes them, so old rows are
+ * pure bloat. Called periodically by the worker. Returns rows removed.
+ */
+export async function pgRateLimitCleanup(
+  olderThanMs = 3_600_000,
+  db: Db = getDb(),
+): Promise<number> {
+  const cutoff = new Date(Date.now() - olderThanMs).toISOString();
+  const result = await db.execute(sql`
+    DELETE FROM rate_limit_counters WHERE window_start < ${cutoff}
+  `);
+  const affected = (result as { count?: number; rowCount?: number }).count
+    ?? (result as { rowCount?: number }).rowCount
+    ?? 0;
+  return Number(affected);
+}

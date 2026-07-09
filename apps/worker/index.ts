@@ -15,6 +15,7 @@ import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { claimAndProcessJobs, reapExpiredJobs, reapOrphanedSwarmRuns } from "@/modules/execution/worker";
 import { deliverPendingWebhooks } from "@/modules/webhooks/webhook-service";
+import { pgRateLimitCleanup } from "@/server/ratelimit/pgRateLimiter";
 
 const POLL_INTERVAL_MS = Number(process.env.WORKER_POLL_INTERVAL_MS ?? 1000);
 const BATCH_SIZE = Number(process.env.WORKER_BATCH_SIZE ?? 5);
@@ -66,6 +67,9 @@ async function tick(): Promise<void> {
       // and releases outstanding worker holds).
       const runsReaped = await reapOrphanedSwarmRuns();
       if (runsReaped > 0) logger.warn("Worker reaped orphaned swarm runs", { runsReaped });
+      // Evict closed rate-limit windows so the shared counter table doesn't bloat.
+      const rlPurged = await pgRateLimitCleanup().catch(() => 0);
+      if (rlPurged > 0) logger.info("Worker purged rate-limit rows", { rlPurged });
     }
   } catch (error) {
     // Never crash the loop on a single failure; log and continue.

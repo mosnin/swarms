@@ -18,6 +18,7 @@ import { Errors } from "@/lib/errors";
 import { newId, IdPrefix } from "@/lib/ids";
 import { systemClock, type Clock } from "@/lib/time";
 import type { JobMessage, JobQueue } from "@/server/queue/types";
+import { getJobQueue } from "@/server/queue/queue";
 
 /**
  * Default attempt budget for a job. >1 so a transient failure (or a worker
@@ -172,6 +173,15 @@ function messageFor(job: JobRecord): JobMessage {
     organizationId: job.organizationId,
     enqueuedAt: (job.queuedAt ?? job.createdAt).toISOString(),
   };
+}
+
+/**
+ * Publish an already-persisted, non-gated job to the queue. Used by callers that
+ * create the job with `enqueue: false` inside a transaction (so it isn't
+ * claimable before its budget hold commits) and enqueue it only after commit.
+ */
+export async function publishJob(job: JobRecord, queue: JobQueue = getJobQueue()): Promise<void> {
+  await queue.enqueue(messageFor(job));
 }
 
 /**
