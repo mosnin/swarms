@@ -77,6 +77,7 @@ function queuedJob(): JobRecord {
     output: null,
     error: null,
     status: "queued",
+    orchestrated: false,
     priority: 0,
     attempt: 0,
     maxAttempts: 1,

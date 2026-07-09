@@ -61,6 +61,8 @@ export interface JobRecord {
   output: unknown;
   error: unknown;
   status: JobStatus;
+  /** Director-orchestrated (swarm child) job — skipped by the standalone poller. */
+  orchestrated: boolean;
   priority: number;
   attempt: number;
   maxAttempts: number;
@@ -144,6 +146,12 @@ export interface CreateJobInput {
    * Defaults to true.
    */
   enqueue?: boolean;
+  /**
+   * Marks the job as director-orchestrated so the standalone DB poller skips it
+   * (it runs in-process under its director, not the poller). Must be set for
+   * swarm worker/aggregator jobs. Defaults to false. See jobs.orchestrated.
+   */
+  orchestrated?: boolean;
   /**
    * Override the attempt budget. Defaults to {@link DEFAULT_MAX_ATTEMPTS}. The
    * swarm director sets this to 1: a director retry cannot resume a partially
@@ -231,6 +239,7 @@ export async function createJob(
     output: null,
     error: null,
     status: gated ? "awaiting_approval" : "queued",
+    orchestrated: input.orchestrated ?? false,
     priority: 0,
     attempt: 0,
     maxAttempts: input.maxAttempts ?? DEFAULT_MAX_ATTEMPTS,

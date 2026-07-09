@@ -125,6 +125,29 @@ export const envSchema = z.object({
     if (!data.INTERNAL_WORKER_SECRET) {
       ctx.addIssue({ code: "custom", path: ["INTERNAL_WORKER_SECRET"], message: "Required in production" });
     }
+    // The in-process "memory" rate-limit backend cannot enforce a global limit
+    // across a serverless/horizontally-scaled fleet (each instance has its own
+    // Map), so the paid/expensive endpoints would be effectively unlimited.
+    // Require the shared Postgres backend in production.
+    if (data.RATE_LIMIT_BACKEND !== "postgres") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["RATE_LIMIT_BACKEND"],
+        message:
+          "In production, RATE_LIMIT_BACKEND must be 'postgres': the 'memory' backend is per-process and cannot enforce limits across multiple instances",
+      });
+    }
+    // A paid execution layer must fail fast if real settlement is selected but
+    // its receiver/facilitator are unset — otherwise the deploy boots green and
+    // every paid job 500s at settlement time (getPaymentProvider throws lazily).
+    if (data.X402_PROVIDER === "x402") {
+      if (!data.X402_PAY_TO_ADDRESS) {
+        ctx.addIssue({ code: "custom", path: ["X402_PAY_TO_ADDRESS"], message: "Required when X402_PROVIDER=x402" });
+      }
+      if (!data.X402_FACILITATOR_URL) {
+        ctx.addIssue({ code: "custom", path: ["X402_FACILITATOR_URL"], message: "Required when X402_PROVIDER=x402" });
+      }
+    }
     if (!data.SESSION_SECRET) {
       ctx.addIssue({ code: "custom", path: ["SESSION_SECRET"], message: "Required in production" });
     }

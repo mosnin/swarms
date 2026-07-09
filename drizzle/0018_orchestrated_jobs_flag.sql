@@ -1,0 +1,1 @@
+ALTER TABLE "jobs" ADD COLUMN "orchestrated" boolean DEFAULT false NOT NULL;

@@ -280,7 +280,7 @@ export async function claimAndProcessJobs(db: Db = getDb(), batchSize = 5): Prom
     SET status = 'running', started_at = now(), attempt = attempt + 1, updated_at = now()
     WHERE id IN (
       SELECT id FROM jobs
-      WHERE status = 'queued'
+      WHERE status = 'queued' AND orchestrated = false
       ORDER BY created_at ASC
       LIMIT ${batchSize}
       FOR UPDATE SKIP LOCKED
@@ -327,6 +327,7 @@ export async function reapExpiredJobs(
       attempt: schema.jobs.attempt,
       maxAttempts: schema.jobs.maxAttempts,
       capabilityKind: schema.jobs.capabilityKind,
+      orchestrated: schema.jobs.orchestrated,
       startedAt: schema.jobs.startedAt,
     })
     .from(schema.jobs)
@@ -340,7 +341,10 @@ export async function reapExpiredJobs(
     }
     // A dead worker's lease expiry is transient: if attempts remain, requeue the
     // job (keeping its budget hold) rather than permanently failing paid work.
-    const willRetry = job.attempt < job.maxAttempts;
+    // Orchestrated (swarm) jobs are the exception: the poller cannot re-run them
+    // (it filters them out), so requeuing would strand them — fail them and let
+    // the swarm-run reaper settle the run and release holds.
+    const willRetry = job.attempt < job.maxAttempts && !job.orchestrated;
 
     // Guard the transition: only act on a job that is STILL running. A job that
     // finished between the select and this update must not be flipped from

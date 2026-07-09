@@ -488,6 +488,8 @@ export async function spawnSwarm(
       idempotencyKey: `${run.id}-${index}-${attempt}`,
       currency,
       enqueue: false,
+      // Director drives this in-process; the DB poller must not also claim it.
+      orchestrated: true,
     });
 
     // Atomic check-and-reserve under the budget-row lock — the same hard-ceiling

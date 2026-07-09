@@ -105,12 +105,20 @@ export async function deliverPendingWebhooks(
   // db.execute(sql`…`) is not serialized by the postgres-js driver (it reaches
   // the protocol layer as a Date and throws), even though pglite tolerates it.
   const nowIso = new Date().toISOString();
+  // Reclaim deliveries stuck in 'delivering' past this threshold: if a worker
+  // died between the claim UPDATE and the terminal update, the row would
+  // otherwise be orphaned forever (the claim only matches 'pending', no reaper
+  // resets it, and manual retry 409s on 'delivering'). The threshold is far
+  // beyond the 10s per-attempt HTTP timeout, so a live in-flight delivery is
+  // never stolen. Re-delivery is at-least-once; consumers dedupe by signature.
+  const staleDeliveringIso = new Date(Date.now() - 120_000).toISOString();
   const claimed = await db.execute(sql`
     UPDATE webhook_deliveries
     SET status = 'delivering', updated_at = now()
     WHERE id IN (
       SELECT id FROM webhook_deliveries
-      WHERE status = 'pending' AND next_attempt_at <= ${nowIso}
+      WHERE (status = 'pending' AND next_attempt_at <= ${nowIso})
+         OR (status = 'delivering' AND updated_at < ${staleDeliveringIso})
       ORDER BY next_attempt_at ASC
       LIMIT ${batchSize}
       FOR UPDATE SKIP LOCKED

@@ -2,6 +2,7 @@
 
 import { relations } from "drizzle-orm";
 import {
+  boolean,
   index,
   integer,
   jsonb,
@@ -39,6 +40,12 @@ export const jobs = pgTable(
     output: jsonb("output"),
     error: jsonb("error"),
     status: jobStatus("status").notNull().default("queued"),
+    // Orchestrated jobs (swarm workers/aggregator) are driven directly by their
+    // director's in-process runner, NOT the standalone DB poller. The poller must
+    // skip them, otherwise it races the director for the 'queued' row: it claims
+    // and runs the worker itself (charging the org) while the director records
+    // the slot as a cost-0 no-op — corrupting the swarm total and double-running.
+    orchestrated: boolean("orchestrated").notNull().default(false),
     priority: integer("priority").notNull().default(0),
     attempt: integer("attempt").notNull().default(0),
     maxAttempts: integer("max_attempts").notNull().default(1),
