@@ -149,7 +149,10 @@ export function buildResourceTools(
       parameters: z.object({ path: z.string() }),
       execute: async (args) => {
         const path = typeof args.path === "string" ? args.path : "";
-        if (!(path in files)) {
+        // Own-property check only: `path in files` would match inherited keys
+        // (constructor, __proto__, …), letting a caller-controlled path resolve to
+        // a prototype member instead of returning "no such file".
+        if (!Object.prototype.hasOwnProperty.call(files, path)) {
           return { error: `No such file: ${path}. Use list_files to see available paths.` };
         }
         return { path, contents: files[path] };

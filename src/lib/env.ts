@@ -146,16 +146,17 @@ export const envSchema = z.object({
       }
     }
     // Untrusted agent + caller-supplied tool code must run isolated in
-    // production. The in-process `openrouter` runtime provides no isolation and
-    // the `mock` runtime does no real work; only `modal` (remote sandbox) is
-    // acceptable unless a real container sandbox provider is configured.
-    const hasContainerSandbox = data.SANDBOX_PROVIDER === "docker" || data.SANDBOX_PROVIDER === "podman";
-    if (data.AGENT_RUNTIME !== "modal" && !hasContainerSandbox) {
+    // production. Only `modal` (remote sandbox) actually isolates agent
+    // execution: the `openrouter` runtime runs the agent loop in-process and the
+    // `mock` runtime does no real work. SANDBOX_PROVIDER is NOT consulted on the
+    // agent path (getSandboxProvider has no caller there), so it must not be
+    // treated as an isolation escape hatch — require modal unconditionally.
+    if (data.AGENT_RUNTIME !== "modal") {
       ctx.addIssue({
         code: "custom",
         path: ["AGENT_RUNTIME"],
         message:
-          "In production, agent execution must be isolated: set AGENT_RUNTIME=modal or configure SANDBOX_PROVIDER=docker|podman",
+          "In production, agent execution must run in an isolated sandbox: set AGENT_RUNTIME=modal (the openrouter/mock runtimes run untrusted code in-process and are not permitted in production)",
       });
     }
     if (data.AGENT_RUNTIME === "modal" && (!data.MODAL_RUN_URL || !data.MODAL_TOKEN)) {
