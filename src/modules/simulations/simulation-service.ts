@@ -265,6 +265,75 @@ export async function enqueueSimulation(
   return runToResponse(run, config.agents.length, estimate.maxGpuSeconds, estimate.estimatedCostMinor);
 }
 
+const TERMINAL_RUN_STATUSES = new Set(["succeeded", "failed", "cancelled"]);
+
+export interface CancelSimulationResult {
+  simulationRunId: string;
+  status: string;
+  message?: string;
+}
+
+/**
+ * Cancel a queued / running / gated simulation. CAS-flips the run to cancelled,
+ * cancels the director job (skipped if it settled concurrently — the runner's
+ * own CAS then refuses to charge), and releases the reservation hold. Idempotent
+ * on terminal runs.
+ */
+export async function cancelSimulation(
+  ctx: AuthContext,
+  simulationRunId: string,
+  db: Db = getDb(),
+): Promise<CancelSimulationResult> {
+  requirePermission(ctx, "jobs.cancel");
+
+  const run = (
+    await db
+      .select()
+      .from(schema.simulationRuns)
+      .where(
+        and(
+          eq(schema.simulationRuns.id, simulationRunId),
+          eq(schema.simulationRuns.organizationId, ctx.organizationId),
+        ),
+      )
+      .limit(1)
+  )[0];
+  if (!run) throw Errors.notFound(`Simulation run ${simulationRunId} not found`);
+
+  if (TERMINAL_RUN_STATUSES.has(run.status)) {
+    return { simulationRunId, status: run.status, message: `Simulation already in terminal state: ${run.status}` };
+  }
+
+  // CAS from the observed non-terminal state so a concurrent settle wins.
+  const cancelled = (
+    await db
+      .update(schema.simulationRuns)
+      .set({ status: "cancelled", finishedAt: new Date() })
+      .where(and(eq(schema.simulationRuns.id, simulationRunId), eq(schema.simulationRuns.status, run.status)))
+      .returning()
+  )[0];
+  if (!cancelled) {
+    const current = (
+      await db.select().from(schema.simulationRuns).where(eq(schema.simulationRuns.id, simulationRunId)).limit(1)
+    )[0];
+    return { simulationRunId, status: current?.status ?? "cancelled", message: "Simulation settled concurrently" };
+  }
+
+  if (run.directorJobId) {
+    // Best-effort: the director may have settled between reads — a conflict is fine.
+    const { cancelJob } = await import("@/modules/execution/job-service");
+    await cancelJob(dbJobStore(db), run.directorJobId).catch(() => undefined);
+    const { releaseBudget } = await import("@/server/budget/releaseBudget");
+    await releaseBudget(
+      { organizationId: ctx.organizationId, jobId: run.directorJobId, currency: run.costCurrency },
+      db,
+    ).catch(() => undefined);
+  }
+
+  await writeAudit(ctx, { action: "simulation.cancelled", resourceType: "simulation_run", resourceId: simulationRunId }, db);
+  return { simulationRunId, status: "cancelled" };
+}
+
 /** Dry-run cost preview — no run created, no funds reserved. */
 export function estimateSimulation(input: SimulationConfigInput) {
   const config = resolveSimulationConfig(input);

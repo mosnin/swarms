@@ -9,18 +9,42 @@ import { z } from "zod";
 
 import { SwarmsError, SwarmsNetworkError, type SwarmsErrorShape } from "./errors";
 import {
+  artifactSchema,
+  balanceSchema,
+  evaluationResponseSchema,
+  evaluationSchema,
   jobLogSchema,
   jobSchema,
+  pendingApprovalSchema,
+  scheduleSchema,
+  simulationEstimateSchema,
+  simulationResponseSchema,
+  simulationRunSchema,
   spawnResponseSchema,
   swarmRunSchema,
   swarmSpawnResponseSchema,
+  usageSchema,
+  type Artifact,
+  type Balance,
+  type CreateScheduleParams,
+  type EvaluateParams,
+  type Evaluation,
+  type EvaluationResponse,
   type Job,
   type JobLog,
+  type PendingApproval,
+  type Schedule,
+  type SimulateParams,
+  type SimulationEstimate,
+  type SimulationResponse,
+  type SimulationRun,
   type SpawnAgentParams,
   type SpawnResponse,
   type SpawnSwarmParams,
   type SwarmRun,
   type SwarmSpawnResponse,
+  type UploadArtifactParams,
+  type Usage,
 } from "./types";
 
 type FetchLike = typeof fetch;
@@ -130,6 +154,252 @@ export class SwarmsClient {
       schema: z.object({ run: swarmRunSchema }),
     });
     return data.run;
+  }
+
+  async cancelSwarm(swarmRunId: string): Promise<{ swarmRunId: string; status: string }> {
+    return this.request(`/api/v1/swarms/${encodeURIComponent(swarmRunId)}/cancel`, {
+      method: "POST",
+      schema: z.object({ swarmRunId: z.string(), status: z.string() }),
+    });
+  }
+
+  /** Re-run a past swarm with optional overrides (objective/model/budgetMinor). */
+  async replaySwarm(
+    swarmRunId: string,
+    overrides: { objective?: string; model?: string; budgetMinor?: number; replayTag?: string } = {},
+  ): Promise<SwarmSpawnResponse & { replayedFrom: string }> {
+    return this.request(`/api/v1/swarms/${encodeURIComponent(swarmRunId)}/replay`, {
+      method: "POST",
+      body: overrides,
+      schema: swarmSpawnResponseSchema.extend({ replayedFrom: z.string() }) as z.ZodType<
+        SwarmSpawnResponse & { replayedFrom: string }
+      >,
+    });
+  }
+
+  /** Re-run a past agent job with optional overrides (task/model/budgetMinor). */
+  async replayJob(
+    jobId: string,
+    overrides: { task?: string; model?: string; budgetMinor?: number; replayTag?: string } = {},
+  ): Promise<SpawnResponse & { replayedFrom: string }> {
+    return this.request(`/api/v1/jobs/${encodeURIComponent(jobId)}/replay`, {
+      method: "POST",
+      body: overrides,
+      schema: spawnResponseSchema.extend({ replayedFrom: z.string() }) as z.ZodType<
+        SpawnResponse & { replayedFrom: string }
+      >,
+    });
+  }
+
+  /* ------------------------- simulations ------------------------ */
+
+  /** Run a CrewAI crew of personas (parallel or collaborative). Async: poll getSimulation. */
+  async simulate(params: SimulateParams): Promise<SimulationResponse> {
+    return this.request("/api/v1/simulations", {
+      method: "POST",
+      body: params,
+      schema: simulationResponseSchema,
+    });
+  }
+
+  /** Dry-run cost preview — no run created, no funds reserved. */
+  async estimateSimulation(params: SimulateParams): Promise<SimulationEstimate> {
+    return this.request("/api/v1/simulations/estimate", {
+      method: "POST",
+      body: params,
+      schema: simulationEstimateSchema,
+    });
+  }
+
+  async getSimulation(simulationRunId: string): Promise<SimulationRun> {
+    const data = await this.request(`/api/v1/simulations/${encodeURIComponent(simulationRunId)}`, {
+      method: "GET",
+      schema: z.object({ run: simulationRunSchema }),
+    });
+    return data.run;
+  }
+
+  async cancelSimulation(simulationRunId: string): Promise<{ simulationRunId: string; status: string }> {
+    return this.request(`/api/v1/simulations/${encodeURIComponent(simulationRunId)}/cancel`, {
+      method: "POST",
+      schema: z.object({ simulationRunId: z.string(), status: z.string() }),
+    });
+  }
+
+  async replaySimulation(
+    simulationRunId: string,
+    overrides: { objective?: string; model?: string; budgetMinor?: number; maxRounds?: number; replayTag?: string } = {},
+  ): Promise<SimulationResponse & { replayedFrom: string }> {
+    return this.request(`/api/v1/simulations/${encodeURIComponent(simulationRunId)}/replay`, {
+      method: "POST",
+      body: overrides,
+      schema: simulationResponseSchema.extend({ replayedFrom: z.string() }) as z.ZodType<
+        SimulationResponse & { replayedFrom: string }
+      >,
+    });
+  }
+
+  /** The standardized framework catalog (persona packs + scenarios). */
+  async listSimulationFrameworks(): Promise<unknown[]> {
+    const data = await this.request("/api/v1/simulations/frameworks", {
+      method: "GET",
+      schema: z.object({ frameworks: z.array(z.unknown()) }),
+    });
+    return data.frameworks;
+  }
+
+  /* -------------------------- schedules ------------------------- */
+
+  /** Cron for agents: run an agent/swarm/simulation on a recurring schedule. */
+  async createSchedule(params: CreateScheduleParams): Promise<Schedule> {
+    const data = await this.request("/api/v1/schedules", {
+      method: "POST",
+      body: params,
+      schema: z.object({ schedule: scheduleSchema }),
+    });
+    return data.schedule;
+  }
+
+  async listSchedules(): Promise<Schedule[]> {
+    const data = await this.request("/api/v1/schedules", {
+      method: "GET",
+      schema: z.object({ schedules: z.array(scheduleSchema) }),
+    });
+    return data.schedules;
+  }
+
+  async pauseSchedule(scheduleId: string): Promise<Schedule> {
+    const data = await this.request(`/api/v1/schedules/${encodeURIComponent(scheduleId)}/pause`, {
+      method: "POST",
+      schema: z.object({ schedule: scheduleSchema }),
+    });
+    return data.schedule;
+  }
+
+  async resumeSchedule(scheduleId: string): Promise<Schedule> {
+    const data = await this.request(`/api/v1/schedules/${encodeURIComponent(scheduleId)}/resume`, {
+      method: "POST",
+      schema: z.object({ schedule: scheduleSchema }),
+    });
+    return data.schedule;
+  }
+
+  async deleteSchedule(scheduleId: string): Promise<void> {
+    await this.request(`/api/v1/schedules/${encodeURIComponent(scheduleId)}`, {
+      method: "DELETE",
+      schema: z.object({ deleted: z.boolean() }),
+    });
+  }
+
+  /* -------------------------- artifacts ------------------------- */
+
+  /** Upload a file (base64) as an artifact, optionally linked to a run. */
+  async uploadArtifact(params: UploadArtifactParams): Promise<Artifact> {
+    const data = await this.request("/api/v1/artifacts", {
+      method: "POST",
+      body: params,
+      schema: z.object({ artifact: artifactSchema }),
+    });
+    return data.artifact;
+  }
+
+  async listArtifacts(opts: { jobId?: string; limit?: number } = {}): Promise<Artifact[]> {
+    const params = new URLSearchParams();
+    if (opts.jobId) params.set("jobId", opts.jobId);
+    if (opts.limit !== undefined) params.set("limit", String(opts.limit));
+    const qs = params.size > 0 ? `?${params.toString()}` : "";
+    const data = await this.request(`/api/v1/artifacts${qs}`, {
+      method: "GET",
+      schema: z.object({ artifacts: z.array(artifactSchema) }),
+    });
+    return data.artifacts;
+  }
+
+  /** Download an artifact's bytes (follows the signed redirect when present). */
+  async downloadArtifact(artifactId: string): Promise<ArrayBuffer> {
+    const res = await this.send(
+      `${this.baseUrl}/api/v1/artifacts/${encodeURIComponent(artifactId)}/download`,
+      { method: "GET", headers: { authorization: `Bearer ${this.apiKey}` } },
+    );
+    if (!res.ok) {
+      const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      throw new SwarmsError(res.status, (json.error as SwarmsErrorShape) ?? { code: "UNKNOWN", message: "Download failed" });
+    }
+    return res.arrayBuffer();
+  }
+
+  /* ------------------------- evaluations ------------------------ */
+
+  /** Score content or a prior run against a weighted rubric (LLM judge). */
+  async evaluate(params: EvaluateParams): Promise<EvaluationResponse> {
+    return this.request("/api/v1/evaluations", {
+      method: "POST",
+      body: params,
+      schema: evaluationResponseSchema,
+    });
+  }
+
+  async getEvaluation(evaluationId: string): Promise<Evaluation> {
+    const data = await this.request(`/api/v1/evaluations/${encodeURIComponent(evaluationId)}`, {
+      method: "GET",
+      schema: z.object({ evaluation: evaluationSchema }),
+    });
+    return data.evaluation;
+  }
+
+  async cancelEvaluation(evaluationId: string): Promise<{ evaluationId: string; status: string }> {
+    return this.request(`/api/v1/evaluations/${encodeURIComponent(evaluationId)}/cancel`, {
+      method: "POST",
+      schema: z.object({ evaluationId: z.string(), status: z.string() }),
+    });
+  }
+
+  /* -------------------- approvals & billing ---------------------- */
+
+  /** Spends held by a require_approval policy, awaiting a human decision. */
+  async listApprovals(): Promise<PendingApproval[]> {
+    const data = await this.request("/api/v1/approvals", {
+      method: "GET",
+      schema: z.object({ approvals: z.array(pendingApprovalSchema) }),
+    });
+    return data.approvals;
+  }
+
+  async approve(jobId: string): Promise<{ jobId: string; status: string }> {
+    return this.request(`/api/v1/approvals/${encodeURIComponent(jobId)}/approve`, {
+      method: "POST",
+      schema: z.object({ jobId: z.string(), status: z.string() }),
+    });
+  }
+
+  async reject(jobId: string, reason?: string): Promise<{ jobId: string; status: string }> {
+    return this.request(`/api/v1/approvals/${encodeURIComponent(jobId)}/reject`, {
+      method: "POST",
+      body: reason !== undefined ? { reason } : {},
+      schema: z.object({ jobId: z.string(), status: z.string() }),
+    });
+  }
+
+  /** Available balance per currency (integer minor units). */
+  async getBalances(): Promise<Balance[]> {
+    const data = await this.request("/api/v1/billing/balance", {
+      method: "GET",
+      schema: z.object({ balances: z.array(balanceSchema) }),
+    });
+    return data.balances;
+  }
+
+  /** Spend analytics: total, per-day, burn rate, runway. */
+  async getUsage(opts: { sinceDays?: number; currency?: string } = {}): Promise<Usage> {
+    const params = new URLSearchParams();
+    if (opts.sinceDays !== undefined) params.set("sinceDays", String(opts.sinceDays));
+    if (opts.currency) params.set("currency", opts.currency);
+    const qs = params.size > 0 ? `?${params.toString()}` : "";
+    const data = await this.request(`/api/v1/billing/usage${qs}`, {
+      method: "GET",
+      schema: z.object({ usage: usageSchema }),
+    });
+    return data.usage;
   }
 
   /* --------------------------- internal ------------------------- */

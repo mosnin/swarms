@@ -13,7 +13,14 @@
 
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
-import { claimAndProcessJobs, reapExpiredJobs, reapOrphanedSwarmRuns } from "@/modules/execution/worker";
+import {
+  claimAndProcessJobs,
+  pruneWebhookDeliveries,
+  reapExpiredJobs,
+  reapOrphanedEvaluations,
+  reapOrphanedSimulationRuns,
+  reapOrphanedSwarmRuns,
+} from "@/modules/execution/worker";
 import { deliverPendingWebhooks } from "@/modules/webhooks/webhook-service";
 import { runDueSchedules } from "@/modules/schedules/schedule-service";
 import { reapExpiredArtifacts } from "@/modules/artifacts/artifact-service";
@@ -75,6 +82,11 @@ async function tick(): Promise<void> {
       // and releases outstanding worker holds).
       const runsReaped = await reapOrphanedSwarmRuns();
       if (runsReaped > 0) logger.warn("Worker reaped orphaned swarm runs", { runsReaped });
+      // Same recovery for the other director-backed run types.
+      const simsReaped = await reapOrphanedSimulationRuns().catch(() => 0);
+      if (simsReaped > 0) logger.warn("Worker reaped orphaned simulation runs", { simsReaped });
+      const evalsReaped = await reapOrphanedEvaluations().catch(() => 0);
+      if (evalsReaped > 0) logger.warn("Worker reaped orphaned evaluations", { evalsReaped });
       // Evict closed rate-limit windows so the shared counter table doesn't bloat.
       const rlPurged = await pgRateLimitCleanup().catch(() => 0);
       if (rlPurged > 0) logger.info("Worker purged rate-limit rows", { rlPurged });
@@ -84,6 +96,9 @@ async function tick(): Promise<void> {
       // Top up orgs whose balance dropped below their auto-reload threshold.
       const reloaded = await runDueAutoReloads().catch(() => 0);
       if (reloaded > 0) logger.info("Worker ran auto-reloads", { reloaded });
+      // Evict old terminal webhook deliveries so the queue table stays bounded.
+      const whPruned = await pruneWebhookDeliveries().catch(() => 0);
+      if (whPruned > 0) logger.info("Worker pruned webhook deliveries", { whPruned });
     }
   } catch (error) {
     // Never crash the loop on a single failure; log and continue.

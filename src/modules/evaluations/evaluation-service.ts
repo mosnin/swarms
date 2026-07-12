@@ -211,6 +211,63 @@ export async function enqueueEvaluation(
   return toResponse(row, estimatedCostMinor);
 }
 
+const TERMINAL_STATUSES = new Set(["succeeded", "failed", "cancelled"]);
+
+export interface CancelEvaluationResult {
+  evaluationId: string;
+  status: string;
+  message?: string;
+}
+
+/** Cancel a queued / running / gated evaluation. Mirrors cancelSimulation. */
+export async function cancelEvaluation(
+  ctx: AuthContext,
+  evaluationId: string,
+  db: Db = getDb(),
+): Promise<CancelEvaluationResult> {
+  requirePermission(ctx, "jobs.cancel");
+
+  const row = (
+    await db
+      .select()
+      .from(schema.evaluations)
+      .where(and(eq(schema.evaluations.id, evaluationId), eq(schema.evaluations.organizationId, ctx.organizationId)))
+      .limit(1)
+  )[0];
+  if (!row) throw Errors.notFound(`Evaluation ${evaluationId} not found`);
+
+  if (TERMINAL_STATUSES.has(row.status)) {
+    return { evaluationId, status: row.status, message: `Evaluation already in terminal state: ${row.status}` };
+  }
+
+  const cancelled = (
+    await db
+      .update(schema.evaluations)
+      .set({ status: "cancelled", finishedAt: new Date() })
+      .where(and(eq(schema.evaluations.id, evaluationId), eq(schema.evaluations.status, row.status)))
+      .returning()
+  )[0];
+  if (!cancelled) {
+    const current = (
+      await db.select().from(schema.evaluations).where(eq(schema.evaluations.id, evaluationId)).limit(1)
+    )[0];
+    return { evaluationId, status: current?.status ?? "cancelled", message: "Evaluation settled concurrently" };
+  }
+
+  if (row.directorJobId) {
+    const { cancelJob } = await import("@/modules/execution/job-service");
+    await cancelJob(dbJobStore(db), row.directorJobId).catch(() => undefined);
+    const { releaseBudget } = await import("@/server/budget/releaseBudget");
+    await releaseBudget(
+      { organizationId: ctx.organizationId, jobId: row.directorJobId, currency: row.costCurrency },
+      db,
+    ).catch(() => undefined);
+  }
+
+  await writeAudit(ctx, { action: "evaluation.cancelled", resourceType: "evaluation", resourceId: evaluationId }, db);
+  return { evaluationId, status: "cancelled" };
+}
+
 export interface EvaluationView {
   id: string;
   status: string;

@@ -50,7 +50,20 @@ export class SimulationRunner implements Runner {
     const { and, eq } = await import("drizzle-orm");
     const { openResourceBundle } = await import("@/modules/resources/resource-bundle");
     const { getSimulationRuntime } = await import("@/server/simulations/simulationRuntime");
+    const { fanOutWebhook } = await import("@/modules/webhooks/webhook-service");
     const db = getDb();
+
+    // Best-effort terminal-state webhook: per-request callbackUrl + org endpoints.
+    const notify = (status: string, data: Record<string, unknown>) =>
+      fanOutWebhook(
+        {
+          organizationId: context.organizationId,
+          eventType: `simulation.${status}`,
+          url: cfg.callbackUrl,
+          data: { simulationRunId: cfg.existingRunId, status, ...data },
+        },
+        db,
+      ).catch(() => undefined);
 
     // Claim the run: queued → running. If the CAS misses, the run was cancelled
     // or already picked up — do not execute or charge.
@@ -94,6 +107,7 @@ export class SimulationRunner implements Runner {
         .update(schema.simulationRuns)
         .set({ status: "failed", output: { error: result.error }, finishedAt: new Date() })
         .where(and(eq(schema.simulationRuns.id, cfg.existingRunId), eq(schema.simulationRuns.status, "running")));
+      await notify("failed", { error: result.error });
       return { ok: false, error: result.error, logs: result.logs };
     }
 
@@ -145,6 +159,12 @@ export class SimulationRunner implements Runner {
         logs: result.logs,
       };
     }
+
+    await notify("succeeded", {
+      personaCount: result.byPersona.length,
+      costMinor,
+      currency: cfg.currency,
+    });
 
     return {
       ok: true,

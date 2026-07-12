@@ -75,3 +75,28 @@ governance gate, webhooks) — no new trust boundaries.
 Each phase lands behind the same bar as the rest of the repo: strict TS, Zod at
 every boundary, server-side authz on every mutation, append-only money, and
 unit + integration tests.
+
+## Hardening tranche (post-roadmap gap closure)
+
+- **✅ Orphan reapers** for simulation runs and evaluations (a dead director now
+  settles its run to failed instead of leaving it stuck non-terminal), wired
+  into the worker tick beside the swarm-run reaper.
+- **✅ Terminal-state webhooks** — `simulation.succeeded/failed` and
+  `evaluation.succeeded/failed` now fan out to the caller's callbackUrl + org
+  endpoints from the runners.
+- **✅ Cancel endpoints** — POST /simulations/:id/cancel and
+  /evaluations/:id/cancel (CAS run + director to cancelled, release the hold,
+  idempotent on terminal runs).
+- **✅ Webhook-delivery retention** — terminal deliveries older than 30 days are
+  pruned on the worker tick (ledger/audit/logs stay append-only by design).
+- **✅ Dashboard pages** — Simulations (list + detail), Schedules, Evaluations,
+  Artifacts (with session-authenticated downloads), and balance / burn-rate /
+  runway / auto-reload tiles on Usage & spend; all in the sidebar.
+- **✅ SDK 0.2.0** — full coverage of the new surfaces: simulations (run /
+  estimate / get / cancel / replay / frameworks), schedules, artifacts
+  (upload / list / download), evaluations, approvals, billing, and job/swarm
+  replay + cancel.
+
+Still open (needs accounts/credentials, not code): a real TopUpProvider
+processor adapter, the live Modal `/simulate` smoke run, Playwright e2e, and
+the connector-marketplace ecosystem build-out.

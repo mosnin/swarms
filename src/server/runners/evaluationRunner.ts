@@ -35,7 +35,20 @@ export class EvaluationRunner implements Runner {
     const schema = await import("@/lib/db/schema");
     const { and, eq } = await import("drizzle-orm");
     const { getEvaluatorRuntime, computeOverall } = await import("@/server/evaluations/evaluatorRuntime");
+    const { fanOutWebhook } = await import("@/modules/webhooks/webhook-service");
     const db = getDb();
+
+    // Best-effort terminal-state webhook: per-request callbackUrl + org endpoints.
+    const notify = (status: string, data: Record<string, unknown>) =>
+      fanOutWebhook(
+        {
+          organizationId: context.organizationId,
+          eventType: `evaluation.${status}`,
+          url: cfg.callbackUrl,
+          data: { evaluationId: cfg.existingEvaluationId, status, ...data },
+        },
+        db,
+      ).catch(() => undefined);
 
     const claimed = (
       await db
@@ -68,6 +81,7 @@ export class EvaluationRunner implements Runner {
         .update(schema.evaluations)
         .set({ status: "failed", finishedAt: new Date() })
         .where(and(eq(schema.evaluations.id, cfg.existingEvaluationId), eq(schema.evaluations.status, "running")));
+      await notify("failed", { error: result.error });
       return { ok: false, error: result.error, logs: [{ level: "error", message: `evaluation failed: ${result.error.message}` }] };
     }
 
@@ -93,6 +107,8 @@ export class EvaluationRunner implements Runner {
     if (!settled) {
       return { ok: false, error: { code: "CANCELLED", message: "Evaluation settled concurrently; charge skipped" }, logs: [] };
     }
+
+    await notify("succeeded", { overallScore, passed, costMinor, currency: cfg.currency });
 
     return {
       ok: true,

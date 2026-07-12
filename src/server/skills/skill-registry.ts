@@ -13,7 +13,7 @@
  * Increment CATALOG_VERSION whenever any skill version bumps.
  */
 
-export const CATALOG_VERSION = "1.10.0";
+export const CATALOG_VERSION = "1.11.0";
 
 export interface JsonSchema {
   type?: string;
@@ -869,7 +869,9 @@ const SIMULATE: SkillDefinition = {
     "Use this to stress-test positioning against ICP personas, run a research panel, or simulate customer " +
     "decisions over data. Start from a frameworkId (see simulation-frameworks) or supply your own personas. " +
     "Cost is one charge: a base fee per agent + metered GPU. The call is async — it returns status 'queued'; " +
-    "poll get-simulation or stream-simulation for results. Preview cost first with estimate-simulation.",
+    "poll get-simulation or stream-simulation for results. Preview cost first with estimate-simulation. " +
+    "Abort with POST /api/v1/simulations/:id/cancel (releases the reservation); a signed webhook " +
+    "(simulation.succeeded/failed) fires on terminal state when callbackUrl is set.",
   endpoint: "/api/v1/simulations",
   method: "POST",
   auth: "bearer",
@@ -1566,7 +1568,9 @@ const EVALUATE: SkillDefinition = {
     "Score inline text — or the output of a prior job / swarm / simulation — against a rubric of weighted " +
     "criteria using an LLM judge. Returns per-criterion scores, a weighted overall (0-100), and pass/fail " +
     "against an optional threshold. Priced as one metered judge call. Async: returns queued; poll " +
-    "get-evaluation for the result. Use it to gate quality (e.g. only ship a brief that scores ≥ 80).",
+    "get-evaluation for the result. Use it to gate quality (e.g. only ship a brief that scores ≥ 80). " +
+    "Abort with POST /api/v1/evaluations/:id/cancel; a signed webhook (evaluation.succeeded/failed) fires " +
+    "on terminal state when callbackUrl is set.",
   endpoint: "/api/v1/evaluations",
   method: "POST",
   auth: "bearer",
