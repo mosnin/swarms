@@ -13,7 +13,7 @@
  * Increment CATALOG_VERSION whenever any skill version bumps.
  */
 
-export const CATALOG_VERSION = "1.4.0";
+export const CATALOG_VERSION = "1.6.0";
 
 export interface JsonSchema {
   type?: string;
@@ -1117,6 +1117,265 @@ const SIMULATION_FRAMEWORKS: SkillDefinition = {
   },
 };
 
+// ── Schedules (cron for agents) ───────────────────────────────────────────────
+
+const CREATE_SCHEDULE: SkillDefinition = {
+  id: "create-schedule",
+  version: "1.0.0",
+  name: "Create a recurring schedule",
+  description:
+    "Run an agent job, swarm, or simulation on a cron schedule (UTC). Provide the same request body you " +
+    "would POST to /spawn, /swarms, or /simulations as `request`, plus a 5-field cron expression. Each firing " +
+    "enqueues the run through the normal spine (budget, policy, ledger) with a per-firing idempotency key, so " +
+    "a run is never duplicated. Use this to turn a one-off into a standing job: nightly research, weekly ICP " +
+    "panels, hourly monitors.",
+  endpoint: "/api/v1/schedules",
+  method: "POST",
+  auth: "bearer",
+  input: {
+    type: "object",
+    required: ["name", "kind", "cronExpression", "request"],
+    properties: {
+      name: { type: "string", maxLength: 255 },
+      kind: { type: "string", enum: ["agent", "swarm", "simulation"], description: "What to enqueue each firing." },
+      cronExpression: {
+        type: "string",
+        description: "5-field cron in UTC, e.g. '0 9 * * 1' = 09:00 UTC every Monday.",
+      },
+      timezone: { type: "string", description: "Display timezone label (scheduling is UTC). Default UTC." },
+      request: {
+        type: "object",
+        description: "The request body to enqueue — identical to the target endpoint's body (minus idempotencyKey).",
+      },
+    },
+  },
+  output: {
+    type: "object",
+    required: ["schedule"],
+    properties: {
+      schedule: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          kind: { type: "string" },
+          cronExpression: { type: "string" },
+          status: { type: "string", enum: ["active", "paused"] },
+          nextRunAt: { type: "string" },
+          runCount: { type: "integer" },
+        },
+      },
+    },
+  },
+  examples: [
+    {
+      title: "Nightly research swarm at 02:00 UTC",
+      curl: `curl -X POST "$SWARMS_URL/api/v1/schedules" \\
+  -H "Authorization: Bearer $SWARMS_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "name": "Nightly competitor scan",
+    "kind": "swarm",
+    "cronExpression": "0 2 * * *",
+    "request": { "tasks": ["Scan competitor pricing", "Summarise product changes"], "budgetMinor": 200 }
+  }'`,
+    },
+  ],
+  relatedSkills: ["list-schedules", "spawn-swarm", "simulate", "spawn-agent"],
+  tool: {
+    type: "function",
+    function: {
+      name: "create_schedule",
+      description: "Create a cron schedule that recurringly enqueues an agent, swarm, or simulation run.",
+      parameters: {
+        type: "object",
+        required: ["name", "kind", "cronExpression", "request"],
+        properties: {
+          name: { type: "string" },
+          kind: { type: "string", enum: ["agent", "swarm", "simulation"] },
+          cronExpression: { type: "string", description: "5-field UTC cron." },
+          request: { type: "object" },
+        },
+      },
+    },
+  },
+};
+
+const LIST_SCHEDULES: SkillDefinition = {
+  id: "list-schedules",
+  version: "1.0.0",
+  name: "List, pause, resume, or delete schedules",
+  description:
+    "GET /api/v1/schedules lists your schedules with next/last run times and run counts. Pause a schedule " +
+    "with POST /api/v1/schedules/:id/pause, resume with /resume (recomputes the next firing from now), and " +
+    "remove one with DELETE /api/v1/schedules/:id. GET /api/v1/schedules/:id fetches a single schedule.",
+  endpoint: "/api/v1/schedules",
+  method: "GET",
+  auth: "bearer",
+  output: {
+    type: "object",
+    required: ["schedules"],
+    properties: {
+      schedules: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            name: { type: "string" },
+            kind: { type: "string" },
+            cronExpression: { type: "string" },
+            status: { type: "string" },
+            nextRunAt: { type: "string" },
+            lastRunAt: { type: "string" },
+            lastRunRef: { type: "string", description: "jobId / swarmRunId / simulationRunId of the last firing." },
+            runCount: { type: "integer" },
+          },
+        },
+      },
+    },
+  },
+  examples: [
+    {
+      title: "List all schedules",
+      curl: `curl "$SWARMS_URL/api/v1/schedules" -H "Authorization: Bearer $SWARMS_API_KEY"`,
+    },
+    {
+      title: "Pause a schedule",
+      curl: `curl -X POST "$SWARMS_URL/api/v1/schedules/sch_01abc/pause" -H "Authorization: Bearer $SWARMS_API_KEY"`,
+    },
+  ],
+  relatedSkills: ["create-schedule"],
+  tool: {
+    type: "function",
+    function: {
+      name: "list_schedules",
+      description: "List your recurring schedules with their next/last run times and run counts.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+};
+
+// ── Artifacts ─────────────────────────────────────────────────────────────────
+
+const LIST_ARTIFACTS: SkillDefinition = {
+  id: "list-artifacts",
+  version: "1.0.0",
+  name: "List and download run artifacts",
+  description:
+    "Runs produce artifacts — reports, CSVs, transcripts, images. GET /api/v1/artifacts lists them (filter " +
+    "by ?jobId), GET /api/v1/artifacts/:id returns metadata, and GET /api/v1/artifacts/:id/download returns " +
+    "the file (a short-lived signed URL in production, or the bytes directly). Upload your own with " +
+    "POST /api/v1/artifacts (base64 body). Artifacts are content-hashed and expire per your retention policy.",
+  endpoint: "/api/v1/artifacts",
+  method: "GET",
+  auth: "bearer",
+  output: {
+    type: "object",
+    required: ["artifacts"],
+    properties: {
+      artifacts: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            filename: { type: "string" },
+            contentType: { type: "string" },
+            sizeBytes: { type: "integer" },
+            sha256: { type: "string" },
+            jobId: { type: "string" },
+            expiresAt: { type: "string" },
+            createdAt: { type: "string" },
+          },
+        },
+      },
+    },
+  },
+  examples: [
+    {
+      title: "List artifacts for a job",
+      curl: `curl "$SWARMS_URL/api/v1/artifacts?jobId=job_01abc" -H "Authorization: Bearer $SWARMS_API_KEY"`,
+    },
+    {
+      title: "Download an artifact",
+      curl: `curl -L "$SWARMS_URL/api/v1/artifacts/art_01abc/download" -H "Authorization: Bearer $SWARMS_API_KEY" -o report.pdf`,
+    },
+  ],
+  relatedSkills: ["get-job", "get-swarm-run", "get-simulation"],
+  tool: {
+    type: "function",
+    function: {
+      name: "list_artifacts",
+      description: "List downloadable artifacts a run produced (optionally filtered by jobId).",
+      parameters: {
+        type: "object",
+        properties: { jobId: { type: "string", description: "Filter to a single job's artifacts." } },
+      },
+    },
+  },
+};
+
+const UPLOAD_ARTIFACT: SkillDefinition = {
+  id: "upload-artifact",
+  version: "1.0.0",
+  name: "Upload an artifact",
+  description:
+    "Store a file as an artifact (base64-encoded body), optionally linking it to a job / swarm / simulation " +
+    "run. Returns the artifact id and content hash. Subject to the org's max-size and retention policy.",
+  endpoint: "/api/v1/artifacts",
+  method: "POST",
+  auth: "bearer",
+  input: {
+    type: "object",
+    required: ["filename", "contentBase64"],
+    properties: {
+      filename: { type: "string", maxLength: 512 },
+      contentType: { type: "string", maxLength: 128 },
+      contentBase64: { type: "string", description: "Base64-encoded file bytes." },
+      jobId: { type: "string" },
+      swarmRunId: { type: "string" },
+      simulationRunId: { type: "string" },
+    },
+  },
+  output: {
+    type: "object",
+    required: ["artifact"],
+    properties: {
+      artifact: {
+        type: "object",
+        properties: { id: { type: "string" }, filename: { type: "string" }, sha256: { type: "string" }, sizeBytes: { type: "integer" } },
+      },
+    },
+  },
+  examples: [
+    {
+      title: "Upload a report",
+      curl: `curl -X POST "$SWARMS_URL/api/v1/artifacts" \\
+  -H "Authorization: Bearer $SWARMS_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"filename":"brief.md","contentType":"text/markdown","contentBase64":"IyBCcmllZgo="}'`,
+    },
+  ],
+  relatedSkills: ["list-artifacts"],
+  tool: {
+    type: "function",
+    function: {
+      name: "upload_artifact",
+      description: "Store a base64-encoded file as an artifact, optionally linked to a run.",
+      parameters: {
+        type: "object",
+        required: ["filename", "contentBase64"],
+        properties: {
+          filename: { type: "string" },
+          contentType: { type: "string" },
+          contentBase64: { type: "string" },
+          jobId: { type: "string" },
+        },
+      },
+    },
+  },
+};
+
 // ── Catalog ───────────────────────────────────────────────────────────────────
 
 export const SKILL_CATALOG: SkillCatalog = {
@@ -1135,6 +1394,10 @@ export const SKILL_CATALOG: SkillCatalog = {
     GET_SIMULATION,
     STREAM_SIMULATION,
     SIMULATION_FRAMEWORKS,
+    CREATE_SCHEDULE,
+    LIST_SCHEDULES,
+    LIST_ARTIFACTS,
+    UPLOAD_ARTIFACT,
     SPAWN_AGENT,
     GET_JOB,
     GET_JOB_LOGS,

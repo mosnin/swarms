@@ -115,7 +115,30 @@ export const envSchema = z.object({
   // Modal endpoint that runs the CrewAI crew (the /simulate app). Optional: when
   // unset it is derived from MODAL_RUN_URL by swapping the trailing /run.
   MODAL_SIMULATE_URL: z.string().url().optional(),
+
+  // Object storage for run artifacts (reports, transcripts, exports). `db` is a
+  // LOCAL DEV ADAPTER that stores bytes in Postgres; `s3` targets any
+  // S3-compatible bucket (AWS S3, Cloudflare R2) via the settings below.
+  OBJECT_STORE_PROVIDER: z.enum(["db", "s3"]).default("db"),
+  OBJECT_STORE_BUCKET: z.string().min(1).optional(),
+  OBJECT_STORE_REGION: z.string().min(1).default("auto"),
+  OBJECT_STORE_ENDPOINT: z.string().url().optional(), // R2 / MinIO custom endpoint
+  OBJECT_STORE_ACCESS_KEY_ID: z.string().min(1).optional(),
+  OBJECT_STORE_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+  // Max artifact size accepted (bytes) and default retention (days, 0 = keep).
+  ARTIFACT_MAX_BYTES: z.coerce.number().int().positive().default(26_214_400), // 25 MiB
+  ARTIFACT_RETENTION_DAYS: z.coerce.number().int().nonnegative().default(90),
 }).superRefine((data, ctx) => {
+  // Whenever the S3 object-store adapter is selected, its bucket + credentials
+  // must be present — otherwise every artifact upload 500s lazily. Enforced in
+  // all environments (you can select s3 in dev too), not just production.
+  if (data.OBJECT_STORE_PROVIDER === "s3") {
+    for (const key of ["OBJECT_STORE_BUCKET", "OBJECT_STORE_ACCESS_KEY_ID", "OBJECT_STORE_SECRET_ACCESS_KEY"] as const) {
+      if (!data[key]) {
+        ctx.addIssue({ code: "custom", path: [key], message: "Required when OBJECT_STORE_PROVIDER=s3" });
+      }
+    }
+  }
   // In production, all secrets that are "optional" in dev must be present.
   // Lazy failures (first use of crypto/webhook signing) are unacceptable for
   // a paid execution layer — fail fast at boot instead.

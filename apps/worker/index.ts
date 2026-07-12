@@ -15,6 +15,8 @@ import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { claimAndProcessJobs, reapExpiredJobs, reapOrphanedSwarmRuns } from "@/modules/execution/worker";
 import { deliverPendingWebhooks } from "@/modules/webhooks/webhook-service";
+import { runDueSchedules } from "@/modules/schedules/schedule-service";
+import { reapExpiredArtifacts } from "@/modules/artifacts/artifact-service";
 import { pgRateLimitCleanup } from "@/server/ratelimit/pgRateLimiter";
 
 const POLL_INTERVAL_MS = Number(process.env.WORKER_POLL_INTERVAL_MS ?? 1000);
@@ -53,6 +55,11 @@ async function tick(): Promise<void> {
     const processed = await claimAndProcessJobs(undefined, BATCH_SIZE);
     if (processed > 0) logger.info("Worker processed jobs", { processed });
 
+    // Fire any due schedules (cron for agents): enqueues agent/swarm/simulation
+    // runs through the normal spine. Idempotent per firing; safe across replicas.
+    const firedSchedules = await runDueSchedules();
+    if (firedSchedules > 0) logger.info("Worker fired schedules", { firedSchedules });
+
     // Deliver any pending webhooks (signed, retried).
     const delivered = await deliverPendingWebhooks();
     if (delivered > 0) logger.info("Worker delivered webhooks", { delivered });
@@ -70,6 +77,9 @@ async function tick(): Promise<void> {
       // Evict closed rate-limit windows so the shared counter table doesn't bloat.
       const rlPurged = await pgRateLimitCleanup().catch(() => 0);
       if (rlPurged > 0) logger.info("Worker purged rate-limit rows", { rlPurged });
+      // Delete artifacts past their retention window (bytes + metadata).
+      const artifactsReaped = await reapExpiredArtifacts().catch(() => 0);
+      if (artifactsReaped > 0) logger.info("Worker reaped expired artifacts", { artifactsReaped });
     }
   } catch (error) {
     // Never crash the loop on a single failure; log and continue.

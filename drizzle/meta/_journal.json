@@ -148,6 +148,20 @@
       "when": 1783839471426,
       "tag": "0020_fearless_slayback",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1783842586571,
+      "tag": "0021_workable_earthquake",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1783843240582,
+      "tag": "0022_ordinary_tana_nile",
+      "breakpoints": true
     }
   ]
 }

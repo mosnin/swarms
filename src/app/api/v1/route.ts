@@ -32,6 +32,8 @@ export function GET(request: NextRequest): Response {
       simulations: "/api/v1/simulations",
       estimateSimulation: "/api/v1/simulations/estimate",
       simulationFrameworks: "/api/v1/simulations/frameworks",
+      schedules: "/api/v1/schedules",
+      artifacts: "/api/v1/artifacts",
       jobs: "/api/v1/jobs",
       spawn: "/api/v1/spawn",
     },
