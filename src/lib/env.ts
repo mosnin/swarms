@@ -108,6 +108,13 @@ export const envSchema = z.object({
   // GPU compute pricing for agent labor (integer minor units per GPU-second).
   GPU_RATE_MINOR_PER_SECOND: z.coerce.number().int().nonnegative().default(2),
   GPU_RATE_CURRENCY: z.string().length(3).default("USD"),
+
+  // Simulations: flat base fee per spawned agent (integer minor units), charged
+  // on top of metered GPU-seconds. Default 25 = $0.25/agent.
+  SIMULATION_AGENT_BASE_MINOR: z.coerce.number().int().nonnegative().default(25),
+  // Modal endpoint that runs the CrewAI crew (the /simulate app). Optional: when
+  // unset it is derived from MODAL_RUN_URL by swapping the trailing /run.
+  MODAL_SIMULATE_URL: z.string().url().optional(),
 }).superRefine((data, ctx) => {
   // In production, all secrets that are "optional" in dev must be present.
   // Lazy failures (first use of crypto/webhook signing) are unacceptable for

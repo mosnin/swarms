@@ -14,12 +14,20 @@ Modal container, never in the control plane's process. Inherited secrets
 (`resources.env`) are used only as tool auth and are never returned to the model
 or the caller.
 
+The same app also serves `/simulate` (see _run_simulation): a CrewAI crew of
+personas running in one sandbox for the simulations feature.
+
 Deploy:  modal deploy infra/modal/agent_worker.py   (see README.md)
 Contract (must match modalAgentRuntime.ts):
   POST <url>/run   Authorization: Bearer $SWARMS_WORKER_TOKEN
   body:  { jobId, organizationId, task, model, maxRuntimeMs, resources }
   200:   { output, gpuSeconds, logs[] }
   4xx/5xx or { error: { code, message } } on failure
+Simulation contract (must match simulationRuntime.ts):
+  POST <url>/simulate   Authorization: Bearer $SWARMS_WORKER_TOKEN
+  body:  { simulationRunId, mode, objective, model, agents[], scenario?,
+           aggregatorTask?, maxGpuSeconds, maxRuntimeMs, resources }
+  200:   { output, transcript?, byPersona[], aggregatorOutput?, gpuSeconds, logs[] }
 """
 
 from __future__ import annotations
@@ -38,6 +46,8 @@ image = modal.Image.debian_slim(python_version="3.12").pip_install(
     "openai>=1.40.0",
     "httpx>=0.27.0",
     "fastapi[standard]>=0.115.0",
+    # CrewAI powers the /simulate endpoint (crew of personas in one sandbox).
+    "crewai>=0.80.0",
 )
 
 # Secrets are provisioned out-of-band (see README): the OpenRouter key the
@@ -196,6 +206,151 @@ async def _run_agent(spec: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _crew_llm(model: str):
+    """Build a CrewAI LLM bound to OpenRouter (OpenAI-compatible via LiteLLM).
+
+    CrewAI routes models through LiteLLM; the `openrouter/` prefix selects the
+    OpenRouter provider, and the key/base come from the inherited env. A bare
+    "deepseek/deepseek-chat-v4" is normalized to "openrouter/deepseek/...".
+    """
+    from crewai import LLM
+
+    normalized = model if model.startswith("openrouter/") else f"openrouter/{model}"
+    return LLM(
+        model=normalized,
+        base_url=os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
+        api_key=os.environ["OPENROUTER_API_KEY"],
+    )
+
+
+def _run_simulation(spec: dict[str, Any]) -> dict[str, Any]:
+    """Run a crew of personas in ONE sandbox and return the crew result.
+
+    Contract (must match simulationRuntime.ts ModalSimulationRuntime):
+      body: { simulationRunId, organizationId, mode, objective, model, agents[],
+              scenario?, aggregatorTask?, maxGpuSeconds, maxRuntimeMs, resources }
+      200:  { output, transcript, byPersona[], aggregatorOutput?, gpuSeconds, logs[] }
+    """
+    from crewai import Agent, Crew, Process, Task
+
+    mode = spec.get("mode") or "parallel"
+    objective = spec.get("objective") or ""
+    default_model = spec.get("model") or "deepseek/deepseek-chat-v4"
+    personas = spec.get("agents") or []
+    scenario = spec.get("scenario") or {}
+    aggregator_task = spec.get("aggregatorTask")
+    resources = spec.get("resources") or {}
+    context = resources.get("context")
+
+    if not personas:
+        return {"output": None, "gpuSeconds": 1, "error": {"code": "INVALID_CONFIG", "message": "no personas"}}
+
+    # collaborative → hierarchical/sequential collaboration; parallel → independent tasks.
+    proc_name = (scenario.get("process") if mode == "collaborative" else "sequential") or "sequential"
+    process = Process.hierarchical if proc_name == "hierarchical" else Process.sequential
+    collaborative = mode == "collaborative"
+
+    start = time.time()
+    agents = []
+    tasks = []
+    for p in personas:
+        name = p.get("name") or "Persona"
+        role = p.get("role") or name
+        p_objective = p.get("objective") or objective or "Contribute to the objective."
+        attrs = p.get("attributes") or {}
+        backstory_parts = [f"You are {name}."]
+        if role:
+            backstory_parts.append(f"Role: {role}.")
+        if attrs:
+            backstory_parts.append(f"Attributes: {json.dumps(attrs)}.")
+        if context:
+            backstory_parts.append(f"Shared context: {context}")
+
+        agent = Agent(
+            role=role,
+            goal=p_objective,
+            backstory=" ".join(backstory_parts),
+            llm=_crew_llm(p.get("model") or default_model),
+            allow_delegation=collaborative,
+            verbose=False,
+        )
+        agents.append((name, role, agent))
+
+        # parallel: each persona runs its own task; collaborative: each reacts to
+        # the objective and may delegate to peers.
+        task_desc = p.get("task") or objective or p_objective
+        if collaborative:
+            task_desc = (
+                f"{objective}\n\nAs {name} ({role}), engage with the other personas, voice your perspective, "
+                f"and work toward: {p_objective}"
+            )
+        tasks.append(
+            Task(
+                description=task_desc,
+                expected_output="A concise, structured response reflecting this persona's perspective.",
+                agent=agent,
+            )
+        )
+
+    crew_kwargs: dict[str, Any] = {"agents": [a for _, _, a in agents], "tasks": tasks, "process": process, "verbose": False}
+    if process == Process.hierarchical:
+        crew_kwargs["manager_llm"] = _crew_llm(scenario.get("managerModel") or default_model)
+
+    crew = Crew(**crew_kwargs)
+    result = crew.kickoff()
+    elapsed = time.time() - start
+
+    # Per-persona outputs from each task's result.
+    by_persona = []
+    task_outputs = getattr(result, "tasks_output", None) or []
+    for i, (name, role, _agent) in enumerate(agents):
+        out = None
+        if i < len(task_outputs):
+            to = task_outputs[i]
+            out = getattr(to, "raw", None) or str(to)
+        by_persona.append({"personaName": name, "role": role, "status": "succeeded", "output": out})
+
+    final = getattr(result, "raw", None) or str(result)
+    aggregator_output = None
+    if aggregator_task:
+        # A lightweight synthesis pass over the crew's final output.
+        synth_agent = Agent(
+            role="Synthesizer",
+            goal="Synthesize the crew's outputs.",
+            backstory="You merge multiple persona outputs into one coherent result.",
+            llm=_crew_llm(default_model),
+            verbose=False,
+        )
+        synth_task = Task(
+            description=f"{aggregator_task}\n\nCrew output:\n{final}",
+            expected_output="A single synthesized result.",
+            agent=synth_agent,
+        )
+        synth_crew = Crew(agents=[synth_agent], tasks=[synth_task], process=Process.sequential, verbose=False)
+        aggregator_output = str(synth_crew.kickoff())
+
+    transcript = None
+    if collaborative:
+        transcript = [
+            {"persona": bp["personaName"], "message": bp["output"]} for bp in by_persona if bp.get("output")
+        ]
+
+    # Metering parity with the agent path: bound by wall seconds; the control
+    # plane clamps to maxGpuSeconds so the charge never exceeds the reservation.
+    text = final if isinstance(final, str) else json.dumps(final)
+    output_tokens = max(1, len(text) // 4)
+    gpu_seconds = max(1, output_tokens // 50 + round(elapsed))
+
+    return {
+        "output": {"mode": mode, "findings": final},
+        "transcript": transcript,
+        "byPersona": by_persona,
+        "aggregatorOutput": aggregator_output,
+        "gpuSeconds": gpu_seconds,
+        "logs": [{"level": "info", "message": f"simulation completed: {len(personas)} personas, {mode}"}],
+    }
+
+
 def _web():
     from typing import Any, Dict
 
@@ -203,19 +358,31 @@ def _web():
 
     web_app = FastAPI()
 
+    def _authorized(authorization: str) -> bool:
+        expected = os.environ.get("SWARMS_WORKER_TOKEN", "")
+        return bool(expected) and authorization == f"Bearer {expected}"
+
     @web_app.post("/run")
     async def run(spec: Dict[str, Any] = Body(...), authorization: str = Header(default="")):
         # Take the JSON body as an explicit Body param rather than injecting the
         # raw `Request`: some FastAPI/starlette combinations fail to recognize a
         # bare `request: Request` annotation and mis-treat it as a required query
         # param, 422-ing every call before auth. An explicit body is unambiguous.
-        expected = os.environ.get("SWARMS_WORKER_TOKEN", "")
-        if not expected or authorization != f"Bearer {expected}":
+        if not _authorized(authorization):
             raise HTTPException(status_code=401, detail="unauthorized")
         try:
             return await _run_agent(spec)
         except Exception as exc:  # noqa: BLE001 — map to the typed error shape the runtime expects
             return {"output": None, "gpuSeconds": 1, "error": {"code": "TOOL_ERROR", "message": str(exc)}}
+
+    @web_app.post("/simulate")
+    def simulate(spec: Dict[str, Any] = Body(...), authorization: str = Header(default="")):
+        if not _authorized(authorization):
+            raise HTTPException(status_code=401, detail="unauthorized")
+        try:
+            return _run_simulation(spec)
+        except Exception as exc:  # noqa: BLE001 — typed error shape the runtime expects
+            return {"output": None, "gpuSeconds": 1, "error": {"code": "SIMULATION_ERROR", "message": str(exc)}}
 
     return web_app
 

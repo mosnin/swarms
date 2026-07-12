@@ -1,8 +1,18 @@
 # Simulations (CrewAI) — design
 
-**Status:** proposed / design-review. No execution engine is built yet; this doc
-fixes the *shape* (config schema, data model, cost model, MCP surface, framework
-catalog) so it can be reviewed before implementation.
+**Status:** ✅ built. The engine ships in this PR; this doc is the reference for
+the shipped shape (config schema, data model, cost model, MCP surface, framework
+catalog).
+
+Decisions from §8, as built: base fee `SIMULATION_AGENT_BASE_MINOR=25` ($0.25)
+charged per agent regardless of mode; caps `MAX_AGENTS=32`, `MAX_ROUNDS=20`;
+`maxRounds` maps to CrewAI's own process iterations; `capabilityKind="simulation"`
+(the director is a normal poller-claimed, *charged* job — one sandbox, one
+charge); `crewai` pinned in the Modal image with OpenRouter via LiteLLM's
+`openrouter/` provider prefix. Key files: `src/modules/simulations/*` (schema,
+service, repository), `src/server/simulations/*` (cost, frameworks, runtime),
+`src/server/runners/simulationRunner.ts`, `src/app/api/v1/simulations/*`,
+`infra/modal/agent_worker.py` (`/simulate`), migration `0020`.
 
 ## 1. What a simulation is
 

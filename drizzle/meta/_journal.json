@@ -141,6 +141,13 @@
       "when": 1783639983218,
       "tag": "0019_integrity_guards",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1783839471426,
+      "tag": "0020_fearless_slayback",
+      "breakpoints": true
     }
   ]
 }

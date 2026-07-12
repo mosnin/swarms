@@ -13,6 +13,7 @@ import * as schema from "@/lib/db/schema";
 import { Errors } from "@/lib/errors";
 import { commitBudget } from "@/server/budget/commitBudget";
 import type { DirectorSwarmConfig } from "@/server/runners/swarmRunner";
+import type { DirectorSimulationConfig } from "@/server/runners/simulationRunner";
 import { releaseBudget } from "@/server/budget/releaseBudget";
 import { logger } from "@/lib/logger";
 import { metrics } from "@/lib/metrics";
@@ -159,7 +160,32 @@ async function resolveExecution(db: Db, job: JobRecord): Promise<ResolvedExecuti
     };
   }
 
-  // Only agent and swarm capabilities are executable; any other kind is unsupported.
+  // Simulation director: a NORMAL poller-claimed, charged job (unlike the swarm
+  // director). The SimulationRunner runs the whole crew in one sandbox and
+  // returns the single charge (base*agents + gpu*rate). The runnerConfig is the
+  // DirectorSimulationConfig stored verbatim in the job input at enqueue time.
+  if (job.capabilityKind === "simulation") {
+    const config = (job.input ?? {}) as Partial<DirectorSimulationConfig>;
+    const currency = job.costCurrency || config.currency || "USD";
+    return {
+      runnerType: "simulation",
+      runnerConfig: {
+        ...config,
+        // The originating principal comes from the job row, not the stored input.
+        apiKeyId: job.apiKeyId,
+        createdByUserId: job.createdByUserId,
+        currency,
+      },
+      // The crew shares one sandbox and may run many rounds — give it the full
+      // ceiling (same as the swarm director), bounded by GPU seconds via cost.
+      maxRuntimeMs: 600_000,
+      priceMinor: job.costMinor,
+      currency,
+    };
+  }
+
+  // Only agent, swarm, and simulation capabilities are executable; any other
+  // kind is unsupported.
   return null;
 }
 

@@ -13,7 +13,7 @@
  * Increment CATALOG_VERSION whenever any skill version bumps.
  */
 
-export const CATALOG_VERSION = "1.3.0";
+export const CATALOG_VERSION = "1.4.0";
 
 export interface JsonSchema {
   type?: string;
@@ -778,6 +778,345 @@ const ESTIMATE_SWARM: SkillDefinition = {
   },
 };
 
+// ── Simulations (CrewAI) ──────────────────────────────────────────────────────
+
+const PERSONA_SCHEMA: JsonSchema = {
+  type: "object",
+  required: ["name"],
+  properties: {
+    name: { type: "string", description: 'Persona name, e.g. "Skeptical CFO".' },
+    role: { type: "string", description: "Who this persona is (title, background)." },
+    objective: { type: "string", description: "What this persona is trying to decide or do." },
+    attributes: { type: "object", description: "Free-form traits (pains, JTBD, tone, constraints)." },
+    model: { type: "string", description: "Per-persona model override." },
+    task: { type: "string", description: "parallel mode: this persona's independent task." },
+  },
+};
+
+const SIMULATION_INPUT_SCHEMA: JsonSchema = {
+  type: "object",
+  required: ["mode", "agents"],
+  properties: {
+    mode: {
+      type: "string",
+      enum: ["parallel", "collaborative"],
+      description:
+        "parallel = N independent agents (optionally merged); collaborative = personas interact over rounds.",
+    },
+    frameworkId: {
+      type: "string",
+      description: "Start from a catalog framework (see simulation-frameworks); explicit fields override its defaults.",
+    },
+    objective: { type: "string", maxLength: 2_000 },
+    agents: {
+      type: "array",
+      minItems: 1,
+      maxItems: 32,
+      items: PERSONA_SCHEMA,
+      description: "1..32 personas. In parallel mode each may carry its own task.",
+    },
+    model: { type: "string", maxLength: 96, description: "Default model for the crew." },
+    resources: RESOURCES_SCHEMA,
+    scenario: {
+      type: "object",
+      description: "collaborative-only settings.",
+      properties: {
+        environment: {
+          type: "object",
+          description: "What the crew interacts with: an MCP product-under-test, a dataset, or none.",
+        },
+        process: { type: "string", enum: ["sequential", "hierarchical"] },
+        managerModel: { type: "string", description: "Manager LLM for hierarchical process." },
+        maxRounds: { type: "integer", minimum: 1, maximum: 20, description: "Interaction rounds (default 6)." },
+        successCriteria: { type: "string" },
+      },
+    },
+    aggregatorTask: { type: "string", description: "Optional final synthesis step over all persona outputs." },
+    budgetMinor: { type: "integer", minimum: 0, description: "Hard ceiling in minor units." },
+    budgetUsd: { type: "number", description: "Hard ceiling in dollars (alternative to budgetMinor)." },
+    currency: { type: "string", description: "ISO-4217 3-letter code, default USD." },
+    idempotencyKey: { type: "string", description: "Re-submitting the same key returns the original run." },
+    callbackUrl: { type: "string", description: "Signed webhook POSTed on terminal state (SSRF-guarded)." },
+  },
+};
+
+const SIMULATE: SkillDefinition = {
+  id: "simulate",
+  version: "1.0.0",
+  name: "Run a simulation (CrewAI crew of personas)",
+  description:
+    "Spin up a crew of persona agents in ONE sandbox and run them in parallel (independent tasks) or " +
+    "collaborative (personas interact over rounds against an optional MCP product or dataset) mode. " +
+    "Use this to stress-test positioning against ICP personas, run a research panel, or simulate customer " +
+    "decisions over data. Start from a frameworkId (see simulation-frameworks) or supply your own personas. " +
+    "Cost is one charge: a base fee per agent + metered GPU. The call is async — it returns status 'queued'; " +
+    "poll get-simulation or stream-simulation for results. Preview cost first with estimate-simulation.",
+  endpoint: "/api/v1/simulations",
+  method: "POST",
+  auth: "bearer",
+  input: SIMULATION_INPUT_SCHEMA,
+  output: {
+    type: "object",
+    required: ["simulationRunId", "status", "mode", "agentCount"],
+    properties: {
+      simulationRunId: { type: "string" },
+      status: { type: "string", enum: ["queued", "running", "succeeded", "failed", "cancelled"] },
+      mode: { type: "string" },
+      frameworkId: { type: "string" },
+      agentCount: { type: "integer" },
+      costMinor: { type: "integer", description: "0 until the run settles; then the committed charge." },
+      baseFeeMinor: { type: "integer" },
+      estimatedCostMinor: { type: "integer" },
+      maxGpuSeconds: { type: "integer" },
+      currency: { type: "string" },
+    },
+  },
+  examples: [
+    {
+      title: "ICP persona panel from a framework",
+      curl: `curl -X POST "$SWARMS_URL/api/v1/simulations" \\
+  -H "Authorization: Bearer $SWARMS_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "mode": "collaborative",
+    "frameworkId": "icp-panel",
+    "objective": "React to our new usage-based pricing for the API platform",
+    "agents": [],
+    "budgetUsd": 3.00,
+    "idempotencyKey": "icp-pricing-2026-q3"
+  }'`,
+    },
+  ],
+  relatedSkills: ["estimate-simulation", "get-simulation", "stream-simulation", "simulation-frameworks"],
+  tool: {
+    type: "function",
+    function: {
+      name: "simulate",
+      description:
+        "Run a CrewAI crew of personas in parallel or collaborative mode (one sandbox, one charge). " +
+        "Returns a queued run; poll get_simulation for results.",
+      parameters: {
+        type: "object",
+        required: ["mode", "agents"],
+        properties: {
+          mode: { type: "string", enum: ["parallel", "collaborative"] },
+          frameworkId: { type: "string" },
+          objective: { type: "string" },
+          agents: { type: "array", items: PERSONA_SCHEMA },
+          budgetUsd: { type: "number" },
+          idempotencyKey: { type: "string" },
+        },
+      },
+    },
+  },
+};
+
+const ESTIMATE_SIMULATION: SkillDefinition = {
+  id: "estimate-simulation",
+  version: "1.0.0",
+  name: "Estimate simulation cost (dry run)",
+  description:
+    "Preview the price of a proposed simulation before committing funds. No run is created and no money is " +
+    "reserved. Returns the base fee, GPU estimate, total cost, and whether your budget covers it. " +
+    "Call this before simulate to confirm the cost.",
+  endpoint: "/api/v1/simulations/estimate",
+  method: "POST",
+  auth: "bearer",
+  input: SIMULATION_INPUT_SCHEMA,
+  output: {
+    type: "object",
+    required: ["agents", "baseMinor", "estimatedCostMinor", "withinBudget"],
+    properties: {
+      mode: { type: "string" },
+      agents: { type: "integer" },
+      baseMinor: { type: "integer", description: "Base fee: agents × per-agent base." },
+      rateMinorPerSecond: { type: "integer" },
+      estimatedGpuSeconds: { type: "integer" },
+      maxGpuSeconds: { type: "integer" },
+      estimatedCostMinor: { type: "integer" },
+      estimatedCostUsd: { type: "number", description: "Display-only USD; null for non-USD." },
+      reservedMinor: { type: "integer", description: "Amount reserved against the budget (base + max GPU)." },
+      currency: { type: "string" },
+      withinBudget: { type: "boolean" },
+      rejectionReason: { type: "string", description: "Present only when withinBudget is false." },
+    },
+  },
+  examples: [
+    {
+      title: "Price a 3-persona collaborative panel",
+      curl: `curl -X POST "$SWARMS_URL/api/v1/simulations/estimate" \\
+  -H "Authorization: Bearer $SWARMS_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"mode":"collaborative","frameworkId":"icp-panel","agents":[],"budgetUsd":3.00}'`,
+    },
+  ],
+  relatedSkills: ["simulate", "simulation-frameworks"],
+  tool: {
+    type: "function",
+    function: {
+      name: "estimate_simulation",
+      description: "Dry-run cost preview for a simulation. Check withinBudget before calling simulate.",
+      parameters: {
+        type: "object",
+        required: ["mode", "agents"],
+        properties: {
+          mode: { type: "string", enum: ["parallel", "collaborative"] },
+          frameworkId: { type: "string" },
+          agents: { type: "array", items: PERSONA_SCHEMA },
+          budgetUsd: { type: "number" },
+          budgetMinor: { type: "integer" },
+        },
+      },
+    },
+  },
+};
+
+const GET_SIMULATION: SkillDefinition = {
+  id: "get-simulation",
+  version: "1.0.0",
+  name: "Get simulation run details",
+  description:
+    "Retrieve a simulation run: status, per-persona outputs, transcript (collaborative mode), synthesized " +
+    "findings, and the committed cost. The simulationRunId is returned by simulate.",
+  endpoint: "/api/v1/simulations/:simulationRunId",
+  method: "GET",
+  auth: "bearer",
+  output: {
+    type: "object",
+    required: ["run"],
+    properties: {
+      run: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          status: { type: "string" },
+          mode: { type: "string" },
+          output: { description: "{ findings, transcript?, byPersona, aggregatorOutput? }" },
+          costMinor: { type: "integer" },
+          baseFeeMinor: { type: "integer" },
+          gpuSeconds: { type: "integer" },
+          agents: { type: "array", items: { type: "object" } },
+          finishedAt: { type: "string" },
+        },
+      },
+    },
+  },
+  examples: [
+    {
+      title: "Fetch a simulation run",
+      curl: `curl "$SWARMS_URL/api/v1/simulations/sim_01abc" \\
+  -H "Authorization: Bearer $SWARMS_API_KEY"`,
+    },
+  ],
+  relatedSkills: ["simulate", "stream-simulation"],
+  tool: {
+    type: "function",
+    function: {
+      name: "get_simulation",
+      description: "Fetch the status, per-persona outputs, and findings of a simulation run.",
+      parameters: {
+        type: "object",
+        required: ["simulationRunId"],
+        properties: { simulationRunId: { type: "string" } },
+      },
+    },
+  },
+};
+
+const STREAM_SIMULATION: SkillDefinition = {
+  id: "stream-simulation",
+  version: "1.0.0",
+  name: "Stream simulation progress (SSE)",
+  description:
+    "Subscribe to real-time Server-Sent Events for a simulation run. Emits simulation.started, then " +
+    "persona.update as each persona's record appears, then simulation.done on terminal state. " +
+    "Connect with EventSource or curl --no-buffer; heartbeats keep the connection alive; closes on terminal " +
+    "state or after 10 minutes.",
+  endpoint: "/api/v1/simulations/:simulationRunId/stream",
+  method: "GET",
+  auth: "bearer",
+  output: {
+    type: "object",
+    description: "Each SSE message has an 'event' type and JSON 'data'.",
+    properties: {
+      "simulation.started": { type: "object" },
+      "persona.update": { type: "object" },
+      "simulation.done": { type: "object" },
+    },
+  },
+  examples: [
+    {
+      title: "Stream a simulation with curl",
+      curl: `curl -N "$SWARMS_URL/api/v1/simulations/sim_01abc/stream" \\
+  -H "Authorization: Bearer $SWARMS_API_KEY" \\
+  -H "Accept: text/event-stream"`,
+    },
+  ],
+  relatedSkills: ["simulate", "get-simulation"],
+  tool: {
+    type: "function",
+    function: {
+      name: "stream_simulation",
+      description: "Open an SSE stream for a simulation run; resolves to simulation.done when it completes.",
+      parameters: {
+        type: "object",
+        required: ["simulationRunId"],
+        properties: { simulationRunId: { type: "string" } },
+      },
+    },
+  },
+};
+
+const SIMULATION_FRAMEWORKS: SkillDefinition = {
+  id: "simulation-frameworks",
+  version: "1.0.0",
+  name: "List simulation frameworks",
+  description:
+    "The standardized simulation framework catalog — reusable persona packs + scenarios (icp-panel, " +
+    "research-panel, usability-study, data-simulation). Pick a frameworkId and let its defaults fill in " +
+    "personas, scenario, and mode; override any field in simulate. No auth required.",
+  endpoint: "/api/v1/simulations/frameworks",
+  method: "GET",
+  auth: "bearer",
+  output: {
+    type: "object",
+    required: ["frameworks"],
+    properties: {
+      frameworks: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            name: { type: "string" },
+            mode: { type: "string" },
+            description: { type: "string" },
+            personaCount: { type: "integer" },
+            hasAggregator: { type: "boolean" },
+            suggestedBudgetMinor: { type: "integer" },
+          },
+        },
+      },
+    },
+  },
+  examples: [
+    {
+      title: "List frameworks",
+      curl: `curl "$SWARMS_URL/api/v1/simulations/frameworks" \\
+  -H "Authorization: Bearer $SWARMS_API_KEY"`,
+    },
+  ],
+  relatedSkills: ["simulate", "estimate-simulation"],
+  tool: {
+    type: "function",
+    function: {
+      name: "simulation_frameworks",
+      description: "List the standardized simulation frameworks (persona packs + scenarios) you can start from.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+};
+
 // ── Catalog ───────────────────────────────────────────────────────────────────
 
 export const SKILL_CATALOG: SkillCatalog = {
@@ -791,6 +1130,11 @@ export const SKILL_CATALOG: SkillCatalog = {
     SPAWN_SWARM,
     ESTIMATE_SWARM,
     STREAM_SWARM,
+    SIMULATE,
+    ESTIMATE_SIMULATION,
+    GET_SIMULATION,
+    STREAM_SIMULATION,
+    SIMULATION_FRAMEWORKS,
     SPAWN_AGENT,
     GET_JOB,
     GET_JOB_LOGS,

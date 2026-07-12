@@ -48,7 +48,7 @@ export interface JobRecord {
   organizationId: string;
   createdByUserId: string | null;
   apiKeyId: string | null;
-  capabilityKind: "agent" | "swarm" | "connector";
+  capabilityKind: "agent" | "swarm" | "simulation" | "connector";
   /** Agent task instruction (capabilityKind = "agent"). */
   task: string | null;
   /** Encrypted resource bundle handed to the spawned agent. */
@@ -113,7 +113,7 @@ export interface JobStore {
  * the worker records the actual metered cost.
  */
 export interface ResolvedCapability {
-  kind: "agent" | "swarm";
+  kind: "agent" | "swarm" | "simulation";
   /** Agent task instruction or JSON-encoded swarm config (kind="swarm"). */
   task?: string | null;
   resourceBundleId?: string | null;
