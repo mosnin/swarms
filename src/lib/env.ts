@@ -141,6 +141,11 @@ export const envSchema = z.object({
   COST_ANOMALY_FACTOR: z.coerce.number().nonnegative().default(4),
   COST_ANOMALY_MIN_MINOR: z.coerce.number().int().nonnegative().default(100),
   COST_ANOMALY_WINDOW: z.coerce.number().int().positive().default(20),
+
+  // Evaluators (LLM-as-judge): default model for the scoring pass (falls back to
+  // AGENT_DEFAULT_MODEL). Scoring reuses the agent runtime, so it runs in the
+  // same isolated sandbox provider as agents.
+  EVALUATOR_MODEL: z.string().min(1).optional(),
 }).superRefine((data, ctx) => {
   // Whenever the S3 object-store adapter is selected, its bucket + credentials
   // must be present — otherwise every artifact upload 500s lazily. Enforced in

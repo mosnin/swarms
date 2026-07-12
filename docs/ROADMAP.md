@@ -45,8 +45,12 @@ governance gate, webhooks) — no new trust boundaries.
    and above a floor raises a `cost.anomaly` audit event + webhook. Pure
    detector, worker-hooked, env-tunable (COST_ANOMALY_FACTOR/MIN/WINDOW).
 
-5. **Evaluators / quality scoring.** (next) Optional post-run LLM-as-judge that
-   scores outputs and can gate aggregation on a threshold.
+5. **✅ Evaluators / quality scoring.** Shipped: an LLM-as-judge that scores
+   inline content or a prior job/swarm/simulation output against a weighted
+   rubric, returning per-criterion scores + a weighted overall + pass/fail vs a
+   threshold. Runs as a charged `evaluation` job through the agent runtime
+   (mock + llm runtimes), reserve-before-claimable, approval-aware. Routes +
+   MCP catalog (evaluate, get-evaluation).
 
 ## Horizon 3 — composability & moat (defend and expand)
 

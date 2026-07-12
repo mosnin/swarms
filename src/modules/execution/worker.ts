@@ -15,6 +15,7 @@ import { commitBudget } from "@/server/budget/commitBudget";
 import { checkCostAnomaly } from "@/server/billing/costAnomaly";
 import type { DirectorSwarmConfig } from "@/server/runners/swarmRunner";
 import type { DirectorSimulationConfig } from "@/server/runners/simulationRunner";
+import type { DirectorEvaluationConfig } from "@/server/runners/evaluationRunner";
 import { releaseBudget } from "@/server/budget/releaseBudget";
 import { logger } from "@/lib/logger";
 import { metrics } from "@/lib/metrics";
@@ -185,8 +186,28 @@ async function resolveExecution(db: Db, job: JobRecord): Promise<ResolvedExecuti
     };
   }
 
-  // Only agent, swarm, and simulation capabilities are executable; any other
-  // kind is unsupported.
+  // Evaluation director: a normal poller-claimed, charged job. The
+  // EvaluationRunner runs one judge call and returns the metered charge
+  // (gpuSeconds*rate). Config is stored verbatim in the job input at enqueue.
+  if (job.capabilityKind === "evaluation") {
+    const config = (job.input ?? {}) as Partial<DirectorEvaluationConfig>;
+    const currency = job.costCurrency || config.currency || "USD";
+    return {
+      runnerType: "evaluation",
+      runnerConfig: {
+        ...config,
+        apiKeyId: job.apiKeyId,
+        createdByUserId: job.createdByUserId,
+        currency,
+      },
+      maxRuntimeMs: Math.min(600_000, (config.maxGpuSeconds ?? 60) * 1000 + 5_000),
+      priceMinor: job.costMinor,
+      currency,
+    };
+  }
+
+  // Only agent, swarm, simulation, and evaluation capabilities are executable;
+  // any other kind is unsupported.
   return null;
 }
 

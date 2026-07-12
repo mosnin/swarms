@@ -40,8 +40,8 @@ function estimatedCost(job: typeof schema.jobs.$inferSelect): number {
 }
 
 function runIdOf(job: typeof schema.jobs.$inferSelect): string | null {
-  const input = (job.input ?? {}) as { existingRunId?: string };
-  return input.existingRunId ?? null;
+  const input = (job.input ?? {}) as { existingRunId?: string; existingEvaluationId?: string };
+  return input.existingRunId ?? input.existingEvaluationId ?? null;
 }
 
 export async function listPendingApprovals(
@@ -98,6 +98,8 @@ async function setRunStatus(
     await db.update(schema.swarmRuns).set({ status }).where(eq(schema.swarmRuns.id, runId));
   } else if (job.capabilityKind === "simulation") {
     await db.update(schema.simulationRuns).set({ status }).where(eq(schema.simulationRuns.id, runId));
+  } else if (job.capabilityKind === "evaluation") {
+    await db.update(schema.evaluations).set({ status }).where(eq(schema.evaluations.id, runId));
   }
 }
 

@@ -38,6 +38,7 @@ export function GET(request: NextRequest): Response {
       usage: "/api/v1/billing/usage",
       autoReload: "/api/v1/billing/auto-reload",
       approvals: "/api/v1/approvals",
+      evaluations: "/api/v1/evaluations",
       jobs: "/api/v1/jobs",
       spawn: "/api/v1/spawn",
     },

@@ -13,7 +13,7 @@
  * Increment CATALOG_VERSION whenever any skill version bumps.
  */
 
-export const CATALOG_VERSION = "1.8.0";
+export const CATALOG_VERSION = "1.9.0";
 
 export interface JsonSchema {
   type?: string;
@@ -1537,6 +1537,142 @@ const LIST_APPROVALS: SkillDefinition = {
   },
 };
 
+// ── Evaluations (LLM-as-judge) ────────────────────────────────────────────────
+
+const EVALUATE: SkillDefinition = {
+  id: "evaluate",
+  version: "1.0.0",
+  name: "Evaluate content or a run against a rubric",
+  description:
+    "Score inline text — or the output of a prior job / swarm / simulation — against a rubric of weighted " +
+    "criteria using an LLM judge. Returns per-criterion scores, a weighted overall (0-100), and pass/fail " +
+    "against an optional threshold. Priced as one metered judge call. Async: returns queued; poll " +
+    "get-evaluation for the result. Use it to gate quality (e.g. only ship a brief that scores ≥ 80).",
+  endpoint: "/api/v1/evaluations",
+  method: "POST",
+  auth: "bearer",
+  input: {
+    type: "object",
+    required: ["rubric"],
+    properties: {
+      subjectType: { type: "string", enum: ["text", "job", "swarm", "simulation"], description: "What to judge (default text)." },
+      subjectId: { type: "string", description: "Run id to judge when subjectType is job/swarm/simulation." },
+      content: { type: "string", maxLength: 200_000, description: "Inline content to judge (subjectType=text)." },
+      rubric: {
+        type: "object",
+        required: ["criteria"],
+        properties: {
+          criteria: {
+            type: "array",
+            minItems: 1,
+            maxItems: 20,
+            items: {
+              type: "object",
+              required: ["name"],
+              properties: {
+                name: { type: "string" },
+                description: { type: "string" },
+                weight: { type: "number", description: "Relative weight in the overall (default 1)." },
+              },
+            },
+          },
+          threshold: { type: "integer", minimum: 0, maximum: 100, description: "Pass threshold for the overall." },
+        },
+      },
+      model: { type: "string", maxLength: 96 },
+      budgetMinor: { type: "integer", minimum: 0 },
+      budgetUsd: { type: "number" },
+      idempotencyKey: { type: "string" },
+    },
+  },
+  output: {
+    type: "object",
+    required: ["evaluationId", "status"],
+    properties: {
+      evaluationId: { type: "string" },
+      status: { type: "string", enum: ["queued", "running", "succeeded", "failed", "awaiting_approval"] },
+      subjectType: { type: "string" },
+      overallScore: { type: "integer", description: "0-100 (present once succeeded)." },
+      passed: { type: "boolean" },
+      estimatedCostMinor: { type: "integer" },
+    },
+  },
+  examples: [
+    {
+      title: "Score a swarm's brief",
+      curl: `curl -X POST "$SWARMS_URL/api/v1/evaluations" \\
+  -H "Authorization: Bearer $SWARMS_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "subjectType": "swarm",
+    "subjectId": "swr_01abc",
+    "rubric": { "criteria": [
+      {"name":"accuracy","weight":2},
+      {"name":"clarity"},
+      {"name":"actionability"}
+    ], "threshold": 75 }
+  }'`,
+    },
+  ],
+  relatedSkills: ["get-evaluation", "spawn-swarm", "simulate"],
+  tool: {
+    type: "function",
+    function: {
+      name: "evaluate",
+      description: "Score content or a prior run against a weighted rubric (LLM judge). Poll get_evaluation for the result.",
+      parameters: {
+        type: "object",
+        required: ["rubric"],
+        properties: {
+          subjectType: { type: "string", enum: ["text", "job", "swarm", "simulation"] },
+          subjectId: { type: "string" },
+          content: { type: "string" },
+          rubric: { type: "object" },
+          idempotencyKey: { type: "string" },
+        },
+      },
+    },
+  },
+};
+
+const GET_EVALUATION: SkillDefinition = {
+  id: "get-evaluation",
+  version: "1.0.0",
+  name: "Get an evaluation result",
+  description: "Fetch an evaluation: status, per-criterion scores, weighted overall, and pass/fail.",
+  endpoint: "/api/v1/evaluations/:evaluationId",
+  method: "GET",
+  auth: "bearer",
+  output: {
+    type: "object",
+    required: ["evaluation"],
+    properties: {
+      evaluation: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          status: { type: "string" },
+          overallScore: { type: "integer" },
+          passed: { type: "boolean" },
+          scores: { type: "array", items: { type: "object" } },
+        },
+      },
+    },
+  },
+  examples: [
+    { title: "Fetch an evaluation", curl: `curl "$SWARMS_URL/api/v1/evaluations/evl_01abc" -H "Authorization: Bearer $SWARMS_API_KEY"` },
+  ],
+  relatedSkills: ["evaluate"],
+  tool: {
+    type: "function",
+    function: {
+      name: "get_evaluation",
+      description: "Fetch an evaluation's status, scores, overall, and pass/fail.",
+      parameters: { type: "object", required: ["evaluationId"], properties: { evaluationId: { type: "string" } } },
+    },
+  },
+};
+
 // ── Catalog ───────────────────────────────────────────────────────────────────
 
 export const SKILL_CATALOG: SkillCatalog = {
@@ -1562,6 +1698,8 @@ export const SKILL_CATALOG: SkillCatalog = {
     GET_BALANCE,
     GET_USAGE,
     LIST_APPROVALS,
+    EVALUATE,
+    GET_EVALUATION,
     SPAWN_AGENT,
     GET_JOB,
     GET_JOB_LOGS,

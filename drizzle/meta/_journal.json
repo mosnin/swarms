@@ -169,6 +169,13 @@
       "when": 1783843885743,
       "tag": "0023_cheerful_microchip",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1783845843187,
+      "tag": "0024_acoustic_redwing",
+      "breakpoints": true
     }
   ]
 }
