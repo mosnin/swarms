@@ -51,6 +51,7 @@ export const IdPrefix = {
   schedule: "sch",
   artifact: "art",
   objectBlob: "blob",
+  autoReload: "arl",
   webhookDelivery: "whd",
   webhookEndpoint: "whe",
 } as const;

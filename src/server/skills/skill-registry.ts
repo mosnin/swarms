@@ -13,7 +13,7 @@
  * Increment CATALOG_VERSION whenever any skill version bumps.
  */
 
-export const CATALOG_VERSION = "1.6.0";
+export const CATALOG_VERSION = "1.7.0";
 
 export interface JsonSchema {
   type?: string;
@@ -1376,6 +1376,104 @@ const UPLOAD_ARTIFACT: SkillDefinition = {
   },
 };
 
+// ── Billing (balance, usage, credits) ─────────────────────────────────────────
+
+const GET_BALANCE: SkillDefinition = {
+  id: "get-balance",
+  version: "1.0.0",
+  name: "Get account balance",
+  description:
+    "Return the organization's available balance per currency (integer minor units), computed from the " +
+    "append-only ledger: credits and settled payments in, charges and outstanding holds out. Check this " +
+    "before committing to expensive runs.",
+  endpoint: "/api/v1/billing/balance",
+  method: "GET",
+  auth: "bearer",
+  output: {
+    type: "object",
+    required: ["balances"],
+    properties: {
+      balances: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            currency: { type: "string" },
+            balanceMinor: { type: "integer", description: "Available balance in minor units (e.g. cents)." },
+          },
+        },
+      },
+    },
+  },
+  examples: [
+    { title: "Check balance", curl: `curl "$SWARMS_URL/api/v1/billing/balance" -H "Authorization: Bearer $SWARMS_API_KEY"` },
+  ],
+  relatedSkills: ["get-usage", "estimate-swarm", "estimate-simulation"],
+  tool: {
+    type: "function",
+    function: {
+      name: "get_balance",
+      description: "Get the org's available balance per currency (minor units) before spending.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+};
+
+const GET_USAGE: SkillDefinition = {
+  id: "get-usage",
+  version: "1.0.0",
+  name: "Get spend analytics",
+  description:
+    "Return spend over a window (default 30 days): total charged, per-day breakdown, average daily burn " +
+    "rate, current balance, and estimated runway in days at that burn. Use it to explain cost trends or " +
+    "decide whether to top up.",
+  endpoint: "/api/v1/billing/usage",
+  method: "GET",
+  auth: "bearer",
+  output: {
+    type: "object",
+    required: ["usage"],
+    properties: {
+      usage: {
+        type: "object",
+        properties: {
+          currency: { type: "string" },
+          sinceDays: { type: "integer" },
+          totalSpentMinor: { type: "integer" },
+          dailyBurnMinor: { type: "integer" },
+          balanceMinor: { type: "integer" },
+          runwayDays: { type: "integer", description: "Whole days of runway at current burn (null if burn is 0)." },
+          byDay: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: { date: { type: "string" }, spentMinor: { type: "integer" }, runs: { type: "integer" } },
+            },
+          },
+        },
+      },
+    },
+  },
+  examples: [
+    {
+      title: "Last 7 days of spend",
+      curl: `curl "$SWARMS_URL/api/v1/billing/usage?sinceDays=7" -H "Authorization: Bearer $SWARMS_API_KEY"`,
+    },
+  ],
+  relatedSkills: ["get-balance"],
+  tool: {
+    type: "function",
+    function: {
+      name: "get_usage",
+      description: "Get spend analytics: total, per-day, burn rate, balance, and runway.",
+      parameters: {
+        type: "object",
+        properties: { sinceDays: { type: "integer", description: "Window in days (1-365, default 30)." } },
+      },
+    },
+  },
+};
+
 // ── Catalog ───────────────────────────────────────────────────────────────────
 
 export const SKILL_CATALOG: SkillCatalog = {
@@ -1398,6 +1496,8 @@ export const SKILL_CATALOG: SkillCatalog = {
     LIST_SCHEDULES,
     LIST_ARTIFACTS,
     UPLOAD_ARTIFACT,
+    GET_BALANCE,
+    GET_USAGE,
     SPAWN_AGENT,
     GET_JOB,
     GET_JOB_LOGS,

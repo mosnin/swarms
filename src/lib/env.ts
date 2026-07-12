@@ -128,6 +128,12 @@ export const envSchema = z.object({
   // Max artifact size accepted (bytes) and default retention (days, 0 = keep).
   ARTIFACT_MAX_BYTES: z.coerce.number().int().positive().default(26_214_400), // 25 MiB
   ARTIFACT_RETENTION_DAYS: z.coerce.number().int().nonnegative().default(90),
+
+  // Auto-reload top-up provider: the seam that captures money from an org's
+  // saved method when its balance runs low. `mock` always succeeds (dev/test);
+  // `none` disables auto-reload capture entirely (attempts are recorded failed).
+  // Production wires a real processor adapter here.
+  TOPUP_PROVIDER: z.enum(["mock", "none"]).default("mock"),
 }).superRefine((data, ctx) => {
   // Whenever the S3 object-store adapter is selected, its bucket + credentials
   // must be present — otherwise every artifact upload 500s lazily. Enforced in

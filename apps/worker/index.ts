@@ -17,6 +17,7 @@ import { claimAndProcessJobs, reapExpiredJobs, reapOrphanedSwarmRuns } from "@/m
 import { deliverPendingWebhooks } from "@/modules/webhooks/webhook-service";
 import { runDueSchedules } from "@/modules/schedules/schedule-service";
 import { reapExpiredArtifacts } from "@/modules/artifacts/artifact-service";
+import { runDueAutoReloads } from "@/modules/billing/credit-service";
 import { pgRateLimitCleanup } from "@/server/ratelimit/pgRateLimiter";
 
 const POLL_INTERVAL_MS = Number(process.env.WORKER_POLL_INTERVAL_MS ?? 1000);
@@ -80,6 +81,9 @@ async function tick(): Promise<void> {
       // Delete artifacts past their retention window (bytes + metadata).
       const artifactsReaped = await reapExpiredArtifacts().catch(() => 0);
       if (artifactsReaped > 0) logger.info("Worker reaped expired artifacts", { artifactsReaped });
+      // Top up orgs whose balance dropped below their auto-reload threshold.
+      const reloaded = await runDueAutoReloads().catch(() => 0);
+      if (reloaded > 0) logger.info("Worker ran auto-reloads", { reloaded });
     }
   } catch (error) {
     // Never crash the loop on a single failure; log and continue.

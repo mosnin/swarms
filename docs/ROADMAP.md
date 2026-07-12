@@ -20,9 +20,13 @@ governance gate, webhooks) — no new trust boundaries.
    and retention. Shipped: `ObjectStore` port with a DB LOCAL-DEV adapter + an
    S3/R2 adapter (SigV4 presigned URLs), `artifacts` table (content-hashed,
    org-scoped), upload/list/download routes, retention reaper, MCP catalog.
-3. **Prepaid credits + auto-reload + spend analytics.** Close the money loop:
-   top up, auto-reload at a threshold, and a burn-rate/spend dashboard built
-   from ledger data already recorded. The biggest revenue unlock.
+3. **✅ Prepaid credits + auto-reload + spend analytics.** Close the money loop:
+   top up, auto-reload at a threshold, and a burn-rate/spend view built from
+   ledger data already recorded. Shipped: `credit` grants, ledger-derived
+   balance + usage analytics (burn rate, runway), a `TopUpProvider` port
+   (mock/none adapters) with row-locked auto-reload (threshold + min-interval,
+   no double-charge across replicas), routes for balance/usage/credits/
+   auto-reload, MCP catalog. The biggest revenue unlock.
 
 ## Horizon 2 — trust & expansion (convert usage to durable revenue)
 
