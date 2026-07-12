@@ -132,3 +132,215 @@ export const swarmSpawnResponseSchema = z.object({
   createdAt: z.string(),
 });
 export type SwarmSpawnResponse = z.infer<typeof swarmSpawnResponseSchema>;
+
+/* ------------------------- simulations ------------------------- */
+
+export interface Persona {
+  name: string;
+  role?: string;
+  objective?: string;
+  attributes?: Record<string, unknown>;
+  model?: string;
+  task?: string;
+}
+
+export interface SimulateParams {
+  mode: "parallel" | "collaborative";
+  frameworkId?: string;
+  objective?: string;
+  agents: Persona[];
+  model?: string;
+  resources?: SpawnResources;
+  scenario?: {
+    environment?: { kind: "mcp"; url: string; token?: string } | { kind: "dataset"; data: unknown } | { kind: "none" };
+    process?: "sequential" | "hierarchical";
+    managerModel?: string;
+    maxRounds?: number;
+    successCriteria?: string;
+  };
+  aggregatorTask?: string;
+  budgetMinor?: number;
+  budgetUsd?: number;
+  currency?: string;
+  idempotencyKey?: string;
+  callbackUrl?: string;
+}
+
+export const simulationResponseSchema = z.object({
+  simulationRunId: z.string(),
+  status: z.string(),
+  mode: z.string(),
+  agentCount: z.number(),
+  costMinor: z.number(),
+  baseFeeMinor: z.number(),
+  currency: z.string(),
+  maxGpuSeconds: z.number(),
+  estimatedCostMinor: z.number(),
+  createdAt: z.string(),
+});
+export type SimulationResponse = z.infer<typeof simulationResponseSchema>;
+
+export const simulationRunSchema = z.object({
+  id: z.string(),
+  status: z.string(),
+  mode: z.string(),
+  objective: z.string(),
+  costMinor: z.number(),
+  baseFeeMinor: z.number(),
+  gpuSeconds: z.number(),
+  costCurrency: z.string(),
+  output: z.unknown(),
+  agents: z.array(
+    z.object({
+      personaName: z.string(),
+      role: z.string().nullable(),
+      status: z.string(),
+      output: z.unknown(),
+      error: z.unknown(),
+    }),
+  ),
+  createdAt: z.string(),
+  finishedAt: z.string().nullable(),
+});
+export type SimulationRun = z.infer<typeof simulationRunSchema>;
+
+export const simulationEstimateSchema = z.object({
+  mode: z.string(),
+  agents: z.number(),
+  baseMinor: z.number(),
+  rateMinorPerSecond: z.number(),
+  estimatedGpuSeconds: z.number(),
+  maxGpuSeconds: z.number(),
+  estimatedCostMinor: z.number(),
+  reservedMinor: z.number(),
+  currency: z.string(),
+  withinBudget: z.boolean(),
+  rejectionReason: z.string().optional(),
+});
+export type SimulationEstimate = z.infer<typeof simulationEstimateSchema>;
+
+/* -------------------------- schedules -------------------------- */
+
+export interface CreateScheduleParams {
+  name: string;
+  kind: "agent" | "swarm" | "simulation";
+  cronExpression: string;
+  timezone?: string;
+  request: Record<string, unknown>;
+}
+
+export const scheduleSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  kind: z.string(),
+  cronExpression: z.string(),
+  timezone: z.string(),
+  status: z.string(),
+  nextRunAt: z.string().nullable(),
+  lastRunAt: z.string().nullable(),
+  lastRunRef: z.string().nullable(),
+  lastError: z.string().nullable(),
+  runCount: z.number(),
+  createdAt: z.string(),
+});
+export type Schedule = z.infer<typeof scheduleSchema>;
+
+/* -------------------------- artifacts -------------------------- */
+
+export const artifactSchema = z.object({
+  id: z.string(),
+  filename: z.string(),
+  contentType: z.string(),
+  sizeBytes: z.number(),
+  sha256: z.string(),
+  jobId: z.string().nullable(),
+  swarmRunId: z.string().nullable(),
+  simulationRunId: z.string().nullable(),
+  expiresAt: z.string().nullable(),
+  createdAt: z.string(),
+});
+export type Artifact = z.infer<typeof artifactSchema>;
+
+export interface UploadArtifactParams {
+  filename: string;
+  contentType?: string;
+  /** Base64-encoded file bytes. */
+  contentBase64: string;
+  jobId?: string;
+  swarmRunId?: string;
+  simulationRunId?: string;
+}
+
+/* ------------------------- evaluations ------------------------- */
+
+export interface EvaluateParams {
+  subjectType?: "text" | "job" | "swarm" | "simulation";
+  subjectId?: string;
+  content?: string;
+  rubric: {
+    criteria: Array<{ name: string; description?: string; weight?: number }>;
+    threshold?: number;
+  };
+  model?: string;
+  budgetMinor?: number;
+  budgetUsd?: number;
+  currency?: string;
+  idempotencyKey?: string;
+  callbackUrl?: string;
+}
+
+export const evaluationSchema = z.object({
+  id: z.string(),
+  status: z.string(),
+  subjectType: z.string(),
+  subjectId: z.string().nullable(),
+  rubric: z.unknown(),
+  scores: z.unknown(),
+  overallScore: z.number().nullable(),
+  passed: z.boolean().nullable(),
+  costMinor: z.number(),
+  costCurrency: z.string(),
+  createdAt: z.string(),
+  finishedAt: z.string().nullable(),
+});
+export type Evaluation = z.infer<typeof evaluationSchema>;
+
+export const evaluationResponseSchema = z.object({
+  evaluationId: z.string(),
+  status: z.string(),
+  subjectType: z.string(),
+  overallScore: z.number().nullable(),
+  passed: z.boolean().nullable(),
+  costMinor: z.number(),
+  currency: z.string(),
+  estimatedCostMinor: z.number(),
+  createdAt: z.string(),
+});
+export type EvaluationResponse = z.infer<typeof evaluationResponseSchema>;
+
+/* -------------------- approvals & billing ---------------------- */
+
+export const pendingApprovalSchema = z.object({
+  jobId: z.string(),
+  capabilityKind: z.string(),
+  task: z.string().nullable(),
+  estimatedCostMinor: z.number(),
+  currency: z.string(),
+  runId: z.string().nullable(),
+  createdAt: z.string(),
+});
+export type PendingApproval = z.infer<typeof pendingApprovalSchema>;
+
+export const balanceSchema = z.object({ currency: z.string(), balanceMinor: z.number() });
+export type Balance = z.infer<typeof balanceSchema>;
+
+export const usageSchema = z.object({
+  currency: z.string(),
+  sinceDays: z.number(),
+  totalSpentMinor: z.number(),
+  dailyBurnMinor: z.number(),
+  balanceMinor: z.number(),
+  runwayDays: z.number().nullable(),
+  byDay: z.array(z.object({ date: z.string(), spentMinor: z.number(), runs: z.number() })),
+});
+export type Usage = z.infer<typeof usageSchema>;

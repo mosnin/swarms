@@ -108,7 +108,55 @@ export const envSchema = z.object({
   // GPU compute pricing for agent labor (integer minor units per GPU-second).
   GPU_RATE_MINOR_PER_SECOND: z.coerce.number().int().nonnegative().default(2),
   GPU_RATE_CURRENCY: z.string().length(3).default("USD"),
+
+  // Simulations: flat base fee per spawned agent (integer minor units), charged
+  // on top of metered GPU-seconds. Default 25 = $0.25/agent.
+  SIMULATION_AGENT_BASE_MINOR: z.coerce.number().int().nonnegative().default(25),
+  // Modal endpoint that runs the CrewAI crew (the /simulate app). Optional: when
+  // unset it is derived from MODAL_RUN_URL by swapping the trailing /run.
+  MODAL_SIMULATE_URL: z.string().url().optional(),
+
+  // Object storage for run artifacts (reports, transcripts, exports). `db` is a
+  // LOCAL DEV ADAPTER that stores bytes in Postgres; `s3` targets any
+  // S3-compatible bucket (AWS S3, Cloudflare R2) via the settings below.
+  OBJECT_STORE_PROVIDER: z.enum(["db", "s3"]).default("db"),
+  OBJECT_STORE_BUCKET: z.string().min(1).optional(),
+  OBJECT_STORE_REGION: z.string().min(1).default("auto"),
+  OBJECT_STORE_ENDPOINT: z.string().url().optional(), // R2 / MinIO custom endpoint
+  OBJECT_STORE_ACCESS_KEY_ID: z.string().min(1).optional(),
+  OBJECT_STORE_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+  // Max artifact size accepted (bytes) and default retention (days, 0 = keep).
+  ARTIFACT_MAX_BYTES: z.coerce.number().int().positive().default(26_214_400), // 25 MiB
+  ARTIFACT_RETENTION_DAYS: z.coerce.number().int().nonnegative().default(90),
+
+  // Auto-reload top-up provider: the seam that captures money from an org's
+  // saved method when its balance runs low. `mock` always succeeds (dev/test);
+  // `none` disables auto-reload capture entirely (attempts are recorded failed).
+  // Production wires a real processor adapter here.
+  TOPUP_PROVIDER: z.enum(["mock", "none"]).default("mock"),
+
+  // Cost anomaly detection: alert when a settled charge exceeds `factor`× the
+  // trailing average charge for the org (over the last `window` charges) and is
+  // above the `min` floor (so trivial charges never alarm). 0 factor disables.
+  COST_ANOMALY_FACTOR: z.coerce.number().nonnegative().default(4),
+  COST_ANOMALY_MIN_MINOR: z.coerce.number().int().nonnegative().default(100),
+  COST_ANOMALY_WINDOW: z.coerce.number().int().positive().default(20),
+
+  // Evaluators (LLM-as-judge): default model for the scoring pass (falls back to
+  // AGENT_DEFAULT_MODEL). Scoring reuses the agent runtime, so it runs in the
+  // same isolated sandbox provider as agents.
+  EVALUATOR_MODEL: z.string().min(1).optional(),
 }).superRefine((data, ctx) => {
+  // Whenever the S3 object-store adapter is selected, its bucket + credentials
+  // must be present — otherwise every artifact upload 500s lazily. Enforced in
+  // all environments (you can select s3 in dev too), not just production.
+  if (data.OBJECT_STORE_PROVIDER === "s3") {
+    for (const key of ["OBJECT_STORE_BUCKET", "OBJECT_STORE_ACCESS_KEY_ID", "OBJECT_STORE_SECRET_ACCESS_KEY"] as const) {
+      if (!data[key]) {
+        ctx.addIssue({ code: "custom", path: [key], message: "Required when OBJECT_STORE_PROVIDER=s3" });
+      }
+    }
+  }
   // In production, all secrets that are "optional" in dev must be present.
   // Lazy failures (first use of crypto/webhook signing) are unacceptable for
   // a paid execution layer — fail fast at boot instead.
@@ -124,6 +172,29 @@ export const envSchema = z.object({
     }
     if (!data.INTERNAL_WORKER_SECRET) {
       ctx.addIssue({ code: "custom", path: ["INTERNAL_WORKER_SECRET"], message: "Required in production" });
+    }
+    // The in-process "memory" rate-limit backend cannot enforce a global limit
+    // across a serverless/horizontally-scaled fleet (each instance has its own
+    // Map), so the paid/expensive endpoints would be effectively unlimited.
+    // Require the shared Postgres backend in production.
+    if (data.RATE_LIMIT_BACKEND !== "postgres") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["RATE_LIMIT_BACKEND"],
+        message:
+          "In production, RATE_LIMIT_BACKEND must be 'postgres': the 'memory' backend is per-process and cannot enforce limits across multiple instances",
+      });
+    }
+    // A paid execution layer must fail fast if real settlement is selected but
+    // its receiver/facilitator are unset — otherwise the deploy boots green and
+    // every paid job 500s at settlement time (getPaymentProvider throws lazily).
+    if (data.X402_PROVIDER === "x402") {
+      if (!data.X402_PAY_TO_ADDRESS) {
+        ctx.addIssue({ code: "custom", path: ["X402_PAY_TO_ADDRESS"], message: "Required when X402_PROVIDER=x402" });
+      }
+      if (!data.X402_FACILITATOR_URL) {
+        ctx.addIssue({ code: "custom", path: ["X402_FACILITATOR_URL"], message: "Required when X402_PROVIDER=x402" });
+      }
     }
     if (!data.SESSION_SECRET) {
       ctx.addIssue({ code: "custom", path: ["SESSION_SECRET"], message: "Required in production" });
@@ -146,16 +217,17 @@ export const envSchema = z.object({
       }
     }
     // Untrusted agent + caller-supplied tool code must run isolated in
-    // production. The in-process `openrouter` runtime provides no isolation and
-    // the `mock` runtime does no real work; only `modal` (remote sandbox) is
-    // acceptable unless a real container sandbox provider is configured.
-    const hasContainerSandbox = data.SANDBOX_PROVIDER === "docker" || data.SANDBOX_PROVIDER === "podman";
-    if (data.AGENT_RUNTIME !== "modal" && !hasContainerSandbox) {
+    // production. Only `modal` (remote sandbox) actually isolates agent
+    // execution: the `openrouter` runtime runs the agent loop in-process and the
+    // `mock` runtime does no real work. SANDBOX_PROVIDER is NOT consulted on the
+    // agent path (getSandboxProvider has no caller there), so it must not be
+    // treated as an isolation escape hatch — require modal unconditionally.
+    if (data.AGENT_RUNTIME !== "modal") {
       ctx.addIssue({
         code: "custom",
         path: ["AGENT_RUNTIME"],
         message:
-          "In production, agent execution must be isolated: set AGENT_RUNTIME=modal or configure SANDBOX_PROVIDER=docker|podman",
+          "In production, agent execution must run in an isolated sandbox: set AGENT_RUNTIME=modal (the openrouter/mock runtimes run untrusted code in-process and are not permitted in production)",
       });
     }
     if (data.AGENT_RUNTIME === "modal" && (!data.MODAL_RUN_URL || !data.MODAL_TOKEN)) {

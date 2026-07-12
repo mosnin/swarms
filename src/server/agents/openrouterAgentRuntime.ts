@@ -84,16 +84,28 @@ async function openRouterExecutor(params: {
   });
 
   // Hard wall-clock limit so a slow LLM cannot run forever and consume unbounded
-  // GPU budget. Promise.race aborts the winning side immediately on resolution.
-  const agentPromise = agents.run(agent, params.task, { maxTurns: 8 } as never);
-  const timeoutPromise = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error("TIMEOUT")), params.maxRuntimeMs),
-  );
-  const result = await Promise.race([agentPromise, timeoutPromise]);
-
-  const out = (result as { finalOutput?: unknown }).finalOutput;
-  const text = typeof out === "string" ? out : JSON.stringify(out ?? "");
-  return { text, outputTokens: Math.max(1, Math.ceil(text.length / 4)) };
+  // GPU budget. Promise.race alone does NOT cancel the loser, so on timeout the
+  // agent loop would keep issuing (unmetered) LLM calls in the background. Drive
+  // a real AbortController so the run is actually torn down, and always clear the
+  // timer / abort on exit so nothing is left running.
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error("TIMEOUT"));
+    }, params.maxRuntimeMs);
+  });
+  const agentPromise = agents.run(agent, params.task, { maxTurns: 8, signal: controller.signal } as never);
+  try {
+    const result = await Promise.race([agentPromise, timeoutPromise]);
+    const out = (result as { finalOutput?: unknown }).finalOutput;
+    const text = typeof out === "string" ? out : JSON.stringify(out ?? "");
+    return { text, outputTokens: Math.max(1, Math.ceil(text.length / 4)) };
+  } finally {
+    if (timer) clearTimeout(timer);
+    controller.abort(); // stop the loop if it somehow outlived the race
+  }
 }
 
 export class OpenRouterAgentRuntime implements AgentRuntime {

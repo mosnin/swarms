@@ -13,7 +13,7 @@
  * Increment CATALOG_VERSION whenever any skill version bumps.
  */
 
-export const CATALOG_VERSION = "1.3.0";
+export const CATALOG_VERSION = "1.11.0";
 
 export interface JsonSchema {
   type?: string;
@@ -143,7 +143,7 @@ const JOB_OUTPUT_SCHEMA: JsonSchema = {
 
 const SPAWN_SWARM: SkillDefinition = {
   id: "spawn-swarm",
-  version: "1.1.0",
+  version: "1.2.0",
   name: "Spawn a swarm (workforce of agents)",
   description:
     "Fan out a list of tasks to N parallel (or sequential) worker agents that all share the same resources and budget. " +
@@ -166,6 +166,25 @@ const SPAWN_SWARM: SkillDefinition = {
         maxItems: 16,
         items: { type: "string", minLength: 1, maxLength: 20_000 },
         description: "One task string per worker agent.",
+      },
+      steps: {
+        type: "array",
+        minItems: 1,
+        maxItems: 16,
+        description:
+          "DAG mode (instead of tasks): named steps with dependsOn edges. A step runs after every step it " +
+          "dependsOn succeeds, receiving those steps' outputs as context; independent steps run concurrently. " +
+          "Use for fan-out/fan-in pipelines, e.g. research A + research B → synthesize(A,B). " +
+          "Mutually exclusive with tasks/templateId/sequential.",
+        items: {
+          type: "object",
+          required: ["name", "task"],
+          properties: {
+            name: { type: "string", maxLength: 64 },
+            task: { type: "string", maxLength: 20_000 },
+            dependsOn: { type: "array", items: { type: "string" }, description: "Names of prerequisite steps." },
+          },
+        },
       },
       objective: {
         type: "string",
@@ -778,6 +797,980 @@ const ESTIMATE_SWARM: SkillDefinition = {
   },
 };
 
+// ── Simulations (CrewAI) ──────────────────────────────────────────────────────
+
+const PERSONA_SCHEMA: JsonSchema = {
+  type: "object",
+  required: ["name"],
+  properties: {
+    name: { type: "string", description: 'Persona name, e.g. "Skeptical CFO".' },
+    role: { type: "string", description: "Who this persona is (title, background)." },
+    objective: { type: "string", description: "What this persona is trying to decide or do." },
+    attributes: { type: "object", description: "Free-form traits (pains, JTBD, tone, constraints)." },
+    model: { type: "string", description: "Per-persona model override." },
+    task: { type: "string", description: "parallel mode: this persona's independent task." },
+  },
+};
+
+const SIMULATION_INPUT_SCHEMA: JsonSchema = {
+  type: "object",
+  required: ["mode", "agents"],
+  properties: {
+    mode: {
+      type: "string",
+      enum: ["parallel", "collaborative"],
+      description:
+        "parallel = N independent agents (optionally merged); collaborative = personas interact over rounds.",
+    },
+    frameworkId: {
+      type: "string",
+      description: "Start from a catalog framework (see simulation-frameworks); explicit fields override its defaults.",
+    },
+    objective: { type: "string", maxLength: 2_000 },
+    agents: {
+      type: "array",
+      minItems: 1,
+      maxItems: 32,
+      items: PERSONA_SCHEMA,
+      description: "1..32 personas. In parallel mode each may carry its own task.",
+    },
+    model: { type: "string", maxLength: 96, description: "Default model for the crew." },
+    resources: RESOURCES_SCHEMA,
+    scenario: {
+      type: "object",
+      description: "collaborative-only settings.",
+      properties: {
+        environment: {
+          type: "object",
+          description: "What the crew interacts with: an MCP product-under-test, a dataset, or none.",
+        },
+        process: { type: "string", enum: ["sequential", "hierarchical"] },
+        managerModel: { type: "string", description: "Manager LLM for hierarchical process." },
+        maxRounds: { type: "integer", minimum: 1, maximum: 20, description: "Interaction rounds (default 6)." },
+        successCriteria: { type: "string" },
+      },
+    },
+    aggregatorTask: { type: "string", description: "Optional final synthesis step over all persona outputs." },
+    budgetMinor: { type: "integer", minimum: 0, description: "Hard ceiling in minor units." },
+    budgetUsd: { type: "number", description: "Hard ceiling in dollars (alternative to budgetMinor)." },
+    currency: { type: "string", description: "ISO-4217 3-letter code, default USD." },
+    idempotencyKey: { type: "string", description: "Re-submitting the same key returns the original run." },
+    callbackUrl: { type: "string", description: "Signed webhook POSTed on terminal state (SSRF-guarded)." },
+  },
+};
+
+const SIMULATE: SkillDefinition = {
+  id: "simulate",
+  version: "1.0.0",
+  name: "Run a simulation (CrewAI crew of personas)",
+  description:
+    "Spin up a crew of persona agents in ONE sandbox and run them in parallel (independent tasks) or " +
+    "collaborative (personas interact over rounds against an optional MCP product or dataset) mode. " +
+    "Use this to stress-test positioning against ICP personas, run a research panel, or simulate customer " +
+    "decisions over data. Start from a frameworkId (see simulation-frameworks) or supply your own personas. " +
+    "Cost is one charge: a base fee per agent + metered GPU. The call is async — it returns status 'queued'; " +
+    "poll get-simulation or stream-simulation for results. Preview cost first with estimate-simulation. " +
+    "Abort with POST /api/v1/simulations/:id/cancel (releases the reservation); a signed webhook " +
+    "(simulation.succeeded/failed) fires on terminal state when callbackUrl is set.",
+  endpoint: "/api/v1/simulations",
+  method: "POST",
+  auth: "bearer",
+  input: SIMULATION_INPUT_SCHEMA,
+  output: {
+    type: "object",
+    required: ["simulationRunId", "status", "mode", "agentCount"],
+    properties: {
+      simulationRunId: { type: "string" },
+      status: { type: "string", enum: ["queued", "running", "succeeded", "failed", "cancelled"] },
+      mode: { type: "string" },
+      frameworkId: { type: "string" },
+      agentCount: { type: "integer" },
+      costMinor: { type: "integer", description: "0 until the run settles; then the committed charge." },
+      baseFeeMinor: { type: "integer" },
+      estimatedCostMinor: { type: "integer" },
+      maxGpuSeconds: { type: "integer" },
+      currency: { type: "string" },
+    },
+  },
+  examples: [
+    {
+      title: "ICP persona panel from a framework",
+      curl: `curl -X POST "$SWARMS_URL/api/v1/simulations" \\
+  -H "Authorization: Bearer $SWARMS_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "mode": "collaborative",
+    "frameworkId": "icp-panel",
+    "objective": "React to our new usage-based pricing for the API platform",
+    "agents": [],
+    "budgetUsd": 3.00,
+    "idempotencyKey": "icp-pricing-2026-q3"
+  }'`,
+    },
+  ],
+  relatedSkills: ["estimate-simulation", "get-simulation", "stream-simulation", "simulation-frameworks"],
+  tool: {
+    type: "function",
+    function: {
+      name: "simulate",
+      description:
+        "Run a CrewAI crew of personas in parallel or collaborative mode (one sandbox, one charge). " +
+        "Returns a queued run; poll get_simulation for results.",
+      parameters: {
+        type: "object",
+        required: ["mode", "agents"],
+        properties: {
+          mode: { type: "string", enum: ["parallel", "collaborative"] },
+          frameworkId: { type: "string" },
+          objective: { type: "string" },
+          agents: { type: "array", items: PERSONA_SCHEMA },
+          budgetUsd: { type: "number" },
+          idempotencyKey: { type: "string" },
+        },
+      },
+    },
+  },
+};
+
+const ESTIMATE_SIMULATION: SkillDefinition = {
+  id: "estimate-simulation",
+  version: "1.0.0",
+  name: "Estimate simulation cost (dry run)",
+  description:
+    "Preview the price of a proposed simulation before committing funds. No run is created and no money is " +
+    "reserved. Returns the base fee, GPU estimate, total cost, and whether your budget covers it. " +
+    "Call this before simulate to confirm the cost.",
+  endpoint: "/api/v1/simulations/estimate",
+  method: "POST",
+  auth: "bearer",
+  input: SIMULATION_INPUT_SCHEMA,
+  output: {
+    type: "object",
+    required: ["agents", "baseMinor", "estimatedCostMinor", "withinBudget"],
+    properties: {
+      mode: { type: "string" },
+      agents: { type: "integer" },
+      baseMinor: { type: "integer", description: "Base fee: agents × per-agent base." },
+      rateMinorPerSecond: { type: "integer" },
+      estimatedGpuSeconds: { type: "integer" },
+      maxGpuSeconds: { type: "integer" },
+      estimatedCostMinor: { type: "integer" },
+      estimatedCostUsd: { type: "number", description: "Display-only USD; null for non-USD." },
+      reservedMinor: { type: "integer", description: "Amount reserved against the budget (base + max GPU)." },
+      currency: { type: "string" },
+      withinBudget: { type: "boolean" },
+      rejectionReason: { type: "string", description: "Present only when withinBudget is false." },
+    },
+  },
+  examples: [
+    {
+      title: "Price a 3-persona collaborative panel",
+      curl: `curl -X POST "$SWARMS_URL/api/v1/simulations/estimate" \\
+  -H "Authorization: Bearer $SWARMS_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"mode":"collaborative","frameworkId":"icp-panel","agents":[],"budgetUsd":3.00}'`,
+    },
+  ],
+  relatedSkills: ["simulate", "simulation-frameworks"],
+  tool: {
+    type: "function",
+    function: {
+      name: "estimate_simulation",
+      description: "Dry-run cost preview for a simulation. Check withinBudget before calling simulate.",
+      parameters: {
+        type: "object",
+        required: ["mode", "agents"],
+        properties: {
+          mode: { type: "string", enum: ["parallel", "collaborative"] },
+          frameworkId: { type: "string" },
+          agents: { type: "array", items: PERSONA_SCHEMA },
+          budgetUsd: { type: "number" },
+          budgetMinor: { type: "integer" },
+        },
+      },
+    },
+  },
+};
+
+const GET_SIMULATION: SkillDefinition = {
+  id: "get-simulation",
+  version: "1.0.0",
+  name: "Get simulation run details",
+  description:
+    "Retrieve a simulation run: status, per-persona outputs, transcript (collaborative mode), synthesized " +
+    "findings, and the committed cost. The simulationRunId is returned by simulate.",
+  endpoint: "/api/v1/simulations/:simulationRunId",
+  method: "GET",
+  auth: "bearer",
+  output: {
+    type: "object",
+    required: ["run"],
+    properties: {
+      run: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          status: { type: "string" },
+          mode: { type: "string" },
+          output: { description: "{ findings, transcript?, byPersona, aggregatorOutput? }" },
+          costMinor: { type: "integer" },
+          baseFeeMinor: { type: "integer" },
+          gpuSeconds: { type: "integer" },
+          agents: { type: "array", items: { type: "object" } },
+          finishedAt: { type: "string" },
+        },
+      },
+    },
+  },
+  examples: [
+    {
+      title: "Fetch a simulation run",
+      curl: `curl "$SWARMS_URL/api/v1/simulations/sim_01abc" \\
+  -H "Authorization: Bearer $SWARMS_API_KEY"`,
+    },
+  ],
+  relatedSkills: ["simulate", "stream-simulation"],
+  tool: {
+    type: "function",
+    function: {
+      name: "get_simulation",
+      description: "Fetch the status, per-persona outputs, and findings of a simulation run.",
+      parameters: {
+        type: "object",
+        required: ["simulationRunId"],
+        properties: { simulationRunId: { type: "string" } },
+      },
+    },
+  },
+};
+
+const STREAM_SIMULATION: SkillDefinition = {
+  id: "stream-simulation",
+  version: "1.0.0",
+  name: "Stream simulation progress (SSE)",
+  description:
+    "Subscribe to real-time Server-Sent Events for a simulation run. Emits simulation.started, then " +
+    "persona.update as each persona's record appears, then simulation.done on terminal state. " +
+    "Connect with EventSource or curl --no-buffer; heartbeats keep the connection alive; closes on terminal " +
+    "state or after 10 minutes.",
+  endpoint: "/api/v1/simulations/:simulationRunId/stream",
+  method: "GET",
+  auth: "bearer",
+  output: {
+    type: "object",
+    description: "Each SSE message has an 'event' type and JSON 'data'.",
+    properties: {
+      "simulation.started": { type: "object" },
+      "persona.update": { type: "object" },
+      "simulation.done": { type: "object" },
+    },
+  },
+  examples: [
+    {
+      title: "Stream a simulation with curl",
+      curl: `curl -N "$SWARMS_URL/api/v1/simulations/sim_01abc/stream" \\
+  -H "Authorization: Bearer $SWARMS_API_KEY" \\
+  -H "Accept: text/event-stream"`,
+    },
+  ],
+  relatedSkills: ["simulate", "get-simulation"],
+  tool: {
+    type: "function",
+    function: {
+      name: "stream_simulation",
+      description: "Open an SSE stream for a simulation run; resolves to simulation.done when it completes.",
+      parameters: {
+        type: "object",
+        required: ["simulationRunId"],
+        properties: { simulationRunId: { type: "string" } },
+      },
+    },
+  },
+};
+
+const SIMULATION_FRAMEWORKS: SkillDefinition = {
+  id: "simulation-frameworks",
+  version: "1.0.0",
+  name: "List simulation frameworks",
+  description:
+    "The standardized simulation framework catalog — reusable persona packs + scenarios (icp-panel, " +
+    "research-panel, usability-study, data-simulation). Pick a frameworkId and let its defaults fill in " +
+    "personas, scenario, and mode; override any field in simulate. No auth required.",
+  endpoint: "/api/v1/simulations/frameworks",
+  method: "GET",
+  auth: "bearer",
+  output: {
+    type: "object",
+    required: ["frameworks"],
+    properties: {
+      frameworks: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            name: { type: "string" },
+            mode: { type: "string" },
+            description: { type: "string" },
+            personaCount: { type: "integer" },
+            hasAggregator: { type: "boolean" },
+            suggestedBudgetMinor: { type: "integer" },
+          },
+        },
+      },
+    },
+  },
+  examples: [
+    {
+      title: "List frameworks",
+      curl: `curl "$SWARMS_URL/api/v1/simulations/frameworks" \\
+  -H "Authorization: Bearer $SWARMS_API_KEY"`,
+    },
+  ],
+  relatedSkills: ["simulate", "estimate-simulation"],
+  tool: {
+    type: "function",
+    function: {
+      name: "simulation_frameworks",
+      description: "List the standardized simulation frameworks (persona packs + scenarios) you can start from.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+};
+
+// ── Schedules (cron for agents) ───────────────────────────────────────────────
+
+const CREATE_SCHEDULE: SkillDefinition = {
+  id: "create-schedule",
+  version: "1.0.0",
+  name: "Create a recurring schedule",
+  description:
+    "Run an agent job, swarm, or simulation on a cron schedule (UTC). Provide the same request body you " +
+    "would POST to /spawn, /swarms, or /simulations as `request`, plus a 5-field cron expression. Each firing " +
+    "enqueues the run through the normal spine (budget, policy, ledger) with a per-firing idempotency key, so " +
+    "a run is never duplicated. Use this to turn a one-off into a standing job: nightly research, weekly ICP " +
+    "panels, hourly monitors.",
+  endpoint: "/api/v1/schedules",
+  method: "POST",
+  auth: "bearer",
+  input: {
+    type: "object",
+    required: ["name", "kind", "cronExpression", "request"],
+    properties: {
+      name: { type: "string", maxLength: 255 },
+      kind: { type: "string", enum: ["agent", "swarm", "simulation"], description: "What to enqueue each firing." },
+      cronExpression: {
+        type: "string",
+        description: "5-field cron in UTC, e.g. '0 9 * * 1' = 09:00 UTC every Monday.",
+      },
+      timezone: { type: "string", description: "Display timezone label (scheduling is UTC). Default UTC." },
+      request: {
+        type: "object",
+        description: "The request body to enqueue — identical to the target endpoint's body (minus idempotencyKey).",
+      },
+    },
+  },
+  output: {
+    type: "object",
+    required: ["schedule"],
+    properties: {
+      schedule: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          kind: { type: "string" },
+          cronExpression: { type: "string" },
+          status: { type: "string", enum: ["active", "paused"] },
+          nextRunAt: { type: "string" },
+          runCount: { type: "integer" },
+        },
+      },
+    },
+  },
+  examples: [
+    {
+      title: "Nightly research swarm at 02:00 UTC",
+      curl: `curl -X POST "$SWARMS_URL/api/v1/schedules" \\
+  -H "Authorization: Bearer $SWARMS_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "name": "Nightly competitor scan",
+    "kind": "swarm",
+    "cronExpression": "0 2 * * *",
+    "request": { "tasks": ["Scan competitor pricing", "Summarise product changes"], "budgetMinor": 200 }
+  }'`,
+    },
+  ],
+  relatedSkills: ["list-schedules", "spawn-swarm", "simulate", "spawn-agent"],
+  tool: {
+    type: "function",
+    function: {
+      name: "create_schedule",
+      description: "Create a cron schedule that recurringly enqueues an agent, swarm, or simulation run.",
+      parameters: {
+        type: "object",
+        required: ["name", "kind", "cronExpression", "request"],
+        properties: {
+          name: { type: "string" },
+          kind: { type: "string", enum: ["agent", "swarm", "simulation"] },
+          cronExpression: { type: "string", description: "5-field UTC cron." },
+          request: { type: "object" },
+        },
+      },
+    },
+  },
+};
+
+const LIST_SCHEDULES: SkillDefinition = {
+  id: "list-schedules",
+  version: "1.0.0",
+  name: "List, pause, resume, or delete schedules",
+  description:
+    "GET /api/v1/schedules lists your schedules with next/last run times and run counts. Pause a schedule " +
+    "with POST /api/v1/schedules/:id/pause, resume with /resume (recomputes the next firing from now), and " +
+    "remove one with DELETE /api/v1/schedules/:id. GET /api/v1/schedules/:id fetches a single schedule.",
+  endpoint: "/api/v1/schedules",
+  method: "GET",
+  auth: "bearer",
+  output: {
+    type: "object",
+    required: ["schedules"],
+    properties: {
+      schedules: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            name: { type: "string" },
+            kind: { type: "string" },
+            cronExpression: { type: "string" },
+            status: { type: "string" },
+            nextRunAt: { type: "string" },
+            lastRunAt: { type: "string" },
+            lastRunRef: { type: "string", description: "jobId / swarmRunId / simulationRunId of the last firing." },
+            runCount: { type: "integer" },
+          },
+        },
+      },
+    },
+  },
+  examples: [
+    {
+      title: "List all schedules",
+      curl: `curl "$SWARMS_URL/api/v1/schedules" -H "Authorization: Bearer $SWARMS_API_KEY"`,
+    },
+    {
+      title: "Pause a schedule",
+      curl: `curl -X POST "$SWARMS_URL/api/v1/schedules/sch_01abc/pause" -H "Authorization: Bearer $SWARMS_API_KEY"`,
+    },
+  ],
+  relatedSkills: ["create-schedule"],
+  tool: {
+    type: "function",
+    function: {
+      name: "list_schedules",
+      description: "List your recurring schedules with their next/last run times and run counts.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+};
+
+// ── Artifacts ─────────────────────────────────────────────────────────────────
+
+const LIST_ARTIFACTS: SkillDefinition = {
+  id: "list-artifacts",
+  version: "1.0.0",
+  name: "List and download run artifacts",
+  description:
+    "Runs produce artifacts — reports, CSVs, transcripts, images. GET /api/v1/artifacts lists them (filter " +
+    "by ?jobId), GET /api/v1/artifacts/:id returns metadata, and GET /api/v1/artifacts/:id/download returns " +
+    "the file (a short-lived signed URL in production, or the bytes directly). Upload your own with " +
+    "POST /api/v1/artifacts (base64 body). Artifacts are content-hashed and expire per your retention policy.",
+  endpoint: "/api/v1/artifacts",
+  method: "GET",
+  auth: "bearer",
+  output: {
+    type: "object",
+    required: ["artifacts"],
+    properties: {
+      artifacts: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            filename: { type: "string" },
+            contentType: { type: "string" },
+            sizeBytes: { type: "integer" },
+            sha256: { type: "string" },
+            jobId: { type: "string" },
+            expiresAt: { type: "string" },
+            createdAt: { type: "string" },
+          },
+        },
+      },
+    },
+  },
+  examples: [
+    {
+      title: "List artifacts for a job",
+      curl: `curl "$SWARMS_URL/api/v1/artifacts?jobId=job_01abc" -H "Authorization: Bearer $SWARMS_API_KEY"`,
+    },
+    {
+      title: "Download an artifact",
+      curl: `curl -L "$SWARMS_URL/api/v1/artifacts/art_01abc/download" -H "Authorization: Bearer $SWARMS_API_KEY" -o report.pdf`,
+    },
+  ],
+  relatedSkills: ["get-job", "get-swarm-run", "get-simulation"],
+  tool: {
+    type: "function",
+    function: {
+      name: "list_artifacts",
+      description: "List downloadable artifacts a run produced (optionally filtered by jobId).",
+      parameters: {
+        type: "object",
+        properties: { jobId: { type: "string", description: "Filter to a single job's artifacts." } },
+      },
+    },
+  },
+};
+
+const UPLOAD_ARTIFACT: SkillDefinition = {
+  id: "upload-artifact",
+  version: "1.0.0",
+  name: "Upload an artifact",
+  description:
+    "Store a file as an artifact (base64-encoded body), optionally linking it to a job / swarm / simulation " +
+    "run. Returns the artifact id and content hash. Subject to the org's max-size and retention policy.",
+  endpoint: "/api/v1/artifacts",
+  method: "POST",
+  auth: "bearer",
+  input: {
+    type: "object",
+    required: ["filename", "contentBase64"],
+    properties: {
+      filename: { type: "string", maxLength: 512 },
+      contentType: { type: "string", maxLength: 128 },
+      contentBase64: { type: "string", description: "Base64-encoded file bytes." },
+      jobId: { type: "string" },
+      swarmRunId: { type: "string" },
+      simulationRunId: { type: "string" },
+    },
+  },
+  output: {
+    type: "object",
+    required: ["artifact"],
+    properties: {
+      artifact: {
+        type: "object",
+        properties: { id: { type: "string" }, filename: { type: "string" }, sha256: { type: "string" }, sizeBytes: { type: "integer" } },
+      },
+    },
+  },
+  examples: [
+    {
+      title: "Upload a report",
+      curl: `curl -X POST "$SWARMS_URL/api/v1/artifacts" \\
+  -H "Authorization: Bearer $SWARMS_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"filename":"brief.md","contentType":"text/markdown","contentBase64":"IyBCcmllZgo="}'`,
+    },
+  ],
+  relatedSkills: ["list-artifacts"],
+  tool: {
+    type: "function",
+    function: {
+      name: "upload_artifact",
+      description: "Store a base64-encoded file as an artifact, optionally linked to a run.",
+      parameters: {
+        type: "object",
+        required: ["filename", "contentBase64"],
+        properties: {
+          filename: { type: "string" },
+          contentType: { type: "string" },
+          contentBase64: { type: "string" },
+          jobId: { type: "string" },
+        },
+      },
+    },
+  },
+};
+
+// ── Billing (balance, usage, credits) ─────────────────────────────────────────
+
+const GET_BALANCE: SkillDefinition = {
+  id: "get-balance",
+  version: "1.0.0",
+  name: "Get account balance",
+  description:
+    "Return the organization's available balance per currency (integer minor units), computed from the " +
+    "append-only ledger: credits and settled payments in, charges and outstanding holds out. Check this " +
+    "before committing to expensive runs.",
+  endpoint: "/api/v1/billing/balance",
+  method: "GET",
+  auth: "bearer",
+  output: {
+    type: "object",
+    required: ["balances"],
+    properties: {
+      balances: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            currency: { type: "string" },
+            balanceMinor: { type: "integer", description: "Available balance in minor units (e.g. cents)." },
+          },
+        },
+      },
+    },
+  },
+  examples: [
+    { title: "Check balance", curl: `curl "$SWARMS_URL/api/v1/billing/balance" -H "Authorization: Bearer $SWARMS_API_KEY"` },
+  ],
+  relatedSkills: ["get-usage", "estimate-swarm", "estimate-simulation"],
+  tool: {
+    type: "function",
+    function: {
+      name: "get_balance",
+      description: "Get the org's available balance per currency (minor units) before spending.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+};
+
+const GET_USAGE: SkillDefinition = {
+  id: "get-usage",
+  version: "1.0.0",
+  name: "Get spend analytics",
+  description:
+    "Return spend over a window (default 30 days): total charged, per-day breakdown, average daily burn " +
+    "rate, current balance, and estimated runway in days at that burn. Use it to explain cost trends or " +
+    "decide whether to top up.",
+  endpoint: "/api/v1/billing/usage",
+  method: "GET",
+  auth: "bearer",
+  output: {
+    type: "object",
+    required: ["usage"],
+    properties: {
+      usage: {
+        type: "object",
+        properties: {
+          currency: { type: "string" },
+          sinceDays: { type: "integer" },
+          totalSpentMinor: { type: "integer" },
+          dailyBurnMinor: { type: "integer" },
+          balanceMinor: { type: "integer" },
+          runwayDays: { type: "integer", description: "Whole days of runway at current burn (null if burn is 0)." },
+          byDay: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: { date: { type: "string" }, spentMinor: { type: "integer" }, runs: { type: "integer" } },
+            },
+          },
+        },
+      },
+    },
+  },
+  examples: [
+    {
+      title: "Last 7 days of spend",
+      curl: `curl "$SWARMS_URL/api/v1/billing/usage?sinceDays=7" -H "Authorization: Bearer $SWARMS_API_KEY"`,
+    },
+  ],
+  relatedSkills: ["get-balance"],
+  tool: {
+    type: "function",
+    function: {
+      name: "get_usage",
+      description: "Get spend analytics: total, per-day, burn rate, balance, and runway.",
+      parameters: {
+        type: "object",
+        properties: { sinceDays: { type: "integer", description: "Window in days (1-365, default 30)." } },
+      },
+    },
+  },
+};
+
+// ── Approvals (human-in-the-loop) ─────────────────────────────────────────────
+
+const LIST_APPROVALS: SkillDefinition = {
+  id: "list-approvals",
+  version: "1.0.0",
+  name: "List pending approvals, approve, or reject",
+  description:
+    "When a governance policy requires approval, the spend (agent job, swarm, or simulation) is held in " +
+    "`awaiting_approval` and not run. GET /api/v1/approvals lists what's pending with its estimated cost. " +
+    "A human approves with POST /api/v1/approvals/:jobId/approve (enqueues it) or rejects with " +
+    "POST /api/v1/approvals/:jobId/reject (cancels it, optional reason). Approval is a human action — an " +
+    "API-key/agent principal cannot approve its own gated spend.",
+  endpoint: "/api/v1/approvals",
+  method: "GET",
+  auth: "bearer",
+  output: {
+    type: "object",
+    required: ["approvals"],
+    properties: {
+      approvals: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            jobId: { type: "string" },
+            capabilityKind: { type: "string", enum: ["agent", "swarm", "simulation"] },
+            task: { type: "string" },
+            estimatedCostMinor: { type: "integer" },
+            currency: { type: "string" },
+            runId: { type: "string", description: "The swarm/simulation run this gates, if any." },
+            createdAt: { type: "string" },
+          },
+        },
+      },
+    },
+  },
+  examples: [
+    {
+      title: "List pending approvals",
+      curl: `curl "$SWARMS_URL/api/v1/approvals" -H "Authorization: Bearer $SWARMS_API_KEY"`,
+    },
+    {
+      title: "Approve a held run",
+      curl: `curl -X POST "$SWARMS_URL/api/v1/approvals/job_01abc/approve" -H "Authorization: Bearer $SWARMS_API_KEY"`,
+    },
+    {
+      title: "Reject with a reason",
+      curl: `curl -X POST "$SWARMS_URL/api/v1/approvals/job_01abc/reject" \\
+  -H "Authorization: Bearer $SWARMS_API_KEY" -H "Content-Type: application/json" \\
+  -d '{"reason":"over budget for this quarter"}'`,
+    },
+  ],
+  relatedSkills: ["spawn-agent", "spawn-swarm", "simulate"],
+  tool: {
+    type: "function",
+    function: {
+      name: "list_approvals",
+      description: "List spends held for human approval (with estimated cost). Approve/reject via the :jobId routes.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+};
+
+// ── Evaluations (LLM-as-judge) ────────────────────────────────────────────────
+
+const EVALUATE: SkillDefinition = {
+  id: "evaluate",
+  version: "1.0.0",
+  name: "Evaluate content or a run against a rubric",
+  description:
+    "Score inline text — or the output of a prior job / swarm / simulation — against a rubric of weighted " +
+    "criteria using an LLM judge. Returns per-criterion scores, a weighted overall (0-100), and pass/fail " +
+    "against an optional threshold. Priced as one metered judge call. Async: returns queued; poll " +
+    "get-evaluation for the result. Use it to gate quality (e.g. only ship a brief that scores ≥ 80). " +
+    "Abort with POST /api/v1/evaluations/:id/cancel; a signed webhook (evaluation.succeeded/failed) fires " +
+    "on terminal state when callbackUrl is set.",
+  endpoint: "/api/v1/evaluations",
+  method: "POST",
+  auth: "bearer",
+  input: {
+    type: "object",
+    required: ["rubric"],
+    properties: {
+      subjectType: { type: "string", enum: ["text", "job", "swarm", "simulation"], description: "What to judge (default text)." },
+      subjectId: { type: "string", description: "Run id to judge when subjectType is job/swarm/simulation." },
+      content: { type: "string", maxLength: 200_000, description: "Inline content to judge (subjectType=text)." },
+      rubric: {
+        type: "object",
+        required: ["criteria"],
+        properties: {
+          criteria: {
+            type: "array",
+            minItems: 1,
+            maxItems: 20,
+            items: {
+              type: "object",
+              required: ["name"],
+              properties: {
+                name: { type: "string" },
+                description: { type: "string" },
+                weight: { type: "number", description: "Relative weight in the overall (default 1)." },
+              },
+            },
+          },
+          threshold: { type: "integer", minimum: 0, maximum: 100, description: "Pass threshold for the overall." },
+        },
+      },
+      model: { type: "string", maxLength: 96 },
+      budgetMinor: { type: "integer", minimum: 0 },
+      budgetUsd: { type: "number" },
+      idempotencyKey: { type: "string" },
+    },
+  },
+  output: {
+    type: "object",
+    required: ["evaluationId", "status"],
+    properties: {
+      evaluationId: { type: "string" },
+      status: { type: "string", enum: ["queued", "running", "succeeded", "failed", "awaiting_approval"] },
+      subjectType: { type: "string" },
+      overallScore: { type: "integer", description: "0-100 (present once succeeded)." },
+      passed: { type: "boolean" },
+      estimatedCostMinor: { type: "integer" },
+    },
+  },
+  examples: [
+    {
+      title: "Score a swarm's brief",
+      curl: `curl -X POST "$SWARMS_URL/api/v1/evaluations" \\
+  -H "Authorization: Bearer $SWARMS_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "subjectType": "swarm",
+    "subjectId": "swr_01abc",
+    "rubric": { "criteria": [
+      {"name":"accuracy","weight":2},
+      {"name":"clarity"},
+      {"name":"actionability"}
+    ], "threshold": 75 }
+  }'`,
+    },
+  ],
+  relatedSkills: ["get-evaluation", "spawn-swarm", "simulate"],
+  tool: {
+    type: "function",
+    function: {
+      name: "evaluate",
+      description: "Score content or a prior run against a weighted rubric (LLM judge). Poll get_evaluation for the result.",
+      parameters: {
+        type: "object",
+        required: ["rubric"],
+        properties: {
+          subjectType: { type: "string", enum: ["text", "job", "swarm", "simulation"] },
+          subjectId: { type: "string" },
+          content: { type: "string" },
+          rubric: { type: "object" },
+          idempotencyKey: { type: "string" },
+        },
+      },
+    },
+  },
+};
+
+const GET_EVALUATION: SkillDefinition = {
+  id: "get-evaluation",
+  version: "1.0.0",
+  name: "Get an evaluation result",
+  description: "Fetch an evaluation: status, per-criterion scores, weighted overall, and pass/fail.",
+  endpoint: "/api/v1/evaluations/:evaluationId",
+  method: "GET",
+  auth: "bearer",
+  output: {
+    type: "object",
+    required: ["evaluation"],
+    properties: {
+      evaluation: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          status: { type: "string" },
+          overallScore: { type: "integer" },
+          passed: { type: "boolean" },
+          scores: { type: "array", items: { type: "object" } },
+        },
+      },
+    },
+  },
+  examples: [
+    { title: "Fetch an evaluation", curl: `curl "$SWARMS_URL/api/v1/evaluations/evl_01abc" -H "Authorization: Bearer $SWARMS_API_KEY"` },
+  ],
+  relatedSkills: ["evaluate"],
+  tool: {
+    type: "function",
+    function: {
+      name: "get_evaluation",
+      description: "Fetch an evaluation's status, scores, overall, and pass/fail.",
+      parameters: { type: "object", required: ["evaluationId"], properties: { evaluationId: { type: "string" } } },
+    },
+  },
+};
+
+// ── Replay (experimentation) ──────────────────────────────────────────────────
+
+const REPLAY_RUN: SkillDefinition = {
+  id: "replay-run",
+  version: "1.0.0",
+  name: "Replay a run with overrides (A/B experimentation)",
+  description:
+    "Re-run any past run as a NEW run, optionally tweaking fields — compare a different model, budget, task, " +
+    "or objective against the original. Endpoints: POST /api/v1/jobs/:jobId/replay (override task/model/" +
+    "budgetMinor), POST /api/v1/swarms/:swarmRunId/replay (override objective/model/budgetMinor), " +
+    "POST /api/v1/simulations/:simulationRunId/replay (override objective/model/budgetMinor/maxRounds). " +
+    "The original is untouched; inherited resources are re-attached server-side; the replay goes through the " +
+    "full policy + budget gates with a fresh idempotency key. Pass replayTag to run several variants of the " +
+    "same original. Response includes replayedFrom.",
+  endpoint: "/api/v1/jobs/:jobId/replay",
+  method: "POST",
+  auth: "bearer",
+  input: {
+    type: "object",
+    properties: {
+      task: { type: "string", description: "jobs only: replacement task." },
+      objective: { type: "string", description: "swarms/simulations: replacement objective." },
+      model: { type: "string", description: "Swap the model for the replay." },
+      budgetMinor: { type: "integer", minimum: 0, description: "New hard budget ceiling." },
+      maxRounds: { type: "integer", description: "simulations only: new collaboration round cap." },
+      replayTag: { type: "string", description: "Distinguishes variants of the same original (default 'replay')." },
+    },
+  },
+  output: {
+    type: "object",
+    required: ["replayedFrom"],
+    properties: {
+      replayedFrom: { type: "string", description: "The original run id." },
+      jobId: { type: "string" },
+      swarmRunId: { type: "string" },
+      simulationRunId: { type: "string" },
+      status: { type: "string" },
+    },
+  },
+  examples: [
+    {
+      title: "Replay a job on a different model",
+      curl: `curl -X POST "$SWARMS_URL/api/v1/jobs/job_01abc/replay" \\
+  -H "Authorization: Bearer $SWARMS_API_KEY" -H "Content-Type: application/json" \\
+  -d '{"model":"deepseek/deepseek-chat-v4","replayTag":"model-ab-1"}'`,
+    },
+    {
+      title: "Replay a simulation with more rounds and budget",
+      curl: `curl -X POST "$SWARMS_URL/api/v1/simulations/sim_01abc/replay" \\
+  -H "Authorization: Bearer $SWARMS_API_KEY" -H "Content-Type: application/json" \\
+  -d '{"maxRounds":10,"budgetMinor":800}'`,
+    },
+  ],
+  relatedSkills: ["spawn-agent", "spawn-swarm", "simulate", "evaluate"],
+  tool: {
+    type: "function",
+    function: {
+      name: "replay_run",
+      description:
+        "Re-run a past job/swarm/simulation as a new run with optional overrides (model, budget, task/objective).",
+      parameters: {
+        type: "object",
+        required: ["runId", "runKind"],
+        properties: {
+          runId: { type: "string" },
+          runKind: { type: "string", enum: ["job", "swarm", "simulation"] },
+          model: { type: "string" },
+          budgetMinor: { type: "integer" },
+          replayTag: { type: "string" },
+        },
+      },
+    },
+  },
+};
+
 // ── Catalog ───────────────────────────────────────────────────────────────────
 
 export const SKILL_CATALOG: SkillCatalog = {
@@ -791,6 +1784,21 @@ export const SKILL_CATALOG: SkillCatalog = {
     SPAWN_SWARM,
     ESTIMATE_SWARM,
     STREAM_SWARM,
+    SIMULATE,
+    ESTIMATE_SIMULATION,
+    GET_SIMULATION,
+    STREAM_SIMULATION,
+    SIMULATION_FRAMEWORKS,
+    CREATE_SCHEDULE,
+    LIST_SCHEDULES,
+    LIST_ARTIFACTS,
+    UPLOAD_ARTIFACT,
+    GET_BALANCE,
+    GET_USAGE,
+    LIST_APPROVALS,
+    EVALUATE,
+    GET_EVALUATION,
+    REPLAY_RUN,
     SPAWN_AGENT,
     GET_JOB,
     GET_JOB_LOGS,

@@ -12,7 +12,7 @@ import { Errors } from "@/lib/errors";
 import { requirePermission, type AuthContext } from "@/modules/identity/access-control";
 import { writeAudit } from "@/modules/governance/audit";
 import { loadPolicyRules } from "@/modules/governance/policy-repository";
-import { createJob as createJobCore, type JobStatus } from "@/modules/execution/job-service";
+import { createJob as createJobCore, publishJob, type JobStatus } from "@/modules/execution/job-service";
 import { dbJobStore } from "@/modules/execution/job-repository";
 import {
   storeResourceBundle,
@@ -71,6 +71,15 @@ export async function spawnAgent(
 
   // Budget is a HARD GPU-time ceiling. Without a budget, a default estimate.
   const estimatedCostMinor = request.budgetMinor ?? DEFAULT_GPU_SECONDS * rate;
+  // A caller-set budget that can't fund even one GPU-second must be rejected: the
+  // worker floors maxGpuSeconds to >=1 and would then charge a full `rate` — more
+  // than reserved and past the caller's hard ceiling (and budgetMinor=0 would run
+  // with no reservation at all). Mirrors the per-worker guard in the swarm path.
+  if (request.budgetMinor !== undefined && rate > 0 && estimatedCostMinor < rate) {
+    throw Errors.validation(
+      `budgetMinor is too low: at least ${rate} minor units are required to run one GPU-second at the current rate`,
+    );
+  }
   const maxGpuSeconds = rate > 0 ? Math.max(1, Math.floor(estimatedCostMinor / rate)) : DEFAULT_GPU_SECONDS;
 
   // Policy gate (deny / require approval / allow) before anything is created.
@@ -95,60 +104,61 @@ export async function spawnAgent(
   const createdByUserId = ctx.actor.kind === "user" ? ctx.actor.userId : null;
   const bundleId = await storeResourceBundle(ctx.organizationId, resources, createdByUserId, db);
 
-  const { job, replay } = await createJobCore(dbJobStore(db), getJobQueue(), {
-    organizationId: ctx.organizationId,
-    createdByUserId,
+  // Create the job WITHOUT enqueuing and reserve its budget in a SINGLE
+  // transaction. The DB poller claims by status='queued', so the job's row and
+  // its reservation hold must become visible together — otherwise a poller can
+  // claim and run (and charge) the job in the window before the hold lands,
+  // leaking the reservation forever. If the reservation fails (hard ceiling lost
+  // to a concurrent spawn), the whole transaction rolls back: the job never
+  // exists and never bills. The queue publish happens only after commit.
+  const context = {
     apiKeyId: ctx.actor.kind === "agent" ? ctx.actor.apiKeyId : null,
-    capability: {
-      kind: "agent",
-      task: request.task,
-      resourceBundleId: bundleId,
-      model,
-      priceMinor: estimatedCostMinor,
-      priceCurrency: currency,
-    },
-    input: {
-      task: request.task,
-      maxGpuSeconds,
-      rateMinorPerSecond: rate,
+    userId: ctx.actor.kind === "user" ? ctx.actor.userId : null,
+  };
+  const { job, replay } = await db.transaction(async (tx) => {
+    const created = await createJobCore(dbJobStore(tx), getJobQueue(), {
+      organizationId: ctx.organizationId,
+      createdByUserId,
+      apiKeyId: context.apiKeyId,
+      capability: {
+        kind: "agent",
+        task: request.task,
+        resourceBundleId: bundleId,
+        model,
+        priceMinor: estimatedCostMinor,
+        priceCurrency: currency,
+      },
+      input: {
+        task: request.task,
+        maxGpuSeconds,
+        rateMinorPerSecond: rate,
+        currency,
+      },
+      idempotencyKey: request.idempotencyKey,
+      budgetMinor: request.budgetMinor,
       currency,
-    },
-    idempotencyKey: request.idempotencyKey,
-    budgetMinor: request.budgetMinor,
-    currency,
-    callbackUrl: request.callbackUrl,
-    requireApproval,
+      callbackUrl: request.callbackUrl,
+      requireApproval,
+      enqueue: false,
+    });
+    if (!created.replay && !requireApproval) {
+      await checkAndReserveBudget(
+        { organizationId: ctx.organizationId, jobId: created.job.id, amountMinor: estimatedCostMinor, currency, context },
+        tx,
+      );
+    }
+    return created;
   });
 
   if (!replay) {
     if (requireApproval) {
       await writeAudit(ctx, { action: "policy.approval_required", resourceType: "job", resourceId: job.id }, db);
     } else {
-      // Atomic check-and-reserve under a budget row lock: closes the TOCTOU race
-      // where two concurrent spawns both pass the pre-check and over-commit. If
-      // a concurrent reservation won the ceiling, fail this job so it never bills.
-      try {
-        await checkAndReserveBudget(
-          {
-            organizationId: ctx.organizationId,
-            jobId: job.id,
-            amountMinor: estimatedCostMinor,
-            currency,
-            context: {
-              apiKeyId: ctx.actor.kind === "agent" ? ctx.actor.apiKeyId : null,
-              userId: ctx.actor.kind === "user" ? ctx.actor.userId : null,
-            },
-          },
-          db,
-        );
-      } catch (err) {
-        await dbJobStore(db)
-          .update(job.id, { status: "failed", finishedAt: new Date(), updatedAt: new Date() })
-          .catch(() => undefined);
-        throw err;
-      }
+      // Hold is committed; now make the job claimable by queue consumers (the DB
+      // poller already sees the committed 'queued' row).
+      await publishJob(job);
+      await writeAudit(ctx, { action: "agent.spawned", resourceType: "job", resourceId: job.id, after: { model, maxGpuSeconds } }, db);
     }
-    await writeAudit(ctx, { action: "agent.spawned", resourceType: "job", resourceId: job.id, after: { model, maxGpuSeconds } }, db);
   }
 
   return {

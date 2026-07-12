@@ -18,6 +18,8 @@ import { Errors } from "@/lib/errors";
 import * as schema from "@/lib/db/schema";
 import { requirePermission, type AuthContext } from "@/modules/identity/access-control";
 import { writeAudit } from "@/modules/governance/audit";
+import { loadPolicyRules } from "@/modules/governance/policy-repository";
+import { evaluatePolicy } from "@/server/policy/evaluatePolicy";
 import { createJob as createJobCore } from "@/modules/execution/job-service";
 import { dbJobStore } from "@/modules/execution/job-repository";
 import { processJobInDb } from "@/modules/execution/worker";
@@ -26,6 +28,7 @@ import { checkBudget } from "@/server/budget/checkBudget";
 import { checkAndReserveBudget } from "@/server/budget/checkAndReserve";
 import { releaseBudget } from "@/server/budget/releaseBudget";
 import { executeSwarm, type ChildOutcome, type PlannedAgent } from "@/server/swarms/executeSwarm";
+import { validateDag } from "@/server/swarms/dag";
 import { detectDuplicateTasks, type DuplicateWarning } from "@/server/swarms/task-dedup";
 import { findTemplate, expandTemplate } from "@/server/swarms/swarm-templates";
 import { fanOutWebhook } from "@/modules/webhooks/webhook-service";
@@ -37,6 +40,13 @@ type Db = ReturnType<typeof getDb>;
 const MAX_WORKERS = 16;
 const DEFAULT_GPU_SECONDS_PER_WORKER = 60;
 
+/** A named step in a DAG swarm: runs after its dependencies, seeing their outputs. */
+export interface SwarmStep {
+  name: string;
+  task: string;
+  dependsOn?: string[];
+}
+
 export interface SpawnSwarmRequest {
   /**
    * One worker agent is spawned per task. Optional when `templateId` is
@@ -44,6 +54,13 @@ export interface SpawnSwarmRequest {
    * by supplying explicit tasks here.
    */
   tasks?: string[];
+  /**
+   * DAG mode: named steps with dependency edges. A step runs once every step it
+   * `dependsOn` has succeeded, receiving those steps' outputs as context;
+   * independent steps run concurrently (topological waves). Mutually exclusive
+   * with tasks/templateId/sequential — the graph defines the ordering.
+   */
+  steps?: SwarmStep[];
   /**
    * Pre-built swarm pattern. When provided, tasks / aggregatorTask / sequential
    * default to the template's values; explicit fields on this request override
@@ -160,6 +177,8 @@ function swarmRunToResponse(
 /** Fully-resolved swarm plan: validated tasks, per-worker budgets, and totals. */
 interface SwarmPlan {
   tasks: string[];
+  /** DAG mode: validated named steps aligned 1:1 with `tasks`. */
+  steps?: SwarmStep[];
   aggregatorTask?: string;
   sequential?: boolean;
   duplicateWarnings: DuplicateWarning[];
@@ -179,8 +198,26 @@ interface SwarmPlan {
  * validation/budget errors either place.
  */
 function computeSwarmPlan(request: SpawnSwarmRequest): SwarmPlan {
+  // DAG mode: steps define both the tasks and the ordering; sequential/template
+  // don't compose with a graph.
+  let steps: SwarmStep[] | undefined;
+  if (request.steps !== undefined && request.steps.length > 0) {
+    if ((request.tasks ?? []).length > 0 || request.templateId !== undefined || request.sequential) {
+      throw Errors.validation("steps is mutually exclusive with tasks/templateId/sequential");
+    }
+    steps = request.steps.map((s) => ({
+      name: s.name.trim(),
+      task: s.task.trim(),
+      dependsOn: s.dependsOn,
+    }));
+    validateDag(steps);
+    if (steps.some((s) => s.task.length === 0)) {
+      throw Errors.validation("Every step needs a non-empty task");
+    }
+  }
+
   // Template expansion: apply template defaults, then let caller overrides win.
-  let rawTasks = request.tasks ?? [];
+  let rawTasks = steps ? steps.map((s) => s.task) : (request.tasks ?? []);
   let aggregatorTask = request.aggregatorTask;
   let sequential = request.sequential;
   if (request.templateId !== undefined) {
@@ -265,6 +302,7 @@ function computeSwarmPlan(request: SpawnSwarmRequest): SwarmPlan {
 
   return {
     tasks,
+    steps,
     aggregatorTask,
     sequential,
     duplicateWarnings,
@@ -403,7 +441,11 @@ export async function spawnSwarm(
     );
   }
 
-  const planned: PlannedAgent[] = tasks.map((task, i) => ({ role: `worker-${i + 1}`, instructions: task }));
+  // DAG mode names each worker after its step and carries the dependency edges;
+  // plain mode keeps the positional worker-N roles.
+  const planned: PlannedAgent[] = plan.steps
+    ? plan.steps.map((step) => ({ role: step.name, instructions: step.task, dependsOn: step.dependsOn }))
+    : tasks.map((task, i) => ({ role: `worker-${i + 1}`, instructions: task }));
   // Build the full prompt for a worker: shared objective + task + optional prior output.
   const taskFor = (instructions: string, previousOutput?: unknown): string => {
     const parts: string[] = [];
@@ -488,6 +530,13 @@ export async function spawnSwarm(
       idempotencyKey: `${run.id}-${index}-${attempt}`,
       currency,
       enqueue: false,
+      // Director drives this in-process; the DB poller must not also claim it.
+      orchestrated: true,
+      // No job-level retry: the swarm's own retry layer (executeSwarm) re-runs a
+      // failed worker as a fresh attempt (new job). Requeuing here would strand
+      // the job (poller skips orchestrated) and leak its budget hold, since
+      // processJobInDb only releases the hold on a 'failed' terminal state.
+      maxAttempts: 1,
     });
 
     // Atomic check-and-reserve under the budget-row lock — the same hard-ceiling
@@ -537,6 +586,7 @@ export async function spawnSwarm(
       budgetMinor: aggregateMinor,
       failurePolicy: "best_effort",
       parallel: !sequential,
+      dag: plan.steps !== undefined,
       aggregatorTask: aggregatorTask,
       maxRetries: 1,
     });
@@ -672,6 +722,22 @@ export async function enqueueSwarm(
 
   const plan = computeSwarmPlan(request);
 
+  // Governance gate on the AGGREGATE spend — same policy the single-agent path
+  // enforces. Without this, a deny/require_approval rule on high-cost jobs is
+  // bypassed simply by wrapping the same spend in a swarm.
+  const decision = evaluatePolicy(await loadPolicyRules(ctx.organizationId, db), {
+    costMinor: plan.aggregateMinor,
+    requiresExternalWrite: (request.resources?.mcpServers ?? []).length > 0,
+  });
+  if (decision.effect === "deny") {
+    await writeAudit(ctx, { action: "policy.denied", resourceType: "swarm", after: { reason: decision.reason } }, db);
+    throw Errors.policyDenied(decision.reason, { rule: decision.matchedRule?.name });
+  }
+  // require_approval: create the run + director in `awaiting_approval` and do not
+  // enqueue. A human approves it via the approvals inbox, which enqueues the
+  // director and flips the run to queued.
+  const requireApproval = decision.effect === "require_approval";
+
   // Idempotency: a replayed key returns the original run as-is.
   const existing = (
     await db
@@ -709,7 +775,7 @@ export async function enqueueSwarm(
       .values({
         organizationId: ctx.organizationId,
         idempotencyKey: request.idempotencyKey,
-        status: "queued",
+        status: requireApproval ? "awaiting_approval" : "queued",
         input: {
           objective: request.objective ?? null,
           workerCount: plan.tasks.length,
@@ -741,7 +807,8 @@ export async function enqueueSwarm(
     input: {
       existingRunId: run.id,
       resourceBundleId: bundleId,
-      tasks: plan.tasks,
+      tasks: plan.steps ? undefined : plan.tasks,
+      steps: plan.steps,
       objective: request.objective,
       model: plan.model,
       budgetMinor: request.budgetMinor,
@@ -754,6 +821,9 @@ export async function enqueueSwarm(
     },
     idempotencyKey: `swarm-director-${run.id}`,
     currency: plan.currency,
+    // Gated spend: create the director awaiting_approval and don't enqueue until
+    // a human approves via the inbox.
+    requireApproval,
     // The director is not resumable: a retry would find the run already
     // "running", no-op, and falsely report success. Never retry it — orphaned
     // runs are recovered by the swarm-run reaper instead.
@@ -763,7 +833,7 @@ export async function enqueueSwarm(
   await writeAudit(
     ctx,
     {
-      action: "swarm.spawned",
+      action: requireApproval ? "swarm.approval_required" : "swarm.spawned",
       resourceType: "swarm_run",
       resourceId: run.id,
       after: { workers: plan.tasks.length, model: plan.model, directorJobId: job.id, async: true },

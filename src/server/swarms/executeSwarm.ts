@@ -13,6 +13,7 @@
  */
 
 import { Errors } from "@/lib/errors";
+import { topologicalWaves } from "@/server/swarms/dag";
 import {
   mergeSwarmResults,
   type AgentResult,
@@ -25,8 +26,15 @@ export interface PlannedAgent {
   role: string;
   instructions: string;
   /**
-   * Output of the preceding worker (sequential mode only). Set by executeSwarm;
-   * callers should not provide this — it is injected between iterations.
+   * DAG mode: names of the steps whose outputs this step consumes. The step
+   * runs only after every dependency succeeds, and receives their outputs
+   * (keyed by role) as `previousOutput`.
+   */
+  dependsOn?: readonly string[];
+  /**
+   * Output of the preceding worker (sequential mode) or a role-keyed map of
+   * dependency outputs (DAG mode). Set by executeSwarm; callers should not
+   * provide this — it is injected between iterations.
    */
   previousOutput?: unknown;
 }
@@ -49,6 +57,13 @@ export interface ExecuteSwarmDeps {
   failurePolicy?: FailurePolicy;
   /** Run children concurrently (default) or sequentially. */
   parallel?: boolean;
+  /**
+   * DAG mode: honour each agent's `dependsOn` edges, executing in topological
+   * waves (dependencies first; independent steps concurrently). Takes
+   * precedence over `parallel`. The planned agents must form a valid DAG —
+   * validate with `validateDag` before calling.
+   */
+  dag?: boolean;
   /**
    * Optional aggregator task (Mixture-of-Agents). When provided, a final
    * aggregator agent is spawned after all workers complete. Its instructions
@@ -88,7 +103,48 @@ export async function executeSwarm(
     return outcome;
   };
 
-  if (parallel) {
+  if (deps.dag) {
+    // DAG mode: run in topological waves — a step starts once every dependency
+    // has finished, receiving their outputs keyed by role. A step whose
+    // dependency failed is skipped (DEPENDENCY_FAILED, zero cost) and its own
+    // dependants cascade-skip.
+    const waves = topologicalWaves(planned.map((p) => ({ name: p.role, dependsOn: p.dependsOn })));
+    const outputByRole = new Map<string, unknown>();
+    const failedRoles = new Set<string>();
+    const byIndex: Array<{ agent: PlannedAgent; outcome: ChildOutcome }> = new Array(planned.length);
+
+    for (const wave of waves) {
+      await Promise.all(
+        wave.map(async (i) => {
+          const step = planned[i]!;
+          const dependencies = step.dependsOn ?? [];
+          const failedDep = dependencies.find((d) => failedRoles.has(d));
+          if (failedDep) {
+            failedRoles.add(step.role);
+            byIndex[i] = {
+              agent: step,
+              outcome: {
+                output: null,
+                error: { code: "DEPENDENCY_FAILED", message: `dependency "${failedDep}" failed; step skipped` },
+                costMinor: 0,
+              },
+            };
+            return;
+          }
+          const previousOutput =
+            dependencies.length > 0
+              ? Object.fromEntries(dependencies.map((d) => [d, outputByRole.get(d)]))
+              : undefined;
+          const agent: PlannedAgent = { ...step, previousOutput };
+          const outcome = await runWithRetry(agent, i);
+          byIndex[i] = { agent, outcome };
+          if (outcome.error) failedRoles.add(step.role);
+          else outputByRole.set(step.role, outcome.output);
+        }),
+      );
+    }
+    outcomes.push(...byIndex.filter(Boolean));
+  } else if (parallel) {
     const results = await Promise.all(
       planned.map(async (agent, i) => ({ agent, outcome: await runWithRetry(agent, i) })),
     );

@@ -18,6 +18,7 @@ import { Errors } from "@/lib/errors";
 import { newId, IdPrefix } from "@/lib/ids";
 import { systemClock, type Clock } from "@/lib/time";
 import type { JobMessage, JobQueue } from "@/server/queue/types";
+import { getJobQueue } from "@/server/queue/queue";
 
 /**
  * Default attempt budget for a job. >1 so a transient failure (or a worker
@@ -47,7 +48,7 @@ export interface JobRecord {
   organizationId: string;
   createdByUserId: string | null;
   apiKeyId: string | null;
-  capabilityKind: "agent" | "swarm" | "connector";
+  capabilityKind: "agent" | "swarm" | "simulation" | "evaluation" | "connector";
   /** Agent task instruction (capabilityKind = "agent"). */
   task: string | null;
   /** Encrypted resource bundle handed to the spawned agent. */
@@ -61,6 +62,8 @@ export interface JobRecord {
   output: unknown;
   error: unknown;
   status: JobStatus;
+  /** Director-orchestrated (swarm child) job — skipped by the standalone poller. */
+  orchestrated: boolean;
   priority: number;
   attempt: number;
   maxAttempts: number;
@@ -110,7 +113,7 @@ export interface JobStore {
  * the worker records the actual metered cost.
  */
 export interface ResolvedCapability {
-  kind: "agent" | "swarm";
+  kind: "agent" | "swarm" | "simulation" | "evaluation";
   /** Agent task instruction or JSON-encoded swarm config (kind="swarm"). */
   task?: string | null;
   resourceBundleId?: string | null;
@@ -145,6 +148,12 @@ export interface CreateJobInput {
    */
   enqueue?: boolean;
   /**
+   * Marks the job as director-orchestrated so the standalone DB poller skips it
+   * (it runs in-process under its director, not the poller). Must be set for
+   * swarm worker/aggregator jobs. Defaults to false. See jobs.orchestrated.
+   */
+  orchestrated?: boolean;
+  /**
    * Override the attempt budget. Defaults to {@link DEFAULT_MAX_ATTEMPTS}. The
    * swarm director sets this to 1: a director retry cannot resume a partially
    * run fleet (it would no-op and falsely report success), so it must not retry.
@@ -164,6 +173,15 @@ function messageFor(job: JobRecord): JobMessage {
     organizationId: job.organizationId,
     enqueuedAt: (job.queuedAt ?? job.createdAt).toISOString(),
   };
+}
+
+/**
+ * Publish an already-persisted, non-gated job to the queue. Used by callers that
+ * create the job with `enqueue: false` inside a transaction (so it isn't
+ * claimable before its budget hold commits) and enqueue it only after commit.
+ */
+export async function publishJob(job: JobRecord, queue: JobQueue = getJobQueue()): Promise<void> {
+  await queue.enqueue(messageFor(job));
 }
 
 /**
@@ -231,6 +249,7 @@ export async function createJob(
     output: null,
     error: null,
     status: gated ? "awaiting_approval" : "queued",
+    orchestrated: input.orchestrated ?? false,
     priority: 0,
     attempt: 0,
     maxAttempts: input.maxAttempts ?? DEFAULT_MAX_ATTEMPTS,
@@ -301,6 +320,20 @@ export async function cancelJob(
     throw Errors.conflict(`Job is already ${job.status} and cannot be cancelled`);
   }
   const now = clock.now();
+  // Compare-and-swap from the observed non-terminal state: a worker's CAS
+  // running→succeeded (which also commits the charge) can land between the read
+  // above and this write. A plain update would overwrite that terminal state,
+  // billing a job whose status then reads "cancelled". If the CAS misses, the job
+  // reached a terminal state concurrently — surface a conflict, don't clobber it.
+  const cancelled = await store.compareAndUpdate(jobId, job.status, {
+    status: "cancelled",
+    finishedAt: now,
+    updatedAt: now,
+  });
+  if (!cancelled) {
+    const current = await store.findById(jobId);
+    throw Errors.conflict(`Job is already ${current?.status ?? "terminal"} and cannot be cancelled`);
+  }
   await store.appendLog({
     id: newId(IdPrefix.executionLog),
     organizationId: job.organizationId,
@@ -310,5 +343,5 @@ export async function cancelJob(
     data: { previousStatus: job.status },
     loggedAt: now,
   });
-  return store.update(jobId, { status: "cancelled", finishedAt: now, updatedAt: now });
+  return cancelled;
 }

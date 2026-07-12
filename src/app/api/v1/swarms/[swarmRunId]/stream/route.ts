@@ -99,12 +99,28 @@ export async function GET(
     );
   }
 
+  // Set when the client disconnects (ReadableStream.cancel) or the request is
+  // aborted. Stops the poll loop so we don't keep querying the DB — and don't
+  // enqueue onto a closed controller — after nobody is listening.
+  let stopped = false;
+
   const stream = new ReadableStream({
+    cancel() {
+      stopped = true;
+    },
     async start(controller) {
       const enc = (s: string) => new TextEncoder().encode(s);
       const emit = (type: string, data: unknown) => {
-        controller.enqueue(enc(sseEvent(type, data)));
+        if (stopped) return;
+        try {
+          controller.enqueue(enc(sseEvent(type, data)));
+        } catch {
+          stopped = true; // controller already closed (client gone)
+        }
       };
+      request.signal.addEventListener("abort", () => {
+        stopped = true;
+      });
 
       // ── initial swarm.started ────────────────────────────────────────────
       emit("swarm.started", {
@@ -117,7 +133,11 @@ export async function GET(
       const deadline = Date.now() + MAX_STREAM_MS;
       let heartbeatAt = Date.now() + HEARTBEAT_INTERVAL_MS;
 
-      const poll = async (): Promise<void> => {
+      // One poll iteration. Returns true to keep going, false when the stream
+      // should close. Driven by the loop below (not self-recursion, which would
+      // grow the async stack over the 10-minute lifetime).
+      const poll = async (): Promise<boolean> => {
+        if (stopped) return false;
         // Fetch all agents for this run.
         const agents = await db
           .select()
@@ -175,8 +195,7 @@ export async function GET(
             costMinor: currentRun?.costMinor ?? 0,
             finishedAt: currentRun?.finishedAt,
           });
-          controller.close();
-          return;
+          return false;
         }
 
         // Safety timeout.
@@ -186,24 +205,41 @@ export async function GET(
             status: "timeout",
             message: "Stream closed after 10 minutes (swarm still running)",
           });
-          controller.close();
-          return;
+          return false;
         }
 
         // Heartbeat.
         if (Date.now() >= heartbeatAt) {
-          controller.enqueue(enc(`: heartbeat\n\n`));
+          try {
+            controller.enqueue(enc(`: heartbeat\n\n`));
+          } catch {
+            return false;
+          }
           heartbeatAt = Date.now() + HEARTBEAT_INTERVAL_MS;
         }
 
         await new Promise<void>((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-        await poll();
+        return true;
       };
 
-      await poll().catch((err) => {
+      try {
+        // Iterative drive (no recursion): stop as soon as a poll signals done or
+        // the client disconnects.
+        let keepGoing = true;
+        while (keepGoing && !stopped) {
+          keepGoing = await poll();
+        }
+      } catch (err) {
         emit("error", { code: "INTERNAL", message: String(err) });
-        controller.close();
-      });
+      } finally {
+        if (!stopped) {
+          try {
+            controller.close();
+          } catch {
+            /* already closed */
+          }
+        }
+      }
     },
   });
 

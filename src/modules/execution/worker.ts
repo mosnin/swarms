@@ -12,7 +12,10 @@ import { getDb } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
 import { Errors } from "@/lib/errors";
 import { commitBudget } from "@/server/budget/commitBudget";
+import { checkCostAnomaly } from "@/server/billing/costAnomaly";
 import type { DirectorSwarmConfig } from "@/server/runners/swarmRunner";
+import type { DirectorSimulationConfig } from "@/server/runners/simulationRunner";
+import type { DirectorEvaluationConfig } from "@/server/runners/evaluationRunner";
 import { releaseBudget } from "@/server/budget/releaseBudget";
 import { logger } from "@/lib/logger";
 import { metrics } from "@/lib/metrics";
@@ -133,6 +136,7 @@ async function resolveExecution(db: Db, job: JobRecord): Promise<ResolvedExecuti
     const currency = job.costCurrency || input.currency || "USD";
     const config: DirectorSwarmConfig = {
       tasks: input.tasks ?? [],
+      steps: input.steps,
       objective: input.objective,
       model: input.model ?? job.model ?? undefined,
       budgetMinor: input.budgetMinor ?? (job.costMinor > 0 ? job.costMinor : undefined),
@@ -159,7 +163,52 @@ async function resolveExecution(db: Db, job: JobRecord): Promise<ResolvedExecuti
     };
   }
 
-  // Only agent and swarm capabilities are executable; any other kind is unsupported.
+  // Simulation director: a NORMAL poller-claimed, charged job (unlike the swarm
+  // director). The SimulationRunner runs the whole crew in one sandbox and
+  // returns the single charge (base*agents + gpu*rate). The runnerConfig is the
+  // DirectorSimulationConfig stored verbatim in the job input at enqueue time.
+  if (job.capabilityKind === "simulation") {
+    const config = (job.input ?? {}) as Partial<DirectorSimulationConfig>;
+    const currency = job.costCurrency || config.currency || "USD";
+    return {
+      runnerType: "simulation",
+      runnerConfig: {
+        ...config,
+        // The originating principal comes from the job row, not the stored input.
+        apiKeyId: job.apiKeyId,
+        createdByUserId: job.createdByUserId,
+        currency,
+      },
+      // The crew shares one sandbox and may run many rounds — give it the full
+      // ceiling (same as the swarm director), bounded by GPU seconds via cost.
+      maxRuntimeMs: 600_000,
+      priceMinor: job.costMinor,
+      currency,
+    };
+  }
+
+  // Evaluation director: a normal poller-claimed, charged job. The
+  // EvaluationRunner runs one judge call and returns the metered charge
+  // (gpuSeconds*rate). Config is stored verbatim in the job input at enqueue.
+  if (job.capabilityKind === "evaluation") {
+    const config = (job.input ?? {}) as Partial<DirectorEvaluationConfig>;
+    const currency = job.costCurrency || config.currency || "USD";
+    return {
+      runnerType: "evaluation",
+      runnerConfig: {
+        ...config,
+        apiKeyId: job.apiKeyId,
+        createdByUserId: job.createdByUserId,
+        currency,
+      },
+      maxRuntimeMs: Math.min(600_000, (config.maxGpuSeconds ?? 60) * 1000 + 5_000),
+      priceMinor: job.costMinor,
+      currency,
+    };
+  }
+
+  // Only agent, swarm, simulation, and evaluation capabilities are executable;
+  // any other kind is unsupported.
   return null;
 }
 
@@ -170,6 +219,21 @@ function deps(db: Db, workerId: string): ProcessDeps {
     resolve: (job) => resolveExecution(db, job),
     workerId,
     async onCharge(job, costMinor, currency) {
+      // A swarm DIRECTOR job coordinates only: every worker (and the aggregator)
+      // is its own job and is charged + budget-checked individually inside the
+      // child run. The director's reported cost is the SUM of those children, so
+      // charging it here would double-bill the org for work already paid for —
+      // and it carries no reservation hold. Record the aggregate for display /
+      // audit, but never write a second ledger charge for it.
+      if (job.capabilityKind === "swarm") {
+        await writeAuditSystem(job.organizationId, {
+          action: "job.succeeded",
+          resourceType: "job",
+          resourceId: job.id,
+          after: { costMinor, currency, note: "swarm-director-aggregate (children charged individually)" },
+        }, db);
+        return;
+      }
       // Commit the real usage charge and release the reservation hold so the
       // budget reflects committed spend only (no double count).
       await commitBudget(
@@ -182,6 +246,8 @@ function deps(db: Db, workerId: string): ProcessDeps {
         resourceId: job.id,
         after: { costMinor, currency },
       }, db);
+      // Flag a charge far above the org's recent average (best-effort).
+      await checkCostAnomaly(job, costMinor, db).catch(() => undefined);
     },
     async onReleaseHold(job, currency) {
       // Fallback: commitBudget failed after job was marked succeeded. Release
@@ -265,7 +331,7 @@ export async function claimAndProcessJobs(db: Db = getDb(), batchSize = 5): Prom
     SET status = 'running', started_at = now(), attempt = attempt + 1, updated_at = now()
     WHERE id IN (
       SELECT id FROM jobs
-      WHERE status = 'queued'
+      WHERE status = 'queued' AND orchestrated = false
       ORDER BY created_at ASC
       LIMIT ${batchSize}
       FOR UPDATE SKIP LOCKED
@@ -312,6 +378,7 @@ export async function reapExpiredJobs(
       attempt: schema.jobs.attempt,
       maxAttempts: schema.jobs.maxAttempts,
       capabilityKind: schema.jobs.capabilityKind,
+      orchestrated: schema.jobs.orchestrated,
       startedAt: schema.jobs.startedAt,
     })
     .from(schema.jobs)
@@ -325,7 +392,10 @@ export async function reapExpiredJobs(
     }
     // A dead worker's lease expiry is transient: if attempts remain, requeue the
     // job (keeping its budget hold) rather than permanently failing paid work.
-    const willRetry = job.attempt < job.maxAttempts;
+    // Orchestrated (swarm) jobs are the exception: the poller cannot re-run them
+    // (it filters them out), so requeuing would strand them — fail them and let
+    // the swarm-run reaper settle the run and release holds.
+    const willRetry = job.attempt < job.maxAttempts && !job.orchestrated;
 
     // Guard the transition: only act on a job that is STILL running. A job that
     // finished between the select and this update must not be flipped from
@@ -380,6 +450,133 @@ export async function reapExpiredJobs(
  * holds. Keyed off the director's terminal state (not a time guess), so a live
  * long-running director is never touched.
  */
+/**
+ * Webhook-delivery retention: delete terminal (delivered/failed) deliveries
+ * older than `olderThanMs` so the table doesn't grow unbounded. Pending rows
+ * are never touched. Ledger/audit/log tables stay append-only by design — this
+ * applies only to the delivery queue, which is operational state, not a record.
+ */
+export async function pruneWebhookDeliveries(
+  db: Db = getDb(),
+  olderThanMs = 30 * 86_400_000,
+): Promise<number> {
+  const cutoff = new Date(Date.now() - olderThanMs);
+  const deleted = await db
+    .delete(schema.webhookDeliveries)
+    .where(
+      and(
+        inArray(schema.webhookDeliveries.status, ["delivered", "failed"]),
+        lt(schema.webhookDeliveries.createdAt, cutoff),
+      ),
+    )
+    .returning({ id: schema.webhookDeliveries.id });
+  return deleted.length;
+}
+
+/**
+ * Simulation-run reaper: settle simulation runs orphaned by a dead director.
+ * The job reaper fails a dead director (maxAttempts=1) and releases its hold,
+ * but the simulation_runs row would otherwise stay non-terminal forever. Keyed
+ * off the director's terminal FAILURE (via directorJobId), so a live long
+ * director is never touched. Mirrors {@link reapOrphanedSwarmRuns}.
+ */
+export async function reapOrphanedSimulationRuns(db: Db = getDb()): Promise<number> {
+  const openRuns = await db
+    .select({
+      id: schema.simulationRuns.id,
+      organizationId: schema.simulationRuns.organizationId,
+      costCurrency: schema.simulationRuns.costCurrency,
+      directorJobId: schema.simulationRuns.directorJobId,
+    })
+    .from(schema.simulationRuns)
+    .where(inArray(schema.simulationRuns.status, ["running", "queued"]));
+
+  let reaped = 0;
+  for (const run of openRuns) {
+    if (!run.directorJobId) continue;
+    const director = (
+      await db
+        .select({ status: schema.jobs.status })
+        .from(schema.jobs)
+        .where(eq(schema.jobs.id, run.directorJobId))
+        .limit(1)
+    )[0];
+    if (!director || (director.status !== "failed" && director.status !== "cancelled")) continue;
+
+    const updated = await db
+      .update(schema.simulationRuns)
+      .set({
+        status: "failed",
+        output: { error: "director_orphaned", reason: "director job failed before the simulation settled" },
+        finishedAt: new Date(),
+      })
+      .where(and(eq(schema.simulationRuns.id, run.id), inArray(schema.simulationRuns.status, ["running", "queued"])))
+      .returning({ id: schema.simulationRuns.id });
+    if (updated.length === 0) continue; // settled concurrently
+
+    reaped += 1;
+    // Belt-and-braces: the failure path already released the director's hold;
+    // releasing again is a harmless no-op if it did.
+    await releaseBudget(
+      { organizationId: run.organizationId, jobId: run.directorJobId, currency: run.costCurrency },
+      db,
+    ).catch(() => undefined);
+    await writeAuditSystem(run.organizationId, {
+      action: "simulation_run.failed",
+      resourceType: "simulation_run",
+      resourceId: run.id,
+      after: { reason: "director_orphaned" },
+    }, db);
+  }
+  return reaped;
+}
+
+/** Evaluation reaper: settle evaluations orphaned by a dead director. */
+export async function reapOrphanedEvaluations(db: Db = getDb()): Promise<number> {
+  const open = await db
+    .select({
+      id: schema.evaluations.id,
+      organizationId: schema.evaluations.organizationId,
+      costCurrency: schema.evaluations.costCurrency,
+      directorJobId: schema.evaluations.directorJobId,
+    })
+    .from(schema.evaluations)
+    .where(inArray(schema.evaluations.status, ["running", "queued"]));
+
+  let reaped = 0;
+  for (const row of open) {
+    if (!row.directorJobId) continue;
+    const director = (
+      await db
+        .select({ status: schema.jobs.status })
+        .from(schema.jobs)
+        .where(eq(schema.jobs.id, row.directorJobId))
+        .limit(1)
+    )[0];
+    if (!director || (director.status !== "failed" && director.status !== "cancelled")) continue;
+
+    const updated = await db
+      .update(schema.evaluations)
+      .set({ status: "failed", finishedAt: new Date() })
+      .where(and(eq(schema.evaluations.id, row.id), inArray(schema.evaluations.status, ["running", "queued"])))
+      .returning({ id: schema.evaluations.id });
+    if (updated.length === 0) continue;
+
+    reaped += 1;
+    await releaseBudget(
+      { organizationId: row.organizationId, jobId: row.directorJobId, currency: row.costCurrency },
+      db,
+    ).catch(() => undefined);
+    await writeAuditSystem(row.organizationId, {
+      action: "evaluation.failed",
+      resourceType: "evaluation",
+      resourceId: row.id,
+      after: { reason: "director_orphaned" },
+    }, db);
+  }
+  return reaped;
+}
+
 export async function reapOrphanedSwarmRuns(db: Db = getDb()): Promise<number> {
   const openRuns = await db
     .select({

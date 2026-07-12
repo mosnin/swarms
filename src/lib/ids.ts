@@ -46,6 +46,13 @@ export const IdPrefix = {
   resourceBundle: "rsb",
   swarmRun: "swr",
   swarmAgent: "swa",
+  simulationRun: "sim",
+  simulationAgent: "sma",
+  schedule: "sch",
+  artifact: "art",
+  objectBlob: "blob",
+  autoReload: "arl",
+  evaluation: "evl",
   webhookDelivery: "whd",
   webhookEndpoint: "whe",
 } as const;

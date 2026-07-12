@@ -62,11 +62,19 @@ export class ModalAgentRuntime implements AgentRuntime {
       resources: input.resources,
     });
 
+    // Bound TOTAL wall time across all retries to a single deadline, not per
+    // attempt. Otherwise 3 retries × a full per-attempt timeout can exceed the
+    // worker's reap lease (660s), so a healthy long job gets reaped mid-run and
+    // re-executed — doubling real compute cost. Keeping the total under the job's
+    // own maxRuntimeMs (≤600s) guarantees it finishes inside the lease.
+    const deadline = start + Math.min(TIMEOUT_MS, input.maxRuntimeMs + 10_000);
     let lastMessage = "Modal call failed";
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
       if (attempt > 0) await delay(BACKOFF_MS[attempt] ?? 4_000);
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) return this.fail("TIMEOUT", "Modal call exceeded total time budget", start);
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), Math.min(TIMEOUT_MS, input.maxRuntimeMs + 10_000));
+      const timer = setTimeout(() => controller.abort(), remainingMs);
       try {
         const res = await this.fetchImpl(this.cfg.runUrl, {
           method: "POST",

@@ -15,7 +15,9 @@ export async function releaseBudget(
   params: { organizationId: string; jobId: string; currency: string },
   db: Db = getDb(),
 ): Promise<void> {
-  const outstanding = await outstandingHoldMinor(params.jobId, db, params.currency);
+  // Normalize to match how holds are written (uppercased) and read back.
+  const currency = params.currency.toUpperCase();
+  const outstanding = await outstandingHoldMinor(params.jobId, db, currency);
   if (outstanding <= 0) return;
   await appendEntry(dbLedgerStore(db), {
     organizationId: params.organizationId,
@@ -23,7 +25,7 @@ export async function releaseBudget(
     direction: "credit",
     kind: "release",
     amountMinor: outstanding,
-    currency: params.currency,
+    currency,
     description: "Release of unused budget reservation",
     refType: "job",
     refId: params.jobId,

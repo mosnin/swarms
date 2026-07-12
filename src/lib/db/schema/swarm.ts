@@ -16,7 +16,7 @@ export const swarmRuns = pgTable(
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
     jobId: text("job_id").references(() => jobs.id, { onDelete: "set null" }),
-    idempotencyKey: varchar("idempotency_key", { length: 255 }),
+    idempotencyKey: varchar("idempotency_key", { length: 255 }).notNull(),
     status: jobStatus("status").notNull().default("queued"),
     input: jsonb("input"),
     output: jsonb("output"),

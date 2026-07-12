@@ -205,26 +205,34 @@ async function ensurePaymentCredit(
   receipt: PaymentReceiptRecord,
   clock: Clock,
 ): Promise<void> {
-  const existing = await ledger.listByOrganization(receipt.organizationId);
-  const alreadyCredited = existing.some(
-    (e) => e.kind === "payment" && e.refType === "payment_receipt" && e.refId === receipt.id,
-  );
-  if (alreadyCredited) return;
+  const creditExists = async () =>
+    (await ledger.listByOrganization(receipt.organizationId)).some(
+      (e) => e.kind === "payment" && e.refType === "payment_receipt" && e.refId === receipt.id,
+    );
+  if (await creditExists()) return;
 
-  await appendEntry(
-    ledger,
-    {
-      organizationId: receipt.organizationId,
-      direction: "credit",
-      kind: "payment",
-      amountMinor: receipt.amountMinor,
-      currency: receipt.currency,
-      description: "x402 payment settlement",
-      refType: "payment_receipt",
-      refId: receipt.id,
-    },
-    clock,
-  );
+  try {
+    await appendEntry(
+      ledger,
+      {
+        organizationId: receipt.organizationId,
+        direction: "credit",
+        kind: "payment",
+        amountMinor: receipt.amountMinor,
+        currency: receipt.currency,
+        description: "x402 payment settlement",
+        refType: "payment_receipt",
+        refId: receipt.id,
+      },
+      clock,
+    );
+  } catch (err) {
+    // The ledger_payment_credit_uq index makes the credit exactly-once at the DB
+    // level: a concurrent replay that lost the race hits a unique violation here.
+    // If the credit now exists, that's the desired idempotent outcome — swallow;
+    // otherwise the failure is real, so rethrow.
+    if (!(await creditExists())) throw err;
+  }
 }
 
 /** Decode the base64 JSON `X-PAYMENT` header into a proof, or `null`. */

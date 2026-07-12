@@ -6,8 +6,34 @@
 
 import { NextResponse } from "next/server";
 
-import { ErrorCode, isAppError, toAppError } from "@/lib/errors";
+import { ErrorCode, Errors, isAppError, toAppError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
+
+/** Default maximum accepted JSON request body (256 KB) for API mutations. */
+export const MAX_JSON_BODY_BYTES = 256 * 1024;
+
+/**
+ * Read and parse a JSON request body with a hard size cap, so a caller cannot
+ * force the server to buffer an unbounded payload before Zod validation (a
+ * memory-pressure vector on self-hosted deployments without a platform cap).
+ * Rejects oversized bodies with a typed VALIDATION error; returns `null` on
+ * malformed JSON (callers already treat that as a 400).
+ */
+export async function readJsonBody(request: Request, maxBytes = MAX_JSON_BODY_BYTES): Promise<unknown> {
+  const declared = Number(request.headers.get("content-length") ?? "");
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    throw Errors.validation(`Request body exceeds the ${maxBytes}-byte limit`);
+  }
+  const text = await request.text();
+  if (text.length > maxBytes) {
+    throw Errors.validation(`Request body exceeds the ${maxBytes}-byte limit`);
+  }
+  try {
+    return text.length === 0 ? null : JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
 
 export function ok<T>(data: T, status = 200): NextResponse {
   return NextResponse.json({ data }, { status });

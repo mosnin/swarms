@@ -9,6 +9,8 @@ import { AgentRunner } from "@/server/runners/agentRunner";
 import { HttpRunner } from "@/server/runners/httpRunner";
 import { LocalWorkerRunner } from "@/server/runners/localWorkerRunner";
 import { MockRunner } from "@/server/runners/mockRunner";
+import { SimulationRunner } from "@/server/runners/simulationRunner";
+import { EvaluationRunner } from "@/server/runners/evaluationRunner";
 import { SwarmRunner } from "@/server/runners/swarmRunner";
 import type { Runner, RunnerType } from "@/server/runners/types";
 
@@ -18,6 +20,8 @@ const REGISTRY: Record<RunnerType, Runner> = {
   http: new HttpRunner(),
   local_worker: new LocalWorkerRunner(),
   swarm: new SwarmRunner(),
+  simulation: new SimulationRunner(),
+  evaluation: new EvaluationRunner(),
 };
 
 export function getRunner(type: RunnerType): Runner {
@@ -27,5 +31,13 @@ export function getRunner(type: RunnerType): Runner {
 }
 
 export function isRunnerType(value: unknown): value is RunnerType {
-  return value === "agent" || value === "mock" || value === "http" || value === "local_worker" || value === "swarm";
+  return (
+    value === "agent" ||
+    value === "mock" ||
+    value === "http" ||
+    value === "local_worker" ||
+    value === "swarm" ||
+    value === "simulation" ||
+    value === "evaluation"
+  );
 }

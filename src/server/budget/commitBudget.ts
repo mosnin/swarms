@@ -20,6 +20,10 @@ export async function commitBudget(
   },
   db: Db = getDb(),
 ): Promise<void> {
+  // Normalize currency to match the reservation (checkAndReserve uppercases) and
+  // the budget-read queries (which filter on toUpperCase). Writing a mixed-case
+  // charge/release would make the hold invisible to budget math and leak forever.
+  const currency = params.currency.toUpperCase();
   // Charge + release are a single logical operation: if the DB fails between
   // them the hold would leak. Wrapping in a transaction guarantees atomicity.
   await db.transaction(async (tx) => {
@@ -36,7 +40,7 @@ export async function commitBudget(
           direction: "debit",
           kind: "charge",
           amountMinor: params.amountMinor,
-          currency: params.currency,
+          currency,
           description: "Capability execution charge",
           refType: params.refType ?? "job",
           refId: params.refId ?? params.jobId,
@@ -45,7 +49,7 @@ export async function commitBudget(
     }
     // Free the reservation regardless of whether the charge was new or a dup.
     await releaseBudget(
-      { organizationId: params.organizationId, jobId: params.jobId, currency: params.currency },
+      { organizationId: params.organizationId, jobId: params.jobId, currency },
       tx as Db,
     );
   });

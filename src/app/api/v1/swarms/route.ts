@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
-import { ok, route } from "@/lib/api";
+import { ok, readJsonBody, route } from "@/lib/api";
 import { Errors } from "@/lib/errors";
 import { deriveIdempotencyKey, idempotencyKeySchema } from "@/lib/idempotency";
 import { assertSafeUrl } from "@/lib/ssrf-guard";
@@ -38,15 +38,32 @@ const body = z
      * GET /api/v1/swarms/templates lists all available templates.
      */
     templateId: z.string().optional(),
-    /** Required unless templateId is supplied. */
+    /** Required unless templateId or steps is supplied. */
     tasks: z.array(z.string().min(1).max(20_000)).min(1).max(16).optional(),
+    /**
+     * DAG mode: named steps with dependency edges. A step runs after every step
+     * it dependsOn succeeds, receiving those steps' outputs as context;
+     * independent steps run concurrently (topological waves). Mutually
+     * exclusive with tasks/templateId/sequential.
+     */
+    steps: z
+      .array(
+        z.object({
+          name: z.string().min(1).max(64),
+          task: z.string().min(1).max(20_000),
+          dependsOn: z.array(z.string().min(1).max(64)).max(16).optional(),
+        }),
+      )
+      .min(1)
+      .max(16)
+      .optional(),
     objective: z.string().max(2_000).optional(),
     resources: resourcesSchema,
     model: z.string().max(96).optional(),
     budgetMinor: z.number().int().nonnegative().optional(),
     /** Human-friendly alternative to budgetMinor: dollars as a decimal (e.g. 3.00). */
     budgetUsd: z.number().positive().optional(),
-    currency: z.string().length(3).optional(),
+    currency: z.string().length(3).transform((c) => c.toUpperCase()).optional(),
     idempotencyKey: idempotencyKeySchema.optional(),
     aggregatorTask: z.string().min(1).max(20_000).optional(),
     sequential: z.boolean().optional(),
@@ -68,10 +85,16 @@ const body = z
      */
     callbackUrl: z.string().url().optional(),
   })
-  .refine((d) => d.templateId !== undefined || (d.tasks !== undefined && d.tasks.length > 0), {
-    message: "Provide tasks or templateId",
-    path: ["tasks"],
-  })
+  .refine(
+    (d) =>
+      d.templateId !== undefined ||
+      (d.tasks !== undefined && d.tasks.length > 0) ||
+      (d.steps !== undefined && d.steps.length > 0),
+    {
+      message: "Provide tasks, steps, or templateId",
+      path: ["tasks"],
+    },
+  )
   .refine((d) => !(d.budgetUsd !== undefined && d.budgetMinor !== undefined), {
     message: "Provide budgetUsd or budgetMinor, not both",
     path: ["budgetUsd"],
@@ -108,7 +131,7 @@ export async function POST(request: NextRequest): Promise<Response> {
   return route(async () => {
     const ctx = await authenticateRequest(request);
     await enforceRateLimit(ctx, "swarmRun");
-    const json = await request.json().catch(() => null);
+    const json = await readJsonBody(request);
     const parsed = body.safeParse(json);
     if (!parsed.success) {
       throw Errors.validation("Invalid request body", {
@@ -120,10 +143,13 @@ export async function POST(request: NextRequest): Promise<Response> {
     const { idempotencyKey, budgetUsd, templateId, workerTimeouts, deduplicateStrict, callbackUrl, ...rest } = parsed.data;
 
     // SSRF guard: validate callbackUrl and MCP server URLs before they reach downstream transports.
-    if (callbackUrl !== undefined) assertSafeUrl(callbackUrl, "callbackUrl");
+    if (callbackUrl !== undefined) await assertSafeUrl(callbackUrl, "callbackUrl");
     for (const server of rest.resources?.mcpServers ?? []) {
-      assertSafeUrl(server.url, `mcpServers[${server.name}].url`);
+      await assertSafeUrl(server.url, `mcpServers[${server.name}].url`);
     }
+
+    // DAG mode: steps define both work and ordering; skip template expansion.
+    const steps = rest.steps;
 
     // Expand template defaults, then apply any caller overrides.
     let tasks = rest.tasks;
@@ -139,8 +165,8 @@ export async function POST(request: NextRequest): Promise<Response> {
       aggregatorTask = rest.aggregatorTask ?? expanded.aggregatorTask;
       sequential = rest.sequential ?? expanded.sequential;
     }
-    if (!tasks || tasks.length === 0) {
-      throw Errors.validation("tasks is required when templateId is not provided");
+    if (!steps && (!tasks || tasks.length === 0)) {
+      throw Errors.validation("tasks is required when templateId/steps are not provided");
     }
 
     const budgetMinor = rest.budgetMinor ?? (budgetUsd !== undefined ? usdToMinor(budgetUsd) : undefined);
@@ -149,6 +175,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       idempotencyKey ??
       deriveIdempotencyKey(ctx.organizationId, {
         tasks,
+        steps,
         objective: rest.objective,
         model: rest.model,
         aggregatorTask,
@@ -161,6 +188,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     // request thread; clients poll GET /swarms/:id or stream for the result.
     const response = await enqueueSwarm(ctx, {
       tasks,
+      steps,
       objective: rest.objective,
       resources: rest.resources,
       model: rest.model,

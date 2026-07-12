@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
-import { ok, route } from "@/lib/api";
+import { ok, readJsonBody, route } from "@/lib/api";
 import { Errors } from "@/lib/errors";
 import { deriveIdempotencyKey, idempotencyKeySchema } from "@/lib/idempotency";
 import { usdToMinor } from "@/lib/money";
@@ -34,7 +34,7 @@ const body = z
     budgetMinor: z.number().int().nonnegative().optional(),
     /** Human-friendly alternative to budgetMinor: dollars as a decimal (e.g. 1.50). */
     budgetUsd: z.number().positive().optional(),
-    currency: z.string().length(3).optional(),
+    currency: z.string().length(3).transform((c) => c.toUpperCase()).optional(),
     idempotencyKey: idempotencyKeySchema.optional(),
     callbackUrl: z.string().url().optional(),
   })
@@ -47,7 +47,7 @@ export async function POST(request: NextRequest): Promise<Response> {
   return route(async () => {
     const ctx = await authenticateRequest(request);
     await enforceRateLimit(ctx, "execute");
-    const json = await request.json().catch(() => null);
+    const json = await readJsonBody(request);
     const parsed = body.safeParse(json);
     if (!parsed.success) {
       throw Errors.validation("Invalid request body", {
@@ -57,9 +57,9 @@ export async function POST(request: NextRequest): Promise<Response> {
     if (parsed.data.organizationId) requireOrganization(ctx, parsed.data.organizationId);
 
     // SSRF guard: validate callbackUrl and MCP server URLs before they reach downstream transports.
-    if (parsed.data.callbackUrl !== undefined) assertSafeUrl(parsed.data.callbackUrl, "callbackUrl");
+    if (parsed.data.callbackUrl !== undefined) await assertSafeUrl(parsed.data.callbackUrl, "callbackUrl");
     for (const server of parsed.data.resources?.mcpServers ?? []) {
-      assertSafeUrl(server.url, `mcpServers[${server.name}].url`);
+      await assertSafeUrl(server.url, `mcpServers[${server.name}].url`);
     }
 
     const { idempotencyKey, budgetUsd, ...rest } = parsed.data;
