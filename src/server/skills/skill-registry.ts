@@ -13,7 +13,7 @@
  * Increment CATALOG_VERSION whenever any skill version bumps.
  */
 
-export const CATALOG_VERSION = "1.9.0";
+export const CATALOG_VERSION = "1.10.0";
 
 export interface JsonSchema {
   type?: string;
@@ -143,7 +143,7 @@ const JOB_OUTPUT_SCHEMA: JsonSchema = {
 
 const SPAWN_SWARM: SkillDefinition = {
   id: "spawn-swarm",
-  version: "1.1.0",
+  version: "1.2.0",
   name: "Spawn a swarm (workforce of agents)",
   description:
     "Fan out a list of tasks to N parallel (or sequential) worker agents that all share the same resources and budget. " +
@@ -166,6 +166,25 @@ const SPAWN_SWARM: SkillDefinition = {
         maxItems: 16,
         items: { type: "string", minLength: 1, maxLength: 20_000 },
         description: "One task string per worker agent.",
+      },
+      steps: {
+        type: "array",
+        minItems: 1,
+        maxItems: 16,
+        description:
+          "DAG mode (instead of tasks): named steps with dependsOn edges. A step runs after every step it " +
+          "dependsOn succeeds, receiving those steps' outputs as context; independent steps run concurrently. " +
+          "Use for fan-out/fan-in pipelines, e.g. research A + research B → synthesize(A,B). " +
+          "Mutually exclusive with tasks/templateId/sequential.",
+        items: {
+          type: "object",
+          required: ["name", "task"],
+          properties: {
+            name: { type: "string", maxLength: 64 },
+            task: { type: "string", maxLength: 20_000 },
+            dependsOn: { type: "array", items: { type: "string" }, description: "Names of prerequisite steps." },
+          },
+        },
       },
       objective: {
         type: "string",
@@ -1673,6 +1692,81 @@ const GET_EVALUATION: SkillDefinition = {
   },
 };
 
+// ── Replay (experimentation) ──────────────────────────────────────────────────
+
+const REPLAY_RUN: SkillDefinition = {
+  id: "replay-run",
+  version: "1.0.0",
+  name: "Replay a run with overrides (A/B experimentation)",
+  description:
+    "Re-run any past run as a NEW run, optionally tweaking fields — compare a different model, budget, task, " +
+    "or objective against the original. Endpoints: POST /api/v1/jobs/:jobId/replay (override task/model/" +
+    "budgetMinor), POST /api/v1/swarms/:swarmRunId/replay (override objective/model/budgetMinor), " +
+    "POST /api/v1/simulations/:simulationRunId/replay (override objective/model/budgetMinor/maxRounds). " +
+    "The original is untouched; inherited resources are re-attached server-side; the replay goes through the " +
+    "full policy + budget gates with a fresh idempotency key. Pass replayTag to run several variants of the " +
+    "same original. Response includes replayedFrom.",
+  endpoint: "/api/v1/jobs/:jobId/replay",
+  method: "POST",
+  auth: "bearer",
+  input: {
+    type: "object",
+    properties: {
+      task: { type: "string", description: "jobs only: replacement task." },
+      objective: { type: "string", description: "swarms/simulations: replacement objective." },
+      model: { type: "string", description: "Swap the model for the replay." },
+      budgetMinor: { type: "integer", minimum: 0, description: "New hard budget ceiling." },
+      maxRounds: { type: "integer", description: "simulations only: new collaboration round cap." },
+      replayTag: { type: "string", description: "Distinguishes variants of the same original (default 'replay')." },
+    },
+  },
+  output: {
+    type: "object",
+    required: ["replayedFrom"],
+    properties: {
+      replayedFrom: { type: "string", description: "The original run id." },
+      jobId: { type: "string" },
+      swarmRunId: { type: "string" },
+      simulationRunId: { type: "string" },
+      status: { type: "string" },
+    },
+  },
+  examples: [
+    {
+      title: "Replay a job on a different model",
+      curl: `curl -X POST "$SWARMS_URL/api/v1/jobs/job_01abc/replay" \\
+  -H "Authorization: Bearer $SWARMS_API_KEY" -H "Content-Type: application/json" \\
+  -d '{"model":"deepseek/deepseek-chat-v4","replayTag":"model-ab-1"}'`,
+    },
+    {
+      title: "Replay a simulation with more rounds and budget",
+      curl: `curl -X POST "$SWARMS_URL/api/v1/simulations/sim_01abc/replay" \\
+  -H "Authorization: Bearer $SWARMS_API_KEY" -H "Content-Type: application/json" \\
+  -d '{"maxRounds":10,"budgetMinor":800}'`,
+    },
+  ],
+  relatedSkills: ["spawn-agent", "spawn-swarm", "simulate", "evaluate"],
+  tool: {
+    type: "function",
+    function: {
+      name: "replay_run",
+      description:
+        "Re-run a past job/swarm/simulation as a new run with optional overrides (model, budget, task/objective).",
+      parameters: {
+        type: "object",
+        required: ["runId", "runKind"],
+        properties: {
+          runId: { type: "string" },
+          runKind: { type: "string", enum: ["job", "swarm", "simulation"] },
+          model: { type: "string" },
+          budgetMinor: { type: "integer" },
+          replayTag: { type: "string" },
+        },
+      },
+    },
+  },
+};
+
 // ── Catalog ───────────────────────────────────────────────────────────────────
 
 export const SKILL_CATALOG: SkillCatalog = {
@@ -1700,6 +1794,7 @@ export const SKILL_CATALOG: SkillCatalog = {
     LIST_APPROVALS,
     EVALUATE,
     GET_EVALUATION,
+    REPLAY_RUN,
     SPAWN_AGENT,
     GET_JOB,
     GET_JOB_LOGS,

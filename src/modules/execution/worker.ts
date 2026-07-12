@@ -136,6 +136,7 @@ async function resolveExecution(db: Db, job: JobRecord): Promise<ResolvedExecuti
     const currency = job.costCurrency || input.currency || "USD";
     const config: DirectorSwarmConfig = {
       tasks: input.tasks ?? [],
+      steps: input.steps,
       objective: input.objective,
       model: input.model ?? job.model ?? undefined,
       budgetMinor: input.budgetMinor ?? (job.costMinor > 0 ? job.costMinor : undefined),

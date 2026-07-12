@@ -14,6 +14,8 @@ import type { Runner, RunnerContext, RunnerOutcome } from "@/server/runners/type
 
 export interface DirectorSwarmConfig {
   tasks: string[];
+  /** DAG mode: named steps with dependency edges (used instead of tasks). */
+  steps?: Array<{ name: string; task: string; dependsOn?: string[] }>;
   objective?: string;
   model?: string;
   budgetMinor?: number;
@@ -43,10 +45,11 @@ export class SwarmRunner implements Runner {
   async run(context: RunnerContext): Promise<RunnerOutcome> {
     const config = context.runnerConfig as DirectorSwarmConfig;
 
-    if (!config.tasks || config.tasks.length === 0) {
+    const hasSteps = Array.isArray(config.steps) && config.steps.length > 0;
+    if (!hasSteps && (!config.tasks || config.tasks.length === 0)) {
       return {
         ok: false,
-        error: { code: "INVALID_CONFIG", message: "Director swarm config has no tasks" },
+        error: { code: "INVALID_CONFIG", message: "Director swarm config has no tasks or steps" },
         logs: [],
       };
     }
@@ -67,7 +70,8 @@ export class SwarmRunner implements Runner {
       const result = await spawnSwarm(
         ctx,
         {
-          tasks: config.tasks,
+          tasks: hasSteps ? undefined : config.tasks,
+          steps: config.steps,
           objective: config.objective,
           model: config.model,
           budgetMinor: config.budgetMinor,

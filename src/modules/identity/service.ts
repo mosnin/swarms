@@ -164,6 +164,44 @@ export async function listApiKeys(ctx: AuthContext, db: Db = getDb()): Promise<A
   });
 }
 
+/**
+ * Rotate an API key's secret IN PLACE: mint a fresh secret for the same key row
+ * so its id — and everything hanging off it (scoped budget, audit attribution,
+ * schedules, job history) — is preserved while the old secret stops working
+ * immediately. Returns the new plaintext exactly once. Revoked keys cannot be
+ * rotated (create a new key instead); expired keys can be, and rotation clears
+ * the expiry only if the caller supplies a new one at their own layer.
+ */
+export async function rotateApiKey(
+  ctx: AuthContext,
+  apiKeyId: string,
+  db: Db = getDb(),
+): Promise<CreateApiKeyResult> {
+  requirePermission(ctx, "api_keys.manage");
+
+  const existing = (
+    await db.select().from(schema.apiKeys).where(eq(schema.apiKeys.id, apiKeyId)).limit(1)
+  )[0];
+  if (!existing) throw Errors.notFound("API key not found");
+  requireOrganization(ctx, existing.organizationId);
+  if (existing.revokedAt) {
+    throw Errors.conflict("A revoked key cannot be rotated; create a new key instead");
+  }
+
+  const generated = generateApiKey(env.API_KEY_PEPPER);
+  const updated = (
+    await db
+      .update(schema.apiKeys)
+      .set({ prefix: generated.prefix, hashedKey: generated.hashedKey })
+      .where(eq(schema.apiKeys.id, apiKeyId))
+      .returning()
+  )[0];
+  if (!updated) throw Errors.internal("Failed to rotate API key");
+
+  const budget = await findKeyBudget(apiKeyId, existing.organizationId, db);
+  return { plaintext: generated.plaintext, key: toView(updated, budget) };
+}
+
 export async function revokeApiKey(
   ctx: AuthContext,
   apiKeyId: string,

@@ -28,6 +28,7 @@ import { checkBudget } from "@/server/budget/checkBudget";
 import { checkAndReserveBudget } from "@/server/budget/checkAndReserve";
 import { releaseBudget } from "@/server/budget/releaseBudget";
 import { executeSwarm, type ChildOutcome, type PlannedAgent } from "@/server/swarms/executeSwarm";
+import { validateDag } from "@/server/swarms/dag";
 import { detectDuplicateTasks, type DuplicateWarning } from "@/server/swarms/task-dedup";
 import { findTemplate, expandTemplate } from "@/server/swarms/swarm-templates";
 import { fanOutWebhook } from "@/modules/webhooks/webhook-service";
@@ -39,6 +40,13 @@ type Db = ReturnType<typeof getDb>;
 const MAX_WORKERS = 16;
 const DEFAULT_GPU_SECONDS_PER_WORKER = 60;
 
+/** A named step in a DAG swarm: runs after its dependencies, seeing their outputs. */
+export interface SwarmStep {
+  name: string;
+  task: string;
+  dependsOn?: string[];
+}
+
 export interface SpawnSwarmRequest {
   /**
    * One worker agent is spawned per task. Optional when `templateId` is
@@ -46,6 +54,13 @@ export interface SpawnSwarmRequest {
    * by supplying explicit tasks here.
    */
   tasks?: string[];
+  /**
+   * DAG mode: named steps with dependency edges. A step runs once every step it
+   * `dependsOn` has succeeded, receiving those steps' outputs as context;
+   * independent steps run concurrently (topological waves). Mutually exclusive
+   * with tasks/templateId/sequential — the graph defines the ordering.
+   */
+  steps?: SwarmStep[];
   /**
    * Pre-built swarm pattern. When provided, tasks / aggregatorTask / sequential
    * default to the template's values; explicit fields on this request override
@@ -162,6 +177,8 @@ function swarmRunToResponse(
 /** Fully-resolved swarm plan: validated tasks, per-worker budgets, and totals. */
 interface SwarmPlan {
   tasks: string[];
+  /** DAG mode: validated named steps aligned 1:1 with `tasks`. */
+  steps?: SwarmStep[];
   aggregatorTask?: string;
   sequential?: boolean;
   duplicateWarnings: DuplicateWarning[];
@@ -181,8 +198,26 @@ interface SwarmPlan {
  * validation/budget errors either place.
  */
 function computeSwarmPlan(request: SpawnSwarmRequest): SwarmPlan {
+  // DAG mode: steps define both the tasks and the ordering; sequential/template
+  // don't compose with a graph.
+  let steps: SwarmStep[] | undefined;
+  if (request.steps !== undefined && request.steps.length > 0) {
+    if ((request.tasks ?? []).length > 0 || request.templateId !== undefined || request.sequential) {
+      throw Errors.validation("steps is mutually exclusive with tasks/templateId/sequential");
+    }
+    steps = request.steps.map((s) => ({
+      name: s.name.trim(),
+      task: s.task.trim(),
+      dependsOn: s.dependsOn,
+    }));
+    validateDag(steps);
+    if (steps.some((s) => s.task.length === 0)) {
+      throw Errors.validation("Every step needs a non-empty task");
+    }
+  }
+
   // Template expansion: apply template defaults, then let caller overrides win.
-  let rawTasks = request.tasks ?? [];
+  let rawTasks = steps ? steps.map((s) => s.task) : (request.tasks ?? []);
   let aggregatorTask = request.aggregatorTask;
   let sequential = request.sequential;
   if (request.templateId !== undefined) {
@@ -267,6 +302,7 @@ function computeSwarmPlan(request: SpawnSwarmRequest): SwarmPlan {
 
   return {
     tasks,
+    steps,
     aggregatorTask,
     sequential,
     duplicateWarnings,
@@ -405,7 +441,11 @@ export async function spawnSwarm(
     );
   }
 
-  const planned: PlannedAgent[] = tasks.map((task, i) => ({ role: `worker-${i + 1}`, instructions: task }));
+  // DAG mode names each worker after its step and carries the dependency edges;
+  // plain mode keeps the positional worker-N roles.
+  const planned: PlannedAgent[] = plan.steps
+    ? plan.steps.map((step) => ({ role: step.name, instructions: step.task, dependsOn: step.dependsOn }))
+    : tasks.map((task, i) => ({ role: `worker-${i + 1}`, instructions: task }));
   // Build the full prompt for a worker: shared objective + task + optional prior output.
   const taskFor = (instructions: string, previousOutput?: unknown): string => {
     const parts: string[] = [];
@@ -546,6 +586,7 @@ export async function spawnSwarm(
       budgetMinor: aggregateMinor,
       failurePolicy: "best_effort",
       parallel: !sequential,
+      dag: plan.steps !== undefined,
       aggregatorTask: aggregatorTask,
       maxRetries: 1,
     });
@@ -766,7 +807,8 @@ export async function enqueueSwarm(
     input: {
       existingRunId: run.id,
       resourceBundleId: bundleId,
-      tasks: plan.tasks,
+      tasks: plan.steps ? undefined : plan.tasks,
+      steps: plan.steps,
       objective: request.objective,
       model: plan.model,
       budgetMinor: request.budgetMinor,

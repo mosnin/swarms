@@ -54,13 +54,23 @@ governance gate, webhooks) — no new trust boundaries.
 
 ## Horizon 3 — composability & moat (defend and expand)
 
-7. **DAG workflows.** Dependencies between tasks (fan-in / fan-out, B-after-A
-   with A's output threaded in) — real pipelines without a heavyweight engine.
-8. **Replay with overrides / experiments.** Re-run any past run with a tweaked
-   model / prompt / budget for A/B comparison — an optimization flywheel.
-9. **API-key scoping & rotation, connector marketplace.** Per-key budget caps,
-   one-click rotation, and more first-class inheritable MCP connectors —
-   multi-tenant scale + ecosystem.
+7. **✅ DAG workflows.** Shipped: `steps` on POST /api/v1/swarms — named steps
+   with `dependsOn` edges, validated as a proper DAG (pure Kahn-based module)
+   and executed by the director in topological waves: independent steps run
+   concurrently, dependants receive their dependencies' outputs keyed by step
+   name, and a failed step cascade-skips its dependants at zero cost. Reuses
+   the whole swarm spine (budget split, worker rows, cancel, stream, webhooks).
+8. **✅ Replay with overrides / experiments.** Shipped: POST /:id/replay on
+   jobs, swarms, and simulations. Re-runs a past run as a NEW run with tweaked
+   task/objective/model/budget/maxRounds; inherited resources re-attached
+   server-side, full policy + budget gates re-applied, fresh idempotency key
+   (with `replayTag` to run several variants), response carries `replayedFrom`.
+9. **✅ API-key scoping & rotation.** Per-key hard-stop budget caps shipped
+   earlier (`budgetMinor` at key creation → scoped budget). Now added:
+   POST /api/v1/keys/:keyId/rotate — rotates the secret IN PLACE (same key id,
+   so the scoped budget, audit attribution, and schedules keep working; the old
+   secret dies immediately; new plaintext returned exactly once). Remaining
+   (ecosystem, not architecture): a broader first-party connector marketplace.
 
 Each phase lands behind the same bar as the rest of the repo: strict TS, Zod at
 every boundary, server-side authz on every mutation, append-only money, and

@@ -38,8 +38,25 @@ const body = z
      * GET /api/v1/swarms/templates lists all available templates.
      */
     templateId: z.string().optional(),
-    /** Required unless templateId is supplied. */
+    /** Required unless templateId or steps is supplied. */
     tasks: z.array(z.string().min(1).max(20_000)).min(1).max(16).optional(),
+    /**
+     * DAG mode: named steps with dependency edges. A step runs after every step
+     * it dependsOn succeeds, receiving those steps' outputs as context;
+     * independent steps run concurrently (topological waves). Mutually
+     * exclusive with tasks/templateId/sequential.
+     */
+    steps: z
+      .array(
+        z.object({
+          name: z.string().min(1).max(64),
+          task: z.string().min(1).max(20_000),
+          dependsOn: z.array(z.string().min(1).max(64)).max(16).optional(),
+        }),
+      )
+      .min(1)
+      .max(16)
+      .optional(),
     objective: z.string().max(2_000).optional(),
     resources: resourcesSchema,
     model: z.string().max(96).optional(),
@@ -68,10 +85,16 @@ const body = z
      */
     callbackUrl: z.string().url().optional(),
   })
-  .refine((d) => d.templateId !== undefined || (d.tasks !== undefined && d.tasks.length > 0), {
-    message: "Provide tasks or templateId",
-    path: ["tasks"],
-  })
+  .refine(
+    (d) =>
+      d.templateId !== undefined ||
+      (d.tasks !== undefined && d.tasks.length > 0) ||
+      (d.steps !== undefined && d.steps.length > 0),
+    {
+      message: "Provide tasks, steps, or templateId",
+      path: ["tasks"],
+    },
+  )
   .refine((d) => !(d.budgetUsd !== undefined && d.budgetMinor !== undefined), {
     message: "Provide budgetUsd or budgetMinor, not both",
     path: ["budgetUsd"],
@@ -125,6 +148,9 @@ export async function POST(request: NextRequest): Promise<Response> {
       await assertSafeUrl(server.url, `mcpServers[${server.name}].url`);
     }
 
+    // DAG mode: steps define both work and ordering; skip template expansion.
+    const steps = rest.steps;
+
     // Expand template defaults, then apply any caller overrides.
     let tasks = rest.tasks;
     let aggregatorTask = rest.aggregatorTask;
@@ -139,8 +165,8 @@ export async function POST(request: NextRequest): Promise<Response> {
       aggregatorTask = rest.aggregatorTask ?? expanded.aggregatorTask;
       sequential = rest.sequential ?? expanded.sequential;
     }
-    if (!tasks || tasks.length === 0) {
-      throw Errors.validation("tasks is required when templateId is not provided");
+    if (!steps && (!tasks || tasks.length === 0)) {
+      throw Errors.validation("tasks is required when templateId/steps are not provided");
     }
 
     const budgetMinor = rest.budgetMinor ?? (budgetUsd !== undefined ? usdToMinor(budgetUsd) : undefined);
@@ -149,6 +175,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       idempotencyKey ??
       deriveIdempotencyKey(ctx.organizationId, {
         tasks,
+        steps,
         objective: rest.objective,
         model: rest.model,
         aggregatorTask,
@@ -161,6 +188,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     // request thread; clients poll GET /swarms/:id or stream for the result.
     const response = await enqueueSwarm(ctx, {
       tasks,
+      steps,
       objective: rest.objective,
       resources: rest.resources,
       model: rest.model,
