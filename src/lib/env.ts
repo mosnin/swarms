@@ -134,6 +134,13 @@ export const envSchema = z.object({
   // `none` disables auto-reload capture entirely (attempts are recorded failed).
   // Production wires a real processor adapter here.
   TOPUP_PROVIDER: z.enum(["mock", "none"]).default("mock"),
+
+  // Cost anomaly detection: alert when a settled charge exceeds `factor`× the
+  // trailing average charge for the org (over the last `window` charges) and is
+  // above the `min` floor (so trivial charges never alarm). 0 factor disables.
+  COST_ANOMALY_FACTOR: z.coerce.number().nonnegative().default(4),
+  COST_ANOMALY_MIN_MINOR: z.coerce.number().int().nonnegative().default(100),
+  COST_ANOMALY_WINDOW: z.coerce.number().int().positive().default(20),
 }).superRefine((data, ctx) => {
   // Whenever the S3 object-store adapter is selected, its bucket + credentials
   // must be present — otherwise every artifact upload 500s lazily. Enforced in

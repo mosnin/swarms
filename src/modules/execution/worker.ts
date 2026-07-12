@@ -12,6 +12,7 @@ import { getDb } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
 import { Errors } from "@/lib/errors";
 import { commitBudget } from "@/server/budget/commitBudget";
+import { checkCostAnomaly } from "@/server/billing/costAnomaly";
 import type { DirectorSwarmConfig } from "@/server/runners/swarmRunner";
 import type { DirectorSimulationConfig } from "@/server/runners/simulationRunner";
 import { releaseBudget } from "@/server/budget/releaseBudget";
@@ -223,6 +224,8 @@ function deps(db: Db, workerId: string): ProcessDeps {
         resourceId: job.id,
         after: { costMinor, currency },
       }, db);
+      // Flag a charge far above the org's recent average (best-effort).
+      await checkCostAnomaly(job, costMinor, db).catch(() => undefined);
     },
     async onReleaseHold(job, currency) {
       // Fallback: commitBudget failed after job was marked succeeded. Release

@@ -40,8 +40,13 @@ governance gate, webhooks) — no new trust boundaries.
 5. **Evaluators / quality scoring.** Optional post-run judge (LLM-as-judge or
    rubric) that scores outputs and can gate aggregation on a threshold. Turns
    "it ran" into "it ran well" — a premium metered add-on.
-6. **Cost anomaly alerts.** Detect runs that cost N× their estimate and alert
-   via the existing webhook fan-out. Trust + cost-control for finance buyers.
+6. **✅ Cost anomaly alerts.** Shipped: after a charge commits, compare it to
+   the org's trailing average (last N charges); a spend ≥ factor× the average
+   and above a floor raises a `cost.anomaly` audit event + webhook. Pure
+   detector, worker-hooked, env-tunable (COST_ANOMALY_FACTOR/MIN/WINDOW).
+
+5. **Evaluators / quality scoring.** (next) Optional post-run LLM-as-judge that
+   scores outputs and can gate aggregation on a threshold.
 
 ## Horizon 3 — composability & moat (defend and expand)
 
