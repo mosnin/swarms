@@ -30,10 +30,13 @@ governance gate, webhooks) — no new trust boundaries.
 
 ## Horizon 2 — trust & expansion (convert usage to durable revenue)
 
-4. **Human-in-the-loop approvals.** A pending-approvals inbox (dashboard +
-   webhook + MCP approve/reject) on top of the existing `require_approval`
-   policy effect — makes governance actually usable and unblocks approval for
-   swarms/simulations.
+4. **✅ Human-in-the-loop approvals.** A pending-approvals inbox on top of the
+   existing `require_approval` policy effect. Shipped: swarms + simulations now
+   honor `require_approval` (held in `awaiting_approval`, director not enqueued,
+   run not started) instead of refusing; approval-service list/approve/reject
+   (approve enqueues + flips the run to queued, reject cancels both), human-only
+   guard (an agent principal cannot approve its own gated spend), approval
+   webhooks, routes, MCP catalog.
 5. **Evaluators / quality scoring.** Optional post-run judge (LLM-as-judge or
    rubric) that scores outputs and can gate aggregation on a threshold. Turns
    "it ran" into "it ran well" — a premium metered add-on.

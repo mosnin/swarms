@@ -13,7 +13,7 @@
  * Increment CATALOG_VERSION whenever any skill version bumps.
  */
 
-export const CATALOG_VERSION = "1.7.0";
+export const CATALOG_VERSION = "1.8.0";
 
 export interface JsonSchema {
   type?: string;
@@ -1474,6 +1474,69 @@ const GET_USAGE: SkillDefinition = {
   },
 };
 
+// ── Approvals (human-in-the-loop) ─────────────────────────────────────────────
+
+const LIST_APPROVALS: SkillDefinition = {
+  id: "list-approvals",
+  version: "1.0.0",
+  name: "List pending approvals, approve, or reject",
+  description:
+    "When a governance policy requires approval, the spend (agent job, swarm, or simulation) is held in " +
+    "`awaiting_approval` and not run. GET /api/v1/approvals lists what's pending with its estimated cost. " +
+    "A human approves with POST /api/v1/approvals/:jobId/approve (enqueues it) or rejects with " +
+    "POST /api/v1/approvals/:jobId/reject (cancels it, optional reason). Approval is a human action — an " +
+    "API-key/agent principal cannot approve its own gated spend.",
+  endpoint: "/api/v1/approvals",
+  method: "GET",
+  auth: "bearer",
+  output: {
+    type: "object",
+    required: ["approvals"],
+    properties: {
+      approvals: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            jobId: { type: "string" },
+            capabilityKind: { type: "string", enum: ["agent", "swarm", "simulation"] },
+            task: { type: "string" },
+            estimatedCostMinor: { type: "integer" },
+            currency: { type: "string" },
+            runId: { type: "string", description: "The swarm/simulation run this gates, if any." },
+            createdAt: { type: "string" },
+          },
+        },
+      },
+    },
+  },
+  examples: [
+    {
+      title: "List pending approvals",
+      curl: `curl "$SWARMS_URL/api/v1/approvals" -H "Authorization: Bearer $SWARMS_API_KEY"`,
+    },
+    {
+      title: "Approve a held run",
+      curl: `curl -X POST "$SWARMS_URL/api/v1/approvals/job_01abc/approve" -H "Authorization: Bearer $SWARMS_API_KEY"`,
+    },
+    {
+      title: "Reject with a reason",
+      curl: `curl -X POST "$SWARMS_URL/api/v1/approvals/job_01abc/reject" \\
+  -H "Authorization: Bearer $SWARMS_API_KEY" -H "Content-Type: application/json" \\
+  -d '{"reason":"over budget for this quarter"}'`,
+    },
+  ],
+  relatedSkills: ["spawn-agent", "spawn-swarm", "simulate"],
+  tool: {
+    type: "function",
+    function: {
+      name: "list_approvals",
+      description: "List spends held for human approval (with estimated cost). Approve/reject via the :jobId routes.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+};
+
 // ── Catalog ───────────────────────────────────────────────────────────────────
 
 export const SKILL_CATALOG: SkillCatalog = {
@@ -1498,6 +1561,7 @@ export const SKILL_CATALOG: SkillCatalog = {
     UPLOAD_ARTIFACT,
     GET_BALANCE,
     GET_USAGE,
+    LIST_APPROVALS,
     SPAWN_AGENT,
     GET_JOB,
     GET_JOB_LOGS,

@@ -692,14 +692,10 @@ export async function enqueueSwarm(
     await writeAudit(ctx, { action: "policy.denied", resourceType: "swarm", after: { reason: decision.reason } }, db);
     throw Errors.policyDenied(decision.reason, { rule: decision.matchedRule?.name });
   }
-  if (decision.effect === "require_approval") {
-    // Swarms have no per-run approval flow; rather than silently bypass the
-    // policy, refuse and point the caller at the approvable single-agent path.
-    throw Errors.policyDenied(
-      "This spend requires approval, which swarm runs do not support. Split it into individual agent jobs (which can be approved) or adjust the policy.",
-      { rule: decision.matchedRule?.name },
-    );
-  }
+  // require_approval: create the run + director in `awaiting_approval` and do not
+  // enqueue. A human approves it via the approvals inbox, which enqueues the
+  // director and flips the run to queued.
+  const requireApproval = decision.effect === "require_approval";
 
   // Idempotency: a replayed key returns the original run as-is.
   const existing = (
@@ -738,7 +734,7 @@ export async function enqueueSwarm(
       .values({
         organizationId: ctx.organizationId,
         idempotencyKey: request.idempotencyKey,
-        status: "queued",
+        status: requireApproval ? "awaiting_approval" : "queued",
         input: {
           objective: request.objective ?? null,
           workerCount: plan.tasks.length,
@@ -783,6 +779,9 @@ export async function enqueueSwarm(
     },
     idempotencyKey: `swarm-director-${run.id}`,
     currency: plan.currency,
+    // Gated spend: create the director awaiting_approval and don't enqueue until
+    // a human approves via the inbox.
+    requireApproval,
     // The director is not resumable: a retry would find the run already
     // "running", no-op, and falsely report success. Never retry it — orphaned
     // runs are recovered by the swarm-run reaper instead.
@@ -792,7 +791,7 @@ export async function enqueueSwarm(
   await writeAudit(
     ctx,
     {
-      action: "swarm.spawned",
+      action: requireApproval ? "swarm.approval_required" : "swarm.spawned",
       resourceType: "swarm_run",
       resourceId: run.id,
       after: { workers: plan.tasks.length, model: plan.model, directorJobId: job.id, async: true },

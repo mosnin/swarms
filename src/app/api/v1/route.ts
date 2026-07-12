@@ -37,6 +37,7 @@ export function GET(request: NextRequest): Response {
       balance: "/api/v1/billing/balance",
       usage: "/api/v1/billing/usage",
       autoReload: "/api/v1/billing/auto-reload",
+      approvals: "/api/v1/approvals",
       jobs: "/api/v1/jobs",
       spawn: "/api/v1/spawn",
     },

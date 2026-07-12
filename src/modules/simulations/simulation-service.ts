@@ -112,12 +112,10 @@ export async function enqueueSimulation(
     await writeAudit(ctx, { action: "policy.denied", resourceType: "simulation", after: { reason: decision.reason } }, db);
     throw Errors.policyDenied(decision.reason, { rule: decision.matchedRule?.name });
   }
-  if (decision.effect === "require_approval") {
-    throw Errors.policyDenied(
-      "This spend requires approval, which simulation runs do not support. Split it into individual agent jobs (which can be approved) or adjust the policy.",
-      { rule: decision.matchedRule?.name },
-    );
-  }
+  // require_approval: create the run + director job in `awaiting_approval` and do
+  // NOT reserve or enqueue. A human approves it via the approvals inbox, which
+  // enqueues the director and flips the run to queued.
+  const requireApproval = decision.effect === "require_approval";
 
   const idempotencyKey =
     input.idempotencyKey ??
@@ -183,7 +181,7 @@ export async function enqueueSimulation(
           idempotencyKey,
           mode: config.mode,
           frameworkId: config.frameworkId ?? null,
-          status: "queued",
+          status: requireApproval ? "awaiting_approval" : "queued",
           input: {
             objective: config.objective ?? null,
             agentCount: config.agents.length,
@@ -219,6 +217,9 @@ export async function enqueueSimulation(
       budgetMinor,
       currency: estimate.currency,
       enqueue: false,
+      // Gated spend: create in awaiting_approval and don't reserve/enqueue until
+      // a human approves via the inbox.
+      requireApproval,
       // Poller-claimed (NOT orchestrated) — one sandbox, one charged job.
       // Not resumable: a retry would find the run already running and no-op,
       // so never retry it (the sim-run reaper recovers orphans).
@@ -231,7 +232,7 @@ export async function enqueueSimulation(
       .set({ directorJobId: created.job.id })
       .where(eq(schema.simulationRuns.id, createdRun.id));
 
-    if (!created.replay) {
+    if (!created.replay && !requireApproval) {
       await checkAndReserveBudget(
         {
           organizationId: ctx.organizationId,
@@ -246,13 +247,14 @@ export async function enqueueSimulation(
     return { run: createdRun, job: created.job };
   });
 
-  // Hold committed — now make the director claimable by the worker.
-  await publishJob(job);
+  // Hold committed — now make the director claimable by the worker. A gated
+  // (awaiting_approval) director is NOT published; approval enqueues it.
+  if (!requireApproval) await publishJob(job);
 
   await writeAudit(
     ctx,
     {
-      action: "simulation.spawned",
+      action: requireApproval ? "simulation.approval_required" : "simulation.spawned",
       resourceType: "simulation_run",
       resourceId: run.id,
       after: { mode: config.mode, agents: config.agents.length, model: config.model, directorJobId: job.id },
