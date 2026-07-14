@@ -24,6 +24,23 @@ const config: Config = {
           "Arial",
           "sans-serif",
         ],
+        // Geist, scoped to the logged-out marketing site (loaded only by its
+        // layout) — falls back to the app's default sans everywhere else.
+        display: [
+          "var(--font-geist-sans)",
+          "var(--font-sans)",
+          "ui-sans-serif",
+          "system-ui",
+          "-apple-system",
+          "sans-serif",
+        ],
+        mono: [
+          "var(--font-geist-mono)",
+          "ui-monospace",
+          "SFMono-Regular",
+          "Menlo",
+          "monospace",
+        ],
       },
       colors: {
         border: "hsl(var(--border))",

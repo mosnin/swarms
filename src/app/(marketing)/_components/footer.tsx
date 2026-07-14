@@ -29,25 +29,25 @@ const COLS: { title: string; links: { href: string; label: string }[] }[] = [
 
 export function Footer() {
   return (
-    <footer className="mt-24 border-t bg-background/40">
+    <footer className="relative mt-24 overflow-hidden border-t border-neutral-100">
       <div className="mx-auto grid max-w-5xl gap-10 px-6 py-14 sm:grid-cols-2 md:grid-cols-4">
         <div className="space-y-3">
           <Link href="/" className="inline-flex items-center" aria-label="Swarms — home">
             <Image src="/logo.png" alt="Swarms" width={686} height={160} className="h-6 w-auto" />
           </Link>
-          <p className="max-w-xs text-sm text-muted-foreground">
-            An on-demand labor force for your AI agent. Rent GPU by the second, hard budget ceilings,
-            every run metered and auditable.
+          <p className="max-w-xs text-sm text-neutral-500">
+            An on-demand labor force for your AI agent. Rent GPU by the second, hard budget ceilings, every
+            run metered and auditable.
           </p>
         </div>
 
         {COLS.map((col) => (
           <div key={col.title}>
-            <h3 className="text-sm font-semibold">{col.title}</h3>
+            <h3 className="text-sm font-semibold text-neutral-900">{col.title}</h3>
             <ul className="mt-3 space-y-2">
               {col.links.map((l) => (
                 <li key={l.label}>
-                  <Link href={l.href} className="text-sm text-muted-foreground transition-colors hover:text-foreground">
+                  <Link href={l.href} className="text-sm text-neutral-500 transition-colors hover:text-neutral-950">
                     {l.label}
                   </Link>
                 </li>
@@ -56,8 +56,16 @@ export function Footer() {
           </div>
         ))}
       </div>
-      <div className="border-t">
-        <div className="mx-auto flex max-w-5xl flex-col items-center justify-between gap-2 px-6 py-6 text-xs text-muted-foreground sm:flex-row">
+
+      {/* Oversized wordmark, clipped at the container edge — a quiet signature. */}
+      <div aria-hidden="true" className="pointer-events-none relative h-20 select-none overflow-hidden sm:h-28 md:h-32">
+        <p className="absolute inset-x-0 top-0 whitespace-nowrap text-center font-display text-[16vw] font-semibold leading-none tracking-tighter text-neutral-50 sm:text-[11vw] md:text-[9vw]">
+          swarms
+        </p>
+      </div>
+
+      <div className="relative border-t border-neutral-100 bg-white">
+        <div className="mx-auto flex max-w-5xl flex-col items-center justify-between gap-2 px-6 py-6 text-xs text-neutral-400 sm:flex-row">
           <p>© {new Date().getFullYear()} Swarms — Agent Capability Cloud.</p>
           <p>Built for autonomous agents.</p>
         </div>
