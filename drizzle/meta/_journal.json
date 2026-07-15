@@ -176,6 +176,20 @@
       "when": 1783845843187,
       "tag": "0024_acoustic_redwing",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1784091582222,
+      "tag": "0025_curly_stellaris",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1784091620757,
+      "tag": "0026_admin_audit_append_only",
+      "breakpoints": true
     }
   ]
 }

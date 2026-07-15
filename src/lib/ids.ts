@@ -55,6 +55,8 @@ export const IdPrefix = {
   evaluation: "evl",
   webhookDelivery: "whd",
   webhookEndpoint: "whe",
+  platformAdmin: "pad",
+  adminAuditLog: "aal",
 } as const;
 
 export type IdPrefix = (typeof IdPrefix)[keyof typeof IdPrefix];

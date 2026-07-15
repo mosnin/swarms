@@ -15,3 +15,4 @@ export * from "@/lib/db/schema/evaluation";
 export * from "@/lib/db/schema/webhooks";
 export * from "@/lib/db/schema/ratelimit";
 export * from "@/lib/db/schema/resources";
+export * from "@/lib/db/schema/platform-admin";
