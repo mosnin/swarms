@@ -162,6 +162,22 @@
     animation: aurora-drift 18s ease-in-out infinite;
   }
 
+  /* A slow, living drift for gradient-clipped headline text. Animates
+     background-position only (the texture is prepainted) — no filters. */
+  @keyframes gradient-drift {
+    0%,
+    100% {
+      background-position: 0% 50%;
+    }
+    50% {
+      background-position: 100% 50%;
+    }
+  }
+  .animate-gradient-text {
+    background-size: 200% 100%;
+    animation: gradient-drift 7s ease-in-out infinite;
+  }
+
   /* Slow continuous rotation for orbital graphics — transform-only, own layer. */
   @keyframes spin-slow {
     from {

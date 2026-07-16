@@ -117,10 +117,12 @@ export function StoryHero({
   );
 }
 
-/** The gradient-emphasized fragment inside a hero title. */
+/** The gradient-emphasized fragment inside a hero title — the color drifts. */
 export function TitleEm({ accent, children }: { accent: Accent; children: React.ReactNode }) {
   return (
-    <span className={`bg-gradient-to-r ${ACCENT[accent].gradient} bg-clip-text font-semibold text-transparent`}>
+    <span
+      className={`animate-gradient-text bg-gradient-to-r ${ACCENT[accent].gradient} bg-clip-text font-semibold text-transparent`}
+    >
       {children}
     </span>
   );
@@ -182,7 +184,16 @@ export function Scene({
 }) {
   const a = ACCENT[accent];
   return (
-    <div className="grid items-center gap-10 md:grid-cols-2 md:gap-16">
+    <div className="relative grid items-center gap-10 md:grid-cols-2 md:gap-16">
+      {/* Time-dot on the spine (desktop): lights as the scene enters. */}
+      <motion.span
+        aria-hidden
+        initial={{ scale: 0, opacity: 0 }}
+        whileInView={{ scale: 1, opacity: 1 }}
+        viewport={{ once: true, margin: "-30% 0px -30% 0px" }}
+        transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+        className={`absolute -left-[45px] top-1.5 hidden h-2.5 w-2.5 rounded-full ${a.dot} ring-4 ring-white lg:block`}
+      />
       <Reveal direction={flip ? "right" : "left"} className={flip ? "md:order-2" : ""}>
         <p className={`font-mono text-xs font-medium uppercase tracking-widest ${a.text}`}>{time}</p>
         <h3 className="mt-3 font-display text-2xl font-semibold tracking-tight text-neutral-950 sm:text-3xl">
@@ -199,9 +210,27 @@ export function Scene({
   );
 }
 
-/** Wrapper giving scenes a shared vertical rhythm + connecting spine. */
+/**
+ * Wrapper giving scenes a shared vertical rhythm plus a connecting spine:
+ * an ink line that draws itself down the left edge as the story is read
+ * (scaleY on a composited layer — no layout, no paint).
+ */
 export function SceneList({ children }: { children: React.ReactNode }) {
-  return <div className="mx-auto max-w-6xl space-y-24 px-6 py-20 sm:space-y-32 sm:py-28">{children}</div>;
+  const ref = useRef<HTMLDivElement | null>(null);
+  const { scrollYProgress } = useScroll({ target: ref, offset: ["start 0.7", "end 0.6"] });
+
+  return (
+    <div ref={ref} className="relative mx-auto max-w-6xl px-6 py-20 sm:py-28">
+      {/* The spine (desktop only): quiet track + scroll-drawn ink fill. */}
+      <div aria-hidden className="absolute bottom-24 left-1 top-8 hidden w-px bg-neutral-100 lg:block" />
+      <motion.div
+        aria-hidden
+        style={{ scaleY: scrollYProgress, transformOrigin: "top", willChange: "transform" }}
+        className="absolute bottom-24 left-1 top-8 hidden w-px bg-neutral-950 lg:block"
+      />
+      <div className="space-y-24 sm:space-y-32 lg:pl-10">{children}</div>
+    </div>
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -294,8 +323,24 @@ export function Point({ accent, title, children }: { accent: Accent; title: stri
   );
 }
 
-/** Terminal-style code pane for feature pages. */
+/**
+ * Terminal-style code pane: lines type themselves in as the pane scrolls
+ * into view, and the header grows a copy button with a confirmed state.
+ */
 export function CodePane({ label, children }: { label: string; children: string }) {
+  const [copied, setCopied] = useState(false);
+  const lines = children.split("\n");
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(children);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch {
+      /* clipboard unavailable — silently ignore */
+    }
+  }
+
   return (
     <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-neutral-950 shadow-[0_24px_60px_-24px_rgb(0_0_0/0.35)]">
       <div className="flex items-center gap-1.5 border-b border-white/10 px-4 py-2.5">
@@ -303,9 +348,30 @@ export function CodePane({ label, children }: { label: string; children: string 
         <span className="h-2.5 w-2.5 rounded-full bg-white/15" />
         <span className="h-2.5 w-2.5 rounded-full bg-white/15" />
         <span className="ml-2 font-mono text-[11px] text-neutral-500">{label}</span>
+        <button
+          type="button"
+          onClick={copy}
+          aria-label="Copy code"
+          className="ml-auto rounded-md px-2 py-0.5 font-mono text-[10px] text-neutral-500 transition-colors hover:bg-white/10 hover:text-neutral-300"
+        >
+          {copied ? "copied ✓" : "copy"}
+        </button>
       </div>
       <pre className="overflow-x-auto p-5 font-mono text-[12.5px] leading-relaxed text-neutral-300">
-        <code>{children}</code>
+        <code>
+          {lines.map((line, i) => (
+            <motion.span
+              key={i}
+              initial={{ opacity: 0 }}
+              whileInView={{ opacity: 1 }}
+              viewport={{ once: true, margin: "-10% 0px" }}
+              transition={{ duration: 0.25, delay: Math.min(i, 18) * 0.05 }}
+              className="block min-h-[1.2em]"
+            >
+              {line || " "}
+            </motion.span>
+          ))}
+        </code>
       </pre>
     </div>
   );

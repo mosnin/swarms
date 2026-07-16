@@ -27,9 +27,20 @@ export function LogoCloud() {
           Runs on the infrastructure and open protocols you already trust
         </p>
       </Reveal>
-      <div className="mt-8">
-        <Marquee durationSeconds={28}>
-          {STACK.map((name) => (
+      {/* Two counter-scrolling rows: more texture, same calm. */}
+      <div className="mt-8 space-y-5">
+        <Marquee durationSeconds={30}>
+          {STACK.slice(0, 5).map((name) => (
+            <span
+              key={name}
+              className="shrink-0 select-none whitespace-nowrap font-display text-xl font-medium tracking-tight text-neutral-300 transition-colors hover:text-neutral-500 sm:text-2xl"
+            >
+              {name}
+            </span>
+          ))}
+        </Marquee>
+        <Marquee durationSeconds={38} reverse>
+          {STACK.slice(5).map((name) => (
             <span
               key={name}
               className="shrink-0 select-none whitespace-nowrap font-display text-xl font-medium tracking-tight text-neutral-300 transition-colors hover:text-neutral-500 sm:text-2xl"

@@ -1,6 +1,7 @@
 import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 
+import { AnnouncementBar } from "@/app/(marketing)/_components/announcement-bar";
 import { Footer } from "@/app/(marketing)/_components/footer";
 import { MarketingNav } from "@/app/(marketing)/_components/marketing-nav";
 import { MotionProvider } from "@/app/(marketing)/_components/motion-provider";
@@ -18,6 +19,7 @@ export default function MarketingLayout({ children }: { children: React.ReactNod
       className={`${GeistSans.variable} ${GeistMono.variable} min-h-screen bg-white font-display text-neutral-950 antialiased`}
     >
       <MotionProvider>
+        <AnnouncementBar />
         <MarketingNav />
         <div className="animate-page-in">{children}</div>
         <Footer />
