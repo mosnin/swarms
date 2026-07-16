@@ -2,7 +2,9 @@ import Link from "next/link";
 import type { Metadata } from "next";
 
 import { Aurora } from "@/app/(marketing)/_components/aurora";
+import { CtaBand } from "@/app/(marketing)/_components/cta-band";
 import { Reveal, RevealGroup } from "@/app/(marketing)/_components/reveal";
+import { Comparison } from "@/app/(marketing)/pricing/_components/comparison";
 import { CostCalculator } from "@/app/(marketing)/pricing/_components/cost-calculator";
 
 export const metadata: Metadata = { title: "Pricing — Swarms" };
@@ -109,7 +111,7 @@ export default function PricingPage() {
               </div>
               <p className="mt-2 text-sm text-neutral-500">{t.blurb}</p>
               <Link
-                href={t.name === "Enterprise" ? "/about" : "/login"}
+                href={t.name === "Enterprise" ? "/company" : "/login"}
                 className={
                   t.highlight
                     ? "mt-6 flex w-full items-center justify-center rounded-full bg-neutral-950 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-transform active:scale-[0.98]"
@@ -131,6 +133,8 @@ export default function PricingPage() {
         </RevealGroup>
       </section>
 
+      <Comparison />
+
       <Reveal className="mx-auto max-w-2xl px-6 pb-24 text-center">
         <p className="text-sm text-neutral-400">
           GPU-seconds are billed in integer minor units with an append-only ledger and exactly-once
@@ -138,6 +142,8 @@ export default function PricingPage() {
           any run and the platform physically cannot exceed it.
         </p>
       </Reveal>
+
+      <CtaBand />
     </main>
   );
 }

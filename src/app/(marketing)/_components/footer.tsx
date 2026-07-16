@@ -1,14 +1,16 @@
 import Image from "next/image";
 import Link from "next/link";
 
+import { FEATURES, USE_CASES } from "@/app/(marketing)/_lib/site-map";
+
 const COLS: { title: string; links: { href: string; label: string }[] }[] = [
   {
-    title: "Product",
-    links: [
-      { href: "/pricing", label: "Pricing" },
-      { href: "/docs", label: "Docs" },
-      { href: "/login", label: "Sign in" },
-    ],
+    title: "Features",
+    links: FEATURES.map((f) => ({ href: f.href, label: f.name })),
+  },
+  {
+    title: "Use cases",
+    links: USE_CASES.map((u) => ({ href: u.href, label: u.name })),
   },
   {
     title: "Developers",
@@ -16,12 +18,15 @@ const COLS: { title: string; links: { href: string; label: string }[] }[] = [
       { href: "/docs", label: "Quickstart" },
       { href: "/docs#api", label: "API reference" },
       { href: "/docs#mcp", label: "MCP" },
+      { href: "/pricing", label: "Pricing" },
     ],
   },
   {
     title: "Company",
     links: [
-      { href: "/about", label: "About" },
+      { href: "/company", label: "Company" },
+      { href: "/security", label: "Security" },
+      { href: "/login", label: "Sign in" },
       { href: "mailto:hello@swarms.dev", label: "Contact" },
     ],
   },
@@ -30,7 +35,7 @@ const COLS: { title: string; links: { href: string; label: string }[] }[] = [
 export function Footer() {
   return (
     <footer className="relative mt-24 overflow-hidden border-t border-neutral-100">
-      <div className="mx-auto grid max-w-5xl gap-10 px-6 py-14 sm:grid-cols-2 md:grid-cols-4">
+      <div className="mx-auto grid max-w-5xl gap-10 px-6 py-14 sm:grid-cols-2 md:grid-cols-5">
         <div className="space-y-3">
           <Link href="/" className="inline-flex items-center" aria-label="Swarms — home">
             <Image src="/logo.png" alt="Swarms" width={686} height={160} className="h-6 w-auto" />
