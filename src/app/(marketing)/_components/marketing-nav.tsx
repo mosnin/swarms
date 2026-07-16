@@ -42,14 +42,31 @@ export function MarketingNav() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const openMenu = useCallback((key: Exclude<MenuKey, null>) => {
+  const openTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearTimers = useCallback(() => {
     if (closeTimer.current) clearTimeout(closeTimer.current);
-    setMenu(key);
+    if (openTimer.current) clearTimeout(openTimer.current);
   }, []);
+  /**
+   * Hover intent: the first open waits ~90ms so a cursor passing across the
+   * nav never flashes a panel; switching between already-open menus is
+   * instant, the standard mega-menu feel.
+   */
+  const openMenu = useCallback(
+    (key: Exclude<MenuKey, null>) => {
+      clearTimers();
+      setMenu((current) => {
+        if (current !== null) return key;
+        openTimer.current = setTimeout(() => setMenu(key), 90);
+        return current;
+      });
+    },
+    [clearTimers],
+  );
   const scheduleClose = useCallback(() => {
-    if (closeTimer.current) clearTimeout(closeTimer.current);
+    clearTimers();
     closeTimer.current = setTimeout(() => setMenu(null), CLOSE_DELAY_MS);
-  }, []);
+  }, [clearTimers]);
   const cancelClose = useCallback(() => {
     if (closeTimer.current) clearTimeout(closeTimer.current);
   }, []);

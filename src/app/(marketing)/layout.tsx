@@ -3,6 +3,7 @@ import { GeistMono } from "geist/font/mono";
 
 import { Footer } from "@/app/(marketing)/_components/footer";
 import { MarketingNav } from "@/app/(marketing)/_components/marketing-nav";
+import { MotionProvider } from "@/app/(marketing)/_components/motion-provider";
 
 /**
  * The logged-out site is a deliberately distinct visual world from the
@@ -16,9 +17,11 @@ export default function MarketingLayout({ children }: { children: React.ReactNod
     <div
       className={`${GeistSans.variable} ${GeistMono.variable} min-h-screen bg-white font-display text-neutral-950 antialiased`}
     >
-      <MarketingNav />
-      <div className="animate-page-in">{children}</div>
-      <Footer />
+      <MotionProvider>
+        <MarketingNav />
+        <div className="animate-page-in">{children}</div>
+        <Footer />
+      </MotionProvider>
     </div>
   );
 }
