@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 
 import { ok, readJsonBody, route } from "@/lib/api";
 import { clientIpFrom } from "@/lib/client-ip";
+import { getDb } from "@/lib/db";
 import { requestIdFrom } from "@/lib/request-id";
 import { authenticatePlatformAdmin, enforceAdminRateLimit, logAdminAction } from "@/modules/admin/authz";
 import { assertBreakGlassReason, reinstateOrganization } from "@/modules/admin/mutations";
@@ -21,15 +22,22 @@ export async function POST(
     const body = (await readJsonBody(request)) as { reason?: unknown } | null;
     const reason = assertBreakGlassReason(body?.reason);
 
-    await reinstateOrganization(organizationId);
-    await logAdminAction(admin, {
-      action: "admin.organization.reinstate",
-      resourceType: "organization",
-      resourceId: organizationId,
-      targetOrganizationId: organizationId,
-      reason,
-      requestId: requestIdFrom(request.headers),
-      ip: clientIpFrom(request.headers),
+    // Mutation + audit row commit together (see suspend route).
+    await getDb().transaction(async (tx) => {
+      await reinstateOrganization(organizationId, tx);
+      await logAdminAction(
+        admin,
+        {
+          action: "admin.organization.reinstate",
+          resourceType: "organization",
+          resourceId: organizationId,
+          targetOrganizationId: organizationId,
+          reason,
+          requestId: requestIdFrom(request.headers),
+          ip: clientIpFrom(request.headers),
+        },
+        tx,
+      );
     });
 
     return ok({ organizationId, status: "active" });
