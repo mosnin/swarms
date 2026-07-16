@@ -234,6 +234,26 @@ export async function revokeApiKey(
 /* Authentication                                                      */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Enforce that the principal's organization is not suspended/archived. This is
+ * part of the authentication choke point: a platform-level suspension (see
+ * `modules/admin/mutations.ts`) must cut off BOTH machine and human access on
+ * the very next request, fail-closed.
+ */
+async function assertOrganizationActive(organizationId: string, db: Db): Promise<void> {
+  const org = (
+    await db
+      .select({ status: schema.organizations.status })
+      .from(schema.organizations)
+      .where(eq(schema.organizations.id, organizationId))
+      .limit(1)
+  )[0];
+  if (!org) throw Errors.unauthorized("Organization not found");
+  if (org.status !== "active") {
+    throw Errors.forbidden("This organization is suspended. Contact support.");
+  }
+}
+
 /** Resolve an agent context from a raw API key. Throws `UNAUTHORIZED` on failure. */
 export async function authenticateApiKey(rawKey: string, db: Db = getDb()): Promise<AuthContext> {
   if (!looksLikeApiKey(rawKey)) throw Errors.unauthorized("Invalid API key");
@@ -245,6 +265,7 @@ export async function authenticateApiKey(rawKey: string, db: Db = getDb()): Prom
   if (!row) throw Errors.unauthorized("Invalid API key");
   if (row.revokedAt) throw Errors.unauthorized("API key revoked");
   if (row.expiresAt && isExpired(row.expiresAt)) throw Errors.unauthorized("API key expired");
+  await assertOrganizationActive(row.organizationId, db);
 
   // Best-effort last-used stamp; failures here must not block authentication.
   await db
@@ -293,6 +314,7 @@ export async function resolveSessionContext(
       )[0];
 
   if (!membership) throw Errors.forbidden("User is not a member of the requested organization");
+  await assertOrganizationActive(membership.organizationId, db);
 
   return userContext({
     organizationId: membership.organizationId,

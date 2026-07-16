@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { OrgActions } from "@/app/admin/_components/org-actions";
 import { Card, CardBody } from "@/components/ui/card";
 import { clientIpFrom } from "@/lib/client-ip";
 import { format } from "@/lib/money";
@@ -60,9 +61,12 @@ export default async function AdminOrganizationDetailPage({
           <h1 className="mt-1 text-xl font-semibold tracking-tight">{org.name}</h1>
           <p className="mt-0.5 font-mono text-xs text-muted-foreground">{org.id} · {org.slug}</p>
         </div>
-        <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${STATUS_TONE[org.status] ?? "bg-muted text-muted-foreground"}`}>
-          {org.status}
-        </span>
+        <div className="flex items-center gap-3">
+          <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${STATUS_TONE[org.status] ?? "bg-muted text-muted-foreground"}`}>
+            {org.status}
+          </span>
+          <OrgActions organizationId={org.id} status={org.status} />
+        </div>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
