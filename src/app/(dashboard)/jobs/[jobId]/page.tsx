@@ -2,6 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { SignInNotice } from "@/app/(dashboard)/_components/sign-in-notice";
+import { StatusPill } from "@/components/ui/status-pill";
+import { DataTable, TD, TH, THead, TR } from "@/components/ui/table";
 import { format } from "@/lib/money";
 import { redact } from "@/lib/redaction";
 import { tryCurrentContext } from "@/modules/identity/current";
@@ -27,11 +29,14 @@ export default async function JobDetailPage({ params }: { params: Promise<{ jobI
           </Link>{" "}
           / {job.id}
         </p>
-        <h1 className="text-2xl font-bold">Job {job.status}</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-semibold tracking-tight">Job</h1>
+          <StatusPill status={job.status} />
+        </div>
       </header>
 
       <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <Meta label="Status" value={job.status} />
+        <Meta label="Status" value={<StatusPill status={job.status} />} />
         <Meta label="Kind" value={job.capabilityKind} />
         <Meta label="Cost" value={format({ amountMinor: job.costMinor, currency: job.costCurrency })} />
         <Meta label="Created" value={job.createdAt.toLocaleString()} />
@@ -62,30 +67,32 @@ export default async function JobDetailPage({ params }: { params: Promise<{ jobI
         {workerRuns.length === 0 ? (
           <Empty>No worker runs.</Empty>
         ) : (
-          <div className="rounded-lg border">
-            <table className="w-full text-left text-xs">
-              <thead className="border-b text-muted-foreground">
-                <tr>
-                  <th className="p-2">Worker</th>
-                  <th className="p-2">Runner</th>
-                  <th className="p-2">Status</th>
-                  <th className="p-2">Duration</th>
-                  <th className="p-2">Cost</th>
-                </tr>
-              </thead>
-              <tbody>
-                {workerRuns.map((w) => (
-                  <tr key={w.id} className="border-b last:border-0">
-                    <td className="p-2 font-mono">{w.workerId}</td>
-                    <td className="p-2">{w.runnerType ?? "—"}</td>
-                    <td className="p-2">{w.status}</td>
-                    <td className="p-2">{w.durationMs != null ? `${w.durationMs}ms` : "—"}</td>
-                    <td className="p-2">{format({ amountMinor: w.costMinor, currency: w.costCurrency })}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable>
+            <THead>
+              <TR>
+                <TH>Worker</TH>
+                <TH>Runner</TH>
+                <TH>Status</TH>
+                <TH>Duration</TH>
+                <TH>Cost</TH>
+              </TR>
+            </THead>
+            <tbody>
+              {workerRuns.map((w) => (
+                <TR key={w.id}>
+                  <TD className="font-mono text-xs">{w.workerId}</TD>
+                  <TD className="text-xs">{w.runnerType ?? "—"}</TD>
+                  <TD>
+                    <StatusPill status={w.status} />
+                  </TD>
+                  <TD className="text-xs tabular-nums">{w.durationMs != null ? `${w.durationMs}ms` : "—"}</TD>
+                  <TD className="text-xs tabular-nums">
+                    {format({ amountMinor: w.costMinor, currency: w.costCurrency })}
+                  </TD>
+                </TR>
+              ))}
+            </tbody>
+          </DataTable>
         )}
       </Section>
 
@@ -115,7 +122,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ jobI
   );
 }
 
-function Meta({ label, value }: { label: string; value: string }) {
+function Meta({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="rounded-lg border p-4">
       <dt className="text-sm text-muted-foreground">{label}</dt>

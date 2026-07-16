@@ -1,8 +1,7 @@
-import Link from "next/link";
-
 import { SignInNotice } from "@/app/(dashboard)/_components/sign-in-notice";
 import { SwarmSpawnForm } from "@/app/(dashboard)/swarms/_components/swarm-spawn-form";
 import { SwarmLive } from "@/app/(dashboard)/swarms/[swarmRunId]/_components/swarm-live";
+import { Id } from "@/components/ui/id";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusPill } from "@/components/ui/status-pill";
 import { DataTable, EmptyRow, TD, TH, THead, TR } from "@/components/ui/table";
@@ -44,10 +43,8 @@ export default async function SwarmsPage() {
           {runs.length === 0 && <EmptyRow colSpan={4}>No swarm runs yet.</EmptyRow>}
           {runs.map((r) => (
             <TR key={r.id}>
-              <TD className="font-mono text-xs">
-                <Link href={`/swarms/${r.id}`} className="hover:underline">
-                  {r.id}
-                </Link>
+              <TD className="text-xs">
+                <Id value={r.id} href={`/swarms/${r.id}`} />
               </TD>
               <TD>
                 <StatusPill status={r.status} />

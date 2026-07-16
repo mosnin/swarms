@@ -1,6 +1,5 @@
-import Link from "next/link";
-
 import { SignInNotice } from "@/app/(dashboard)/_components/sign-in-notice";
+import { Id } from "@/components/ui/id";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusPill } from "@/components/ui/status-pill";
 import { DataTable, EmptyRow, TD, TH, THead, TR } from "@/components/ui/table";
@@ -37,10 +36,8 @@ export default async function JobsPage() {
           {jobs.length === 0 && <EmptyRow colSpan={5}>No jobs yet.</EmptyRow>}
           {jobs.map((j) => (
             <TR key={j.id}>
-              <TD className="font-mono text-xs">
-                <Link href={`/jobs/${j.id}`} className="hover:underline">
-                  {j.id}
-                </Link>
+              <TD className="text-xs">
+                <Id value={j.id} href={`/jobs/${j.id}`} />
               </TD>
               <TD className="text-xs text-muted-foreground">{j.capabilityKind}</TD>
               <TD>

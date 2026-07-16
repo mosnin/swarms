@@ -1,7 +1,8 @@
-import Link from "next/link";
-
 import { SignInNotice } from "@/app/(dashboard)/_components/sign-in-notice";
+import { Id } from "@/components/ui/id";
+import { PageHeader } from "@/components/ui/page-header";
 import { StatTile } from "@/components/ui/stat-tile";
+import { DataTable, EmptyRow, TD, TH, THead, TR } from "@/components/ui/table";
 import { format } from "@/lib/money";
 import { tryCurrentContext } from "@/modules/identity/current";
 import { listLedger } from "@/modules/dashboard/reads";
@@ -21,12 +22,10 @@ export default async function UsagePage() {
 
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-2xl font-bold">Usage & spend</h1>
-        <p className="text-sm text-muted-foreground">
-          Balance, burn rate, and the append-only ledger of holds, charges, releases, and payments.
-        </p>
-      </header>
+      <PageHeader
+        title="Usage & spend"
+        description="Balance, burn rate, and the append-only ledger of holds, charges, releases, and payments."
+      />
 
       {usage && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -62,47 +61,33 @@ export default async function UsagePage() {
         </div>
       )}
 
-      <div className="rounded-lg border">
-        <table className="w-full text-left text-sm">
-          <thead className="border-b text-muted-foreground">
-            <tr>
-              <th className="p-3 font-medium">When</th>
-              <th className="p-3 font-medium">Direction</th>
-              <th className="p-3 font-medium">Kind</th>
-              <th className="p-3 font-medium">Amount</th>
-              <th className="p-3 font-medium">Job</th>
-            </tr>
-          </thead>
-          <tbody>
-            {entries.length === 0 && (
-              <tr>
-                <td className="p-6 text-center text-muted-foreground" colSpan={5}>
-                  No ledger entries yet.
-                </td>
-              </tr>
-            )}
-            {entries.map((e) => (
-              <tr key={e.id} className="border-b last:border-0">
-                <td className="p-3 text-xs">{e.createdAt.toLocaleString()}</td>
-                <td className="p-3 text-xs">{e.direction}</td>
-                <td className="p-3 text-xs">{e.kind}</td>
-                <td className="p-3 font-mono text-xs">
-                  {format({ amountMinor: e.amountMinor, currency: e.currency })}
-                </td>
-                <td className="p-3 font-mono text-xs">
-                  {e.jobId ? (
-                    <Link href={`/jobs/${e.jobId}`} className="hover:underline">
-                      {e.jobId.slice(0, 12)}…
-                    </Link>
-                  ) : (
-                    "—"
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <DataTable>
+        <THead>
+          <TR>
+            <TH>When</TH>
+            <TH>Direction</TH>
+            <TH>Kind</TH>
+            <TH>Amount</TH>
+            <TH>Job</TH>
+          </TR>
+        </THead>
+        <tbody>
+          {entries.length === 0 && <EmptyRow colSpan={5}>No ledger entries yet.</EmptyRow>}
+          {entries.map((e) => (
+            <TR key={e.id}>
+              <TD className="text-xs">{e.createdAt.toLocaleString()}</TD>
+              <TD className="text-xs">{e.direction}</TD>
+              <TD className="text-xs">{e.kind}</TD>
+              <TD className="font-mono text-xs tabular-nums">
+                {format({ amountMinor: e.amountMinor, currency: e.currency })}
+              </TD>
+              <TD className="text-xs">
+                {e.jobId ? <Id value={e.jobId} href={`/jobs/${e.jobId}`} /> : "—"}
+              </TD>
+            </TR>
+          ))}
+        </tbody>
+      </DataTable>
     </div>
   );
 }

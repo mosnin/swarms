@@ -1,5 +1,6 @@
 import { SignInNotice } from "@/app/(dashboard)/_components/sign-in-notice";
 import { ApiKeysManager } from "@/app/(dashboard)/settings/api-keys/_components/api-keys-manager";
+import { PageHeader } from "@/components/ui/page-header";
 import { can } from "@/modules/identity/access-control";
 import { tryCurrentContext } from "@/modules/identity/current";
 import { listApiKeys } from "@/modules/identity/service";
@@ -12,12 +13,7 @@ export default async function ApiKeysPage() {
 
   if (!can(ctx, "api_keys.manage")) {
     return (
-      <div className="space-y-2">
-        <h1 className="text-2xl font-bold">API Keys</h1>
-        <p className="text-sm text-muted-foreground">
-          You do not have permission to manage API keys.
-        </p>
-      </div>
+      <PageHeader title="API Keys" description="You do not have permission to manage API keys." />
     );
   }
 
@@ -25,12 +21,10 @@ export default async function ApiKeysPage() {
 
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-2xl font-bold">API Keys</h1>
-        <p className="text-sm text-muted-foreground">
-          Agent access tokens. Keys are shown once at creation and stored only as a hash.
-        </p>
-      </header>
+      <PageHeader
+        title="API Keys"
+        description="Agent access tokens. Keys are shown once at creation and stored only as a hash."
+      />
       <ApiKeysManager
         initialKeys={keys.map((key) => ({
           id: key.id,

@@ -3,6 +3,8 @@
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { format } from "@/lib/money";
+import { parseDollarsToMinor } from "@/lib/money-input";
 
 interface SpawnResult {
   jobId: string;
@@ -21,7 +23,8 @@ export function SpawnForm() {
   const [fileName, setFileName] = useState("");
   const [fileContent, setFileContent] = useState("");
   const [mcpText, setMcpText] = useState("");
-  const [budgetMinor, setBudgetMinor] = useState("120");
+  /** Dollars string (e.g. "1.20"); converted to integer minor units on submit. */
+  const [budgetUsd, setBudgetUsd] = useState("1.20");
   const [result, setResult] = useState<SpawnResult | null>(null);
   const [logs, setLogs] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -47,6 +50,11 @@ export function SpawnForm() {
   }
 
   async function spawn() {
+    const budgetMinor = budgetUsd.trim() === "" ? undefined : parseDollarsToMinor(budgetUsd);
+    if (budgetMinor === null) {
+      setError("Enter the GPU budget in dollars, e.g. 1.20");
+      return;
+    }
     setBusy(true);
     setError(null);
     setResult(null);
@@ -66,7 +74,7 @@ export function SpawnForm() {
             files,
             mcpServers: mcpServers.length ? mcpServers : undefined,
           },
-          budgetMinor: Number.parseInt(budgetMinor, 10) || undefined,
+          budgetMinor,
           idempotencyKey: `spawn-${crypto.randomUUID()}`,
         }),
       });
@@ -167,16 +175,22 @@ export function SpawnForm() {
         </label>
 
         <label className="block space-y-1">
-          <span className="text-sm font-medium">GPU budget (minor units)</span>
+          <span className="text-sm font-medium">GPU budget (USD)</span>
           <span className="block text-xs text-muted-foreground">
             A hard ceiling on compute. The agent physically cannot spend more.
           </span>
           <input
-            value={budgetMinor}
-            onChange={(e) => setBudgetMinor(e.target.value.replace(/[^0-9]/g, ""))}
-            inputMode="numeric"
+            value={budgetUsd}
+            onChange={(e) => setBudgetUsd(e.target.value)}
+            inputMode="decimal"
+            placeholder="1.20"
             className="w-40 rounded-md border px-3 py-2 text-sm"
           />
+          {budgetUsd.trim() !== "" && parseDollarsToMinor(budgetUsd) !== null && (
+            <span className="block text-xs text-muted-foreground">
+              = {format({ amountMinor: parseDollarsToMinor(budgetUsd) ?? 0, currency: "USD" })}
+            </span>
+          )}
         </label>
 
         {error && <p className="text-sm text-destructive">{error}</p>}
@@ -202,6 +216,10 @@ export function SpawnForm() {
                 <dd className="font-mono text-xs">{result.model}</dd>
                 <dt className="text-muted-foreground">Compute ceiling</dt>
                 <dd>{result.maxGpuSeconds}s</dd>
+                <dt className="text-muted-foreground">Cost</dt>
+                <dd className="tabular-nums">
+                  {format({ amountMinor: result.estimatedCostMinor, currency: result.currency })}
+                </dd>
                 <dt className="text-muted-foreground">Inherited</dt>
                 <dd className="text-xs">
                   {result.resources.envKeys.length} secrets · {result.resources.fileCount} files ·{" "}

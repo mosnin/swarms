@@ -1,4 +1,7 @@
+import Link from "next/link";
+
 import { SignInNotice } from "@/app/(dashboard)/_components/sign-in-notice";
+import { Id } from "@/components/ui/id";
 import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, EmptyRow, TD, TH, THead, TR } from "@/components/ui/table";
 import { tryCurrentContext } from "@/modules/identity/current";
@@ -38,7 +41,13 @@ export default async function ArtifactsPage() {
         </THead>
         <tbody>
           {artifacts.length === 0 && (
-            <EmptyRow colSpan={6}>No artifacts yet. Upload via POST /api/v1/artifacts or produce them from runs.</EmptyRow>
+            <EmptyRow colSpan={6}>
+              No artifacts yet. Files produced by runs will appear here —{" "}
+              <Link href="/spawn" className="underline hover:text-foreground">
+                spawn an agent
+              </Link>{" "}
+              to get started.
+            </EmptyRow>
           )}
           {artifacts.map((a) => (
             <TR key={a.id}>
@@ -50,8 +59,16 @@ export default async function ArtifactsPage() {
               </TD>
               <TD className="text-xs text-muted-foreground">{a.contentType}</TD>
               <TD className="text-xs tabular-nums">{formatBytes(a.sizeBytes)}</TD>
-              <TD className="font-mono text-xs text-muted-foreground">
-                {a.jobId ?? a.swarmRunId ?? a.simulationRunId ?? "—"}
+              <TD className="text-xs text-muted-foreground">
+                {a.jobId ? (
+                  <Id value={a.jobId} href={`/jobs/${a.jobId}`} />
+                ) : a.swarmRunId ? (
+                  <Id value={a.swarmRunId} href={`/swarms/${a.swarmRunId}`} />
+                ) : a.simulationRunId ? (
+                  <Id value={a.simulationRunId} href={`/simulations/${a.simulationRunId}`} />
+                ) : (
+                  "—"
+                )}
               </TD>
               <TD className="text-xs text-muted-foreground">
                 {a.expiresAt ? new Date(a.expiresAt).toLocaleDateString() : "kept"}

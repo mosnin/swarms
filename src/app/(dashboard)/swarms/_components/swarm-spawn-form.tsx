@@ -4,6 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
+import { format } from "@/lib/money";
+import { parseDollarsToMinor } from "@/lib/money-input";
 
 /**
  * Front door for the flagship feature: spawn a swarm of worker agents from the
@@ -29,6 +31,12 @@ export function SwarmSpawnForm() {
       setError("Add at least one task (one per line).");
       return;
     }
+    // Dollars string → integer minor units, integer math only (no floats).
+    const budgetMinor = budgetUsd.trim() === "" ? undefined : parseDollarsToMinor(budgetUsd);
+    if (budgetMinor === null) {
+      setError("Enter the budget in dollars, e.g. 5.00");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -38,7 +46,7 @@ export function SwarmSpawnForm() {
         body: JSON.stringify({
           tasks: taskList,
           objective: objective.trim() || undefined,
-          budgetUsd: budgetUsd ? Number(budgetUsd) : undefined,
+          budgetMinor,
           aggregatorTask: aggregatorTask.trim() || undefined,
           idempotencyKey: `ui-swarm-${crypto.randomUUID()}`,
         }),
@@ -96,6 +104,11 @@ export function SwarmSpawnForm() {
             placeholder="5.00"
             className="w-full rounded-md border bg-background p-2 text-sm"
           />
+          {budgetUsd.trim() !== "" && parseDollarsToMinor(budgetUsd) !== null && (
+            <span className="block text-xs text-muted-foreground">
+              = {format({ amountMinor: parseDollarsToMinor(budgetUsd) ?? 0, currency: "USD" })}
+            </span>
+          )}
         </label>
         <label className="block space-y-1">
           <span className="text-sm font-medium">Aggregator task (optional)</span>

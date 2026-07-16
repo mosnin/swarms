@@ -40,12 +40,14 @@ export default async function ConnectorDetailPage({
                 <span className="rounded bg-muted px-2 py-0.5">{tool.operationType}</span>
                 <span className="rounded bg-muted px-2 py-0.5">risk {tool.riskLevel}</span>
                 {tool.externalWrite && (
-                  <span className="rounded bg-yellow-100 px-2 py-0.5 text-yellow-800">
+                  <span className="rounded bg-amber-500/10 px-2 py-0.5 font-medium text-amber-700 dark:text-amber-400">
                     external write
                   </span>
                 )}
                 {tool.requiresApproval && (
-                  <span className="rounded bg-red-100 px-2 py-0.5 text-red-800">approval</span>
+                  <span className="rounded bg-red-500/10 px-2 py-0.5 font-medium text-red-700 dark:text-red-400">
+                    approval
+                  </span>
                 )}
               </div>
             </div>

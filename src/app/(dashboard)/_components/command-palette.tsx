@@ -86,6 +86,16 @@ export function CommandPalette() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [close]);
 
+  // Other components (e.g. the dashboard search trigger) open the palette by
+  // dispatching this window event — no shared state or context required.
+  useEffect(() => {
+    function onOpen() {
+      setOpen(true);
+    }
+    window.addEventListener("swarms:open-palette", onOpen);
+    return () => window.removeEventListener("swarms:open-palette", onOpen);
+  }, []);
+
   useEffect(() => {
     if (open) inputRef.current?.focus();
   }, [open]);

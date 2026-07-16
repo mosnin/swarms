@@ -1,4 +1,7 @@
+import Link from "next/link";
+
 import { SignInNotice } from "@/app/(dashboard)/_components/sign-in-notice";
+import { Id } from "@/components/ui/id";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusPill } from "@/components/ui/status-pill";
 import { DataTable, EmptyRow, TD, TH, THead, TR } from "@/components/ui/table";
@@ -35,14 +38,22 @@ export default async function EvaluationsPage() {
         </THead>
         <tbody>
           {evaluations.length === 0 && (
-            <EmptyRow colSpan={7}>No evaluations yet. Run one via POST /api/v1/evaluations or MCP.</EmptyRow>
+            <EmptyRow colSpan={7}>
+              No evaluations yet. Score a run against a rubric —{" "}
+              <Link href="/docs" className="underline hover:text-foreground">
+                see the docs
+              </Link>{" "}
+              to run your first one.
+            </EmptyRow>
           )}
           {evaluations.map((e) => (
             <TR key={e.id}>
-              <TD className="font-mono text-xs">{e.id}</TD>
+              <TD className="text-xs">
+                <Id value={e.id} />
+              </TD>
               <TD className="text-xs">
                 {e.subjectType}
-                {e.subjectId ? <span className="ml-1 font-mono text-muted-foreground">{e.subjectId.slice(0, 12)}…</span> : null}
+                {e.subjectId ? <Id value={e.subjectId} className="ml-1 text-muted-foreground" /> : null}
               </TD>
               <TD>
                 <StatusPill status={e.status} />

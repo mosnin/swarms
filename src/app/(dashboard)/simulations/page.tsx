@@ -36,7 +36,15 @@ export default async function SimulationsPage() {
           </TR>
         </THead>
         <tbody>
-          {runs.length === 0 && <EmptyRow colSpan={7}>No simulations yet. Run one via POST /api/v1/simulations or MCP.</EmptyRow>}
+          {runs.length === 0 && (
+            <EmptyRow colSpan={7}>
+              No simulations yet. Persona crews run panels and ICP interviews for you —{" "}
+              <Link href="/docs" className="underline hover:text-foreground">
+                see the docs
+              </Link>{" "}
+              to run your first one.
+            </EmptyRow>
+          )}
           {runs.map((r) => (
             <TR key={r.id}>
               <TD className="font-mono text-xs">
