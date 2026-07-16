@@ -270,7 +270,7 @@ export function Em({ children }: { children: React.ReactNode }) {
   return <span className="font-medium text-neutral-950">{children}</span>;
 }
 
-/** A checked point in a benefits list. */
+/** A checked point in a benefits list — the check stroke draws itself in. */
 export function Point({ accent, title, children }: { accent: Accent; title: string; children: React.ReactNode }) {
   const a = ACCENT[accent];
   return (
@@ -278,7 +278,13 @@ export function Point({ accent, title, children }: { accent: Accent; title: stri
       <div className="flex items-center gap-2.5">
         <span className={`grid h-5 w-5 shrink-0 place-items-center rounded-full ${a.bg} ${a.text}`}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="h-2.5 w-2.5" aria-hidden>
-            <path d="M20 6 9 17l-5-5" />
+            <motion.path
+              d="M20 6 9 17l-5-5"
+              initial={{ pathLength: 0 }}
+              whileInView={{ pathLength: 1 }}
+              viewport={{ once: true, margin: "-15% 0px" }}
+              transition={{ duration: 0.5, delay: 0.15, ease: EASE }}
+            />
           </svg>
         </span>
         <p className="text-[15px] font-medium text-neutral-950">{title}</p>

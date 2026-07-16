@@ -10,18 +10,34 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, useInView } from "motion/react";
 
+import { TiltCard } from "@/app/(marketing)/_components/tilt-card";
 import { ACCENT, type Accent } from "@/app/(marketing)/_lib/site-map";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
+/** Accent glow colors for the frame corner — pre-faded gradients, no filter. */
+const GLOW: Record<Accent, string> = {
+  violet: "rgb(139 92 246 / 0.14)",
+  blue: "rgb(59 130 246 / 0.14)",
+  emerald: "rgb(16 185 129 / 0.14)",
+  amber: "rgb(245 158 11 / 0.14)",
+  rose: "rgb(244 63 94 / 0.14)",
+  cyan: "rgb(6 182 212 / 0.14)",
+};
+
 function VisualFrame({ accent, children, label }: { accent: Accent; children: React.ReactNode; label?: string }) {
-  const a = ACCENT[accent];
   return (
-    <div className={`relative overflow-hidden rounded-2xl border border-neutral-200/80 bg-gradient-to-br from-white via-white to-neutral-50 p-6 shadow-[0_1px_2px_rgb(0_0_0/0.03),0_16px_50px_-24px_rgb(0_0_0/0.15)] sm:p-8`}>
-      <div className={`pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full ${a.bg} blur-3xl`} aria-hidden />
-      {label && <p className="relative mb-5 font-mono text-[11px] uppercase tracking-widest text-neutral-400">{label}</p>}
-      <div className="relative">{children}</div>
-    </div>
+    <TiltCard>
+      <div className={`relative overflow-hidden rounded-2xl border border-neutral-200/80 bg-gradient-to-br from-white via-white to-neutral-50 p-6 shadow-[0_1px_2px_rgb(0_0_0/0.03),0_16px_50px_-24px_rgb(0_0_0/0.15)] sm:p-8`}>
+        <div
+          className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full"
+          style={{ background: `radial-gradient(closest-side, ${GLOW[accent]}, transparent 72%)` }}
+          aria-hidden
+        />
+        {label && <p className="relative mb-5 font-mono text-[11px] uppercase tracking-widest text-neutral-400">{label}</p>}
+        <div className="relative">{children}</div>
+      </div>
+    </TiltCard>
   );
 }
 

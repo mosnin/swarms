@@ -162,6 +162,24 @@
     animation: aurora-drift 18s ease-in-out infinite;
   }
 
+  /* Slow continuous rotation for orbital graphics — transform-only, own layer. */
+  @keyframes spin-slow {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  .animate-spin-slow {
+    animation: spin-slow 36s linear infinite;
+    will-change: transform;
+  }
+  .animate-spin-slower {
+    animation: spin-slow 56s linear infinite reverse;
+    will-change: transform;
+  }
+
   /* A soft up-down float for hero product panels. */
   @keyframes float-y {
     0%, 100% {

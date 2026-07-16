@@ -9,7 +9,13 @@ export function CtaBand() {
         <div className="relative overflow-hidden rounded-[32px] bg-neutral-950 px-8 py-16 text-center sm:px-16 sm:py-20">
           {/* ambient glow */}
           <div className="pointer-events-none absolute inset-0" aria-hidden="true">
-            <div className="animate-aurora absolute left-1/2 top-1/2 h-[30rem] w-[30rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-violet-600/25 blur-[110px]" />
+            <div
+              className="animate-aurora absolute left-1/2 top-1/2 h-[30rem] w-[30rem] -translate-x-1/2 -translate-y-1/2 rounded-full"
+              style={{
+                background: "radial-gradient(closest-side, rgb(124 58 237 / 0.3), transparent 72%)",
+                willChange: "transform",
+              }}
+            />
           </div>
 
           <div className="relative">
