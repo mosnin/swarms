@@ -26,7 +26,11 @@ import { LocalQueue } from "@/server/queue/localQueue";
 import { setJobQueue } from "@/server/queue/queue";
 import { createTestDb, seedOrg, type TestDb } from "./harness";
 
-const fixedClock = (at: Date) => ({ now: () => at, epochMs: () => at.getTime() });
+const fixedClock = (at: Date) => ({
+  now: () => at,
+  epochMs: () => at.getTime(),
+  monotonicMs: () => at.getTime(),
+});
 
 describe("integration: hosted agents", () => {
   let db: TestDb;

@@ -7,7 +7,7 @@
  * pattern as schedule firings so concurrent workers never double-wake.
  */
 
-import { and, asc, desc, eq, isNull, lte } from "drizzle-orm";
+import { and, asc, count, desc, eq, isNull, like, lte, sum } from "drizzle-orm";
 
 import { getDb } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
@@ -189,20 +189,47 @@ export async function listAgentInstances(ctx: AuthContext, db: Db = getDb()): Pr
   return rows.filter((r) => r.status !== "terminated").map(toView);
 }
 
+export interface AgentSpend {
+  totalSpendMinor: number;
+  wakeCount: number;
+  currency: string;
+}
+
 export async function getAgentInstance(
   ctx: AuthContext,
   id: string,
   db: Db = getDb(),
-): Promise<{ agent: AgentInstanceView; messages: AgentMessageView[] }> {
+): Promise<{ agent: AgentInstanceView; messages: AgentMessageView[]; spend: AgentSpend }> {
   requirePermission(ctx, "jobs.read");
   const row = await loadOwned(ctx, id, db);
-  const messages = await db
-    .select()
-    .from(schema.agentMessages)
-    .where(eq(schema.agentMessages.agentInstanceId, row.id))
-    .orderBy(desc(schema.agentMessages.createdAt))
-    .limit(50);
-  return { agent: toView(row), messages: messages.reverse().map(toMessageView) };
+  const [messages, spendRows] = await Promise.all([
+    db
+      .select()
+      .from(schema.agentMessages)
+      .where(eq(schema.agentMessages.agentInstanceId, row.id))
+      .orderBy(desc(schema.agentMessages.createdAt))
+      .limit(50),
+    // Wake jobs are linked by their deterministic idempotency-key prefix
+    // (`agent:{id}:wake:{claimedAt}`), so spend attribution needs no extra column.
+    db
+      .select({ total: sum(schema.jobs.costMinor), c: count() })
+      .from(schema.jobs)
+      .where(
+        and(
+          eq(schema.jobs.organizationId, row.organizationId),
+          like(schema.jobs.idempotencyKey, `agent:${row.id}:wake:%`),
+        ),
+      ),
+  ]);
+  return {
+    agent: toView(row),
+    messages: messages.reverse().map(toMessageView),
+    spend: {
+      totalSpendMinor: Number(spendRows[0]?.total ?? 0),
+      wakeCount: spendRows[0]?.c ?? 0,
+      currency: row.currency,
+    },
+  };
 }
 
 export async function setAgentInstanceStatus(

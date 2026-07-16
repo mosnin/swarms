@@ -32,7 +32,7 @@ export default async function AgentDetailPage({
   } catch {
     notFound();
   }
-  const { agent, messages } = data;
+  const { agent, messages, spend } = data;
 
   return (
     <div className="space-y-6">
@@ -57,6 +57,24 @@ export default async function AgentDetailPage({
         <AgentThread agentInstanceId={agent.id} status={agent.status} initialMessages={messages} />
 
         <div className="space-y-4">
+          <Card>
+            <CardBody>
+              <p className="text-sm font-medium">Spend</p>
+              <div className="mt-3 flex items-baseline gap-2">
+                <span className="text-2xl font-semibold tabular-nums">
+                  {format({ amountMinor: spend.totalSpendMinor, currency: spend.currency })}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  across {spend.wakeCount} wake{spend.wakeCount === 1 ? "" : "s"}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Every wake is hard-capped at{" "}
+                {format({ amountMinor: agent.budgetMinorPerWake, currency: agent.currency })}.
+              </p>
+            </CardBody>
+          </Card>
+
           <Card>
             <CardBody>
               <p className="text-sm font-medium">Configuration</p>
