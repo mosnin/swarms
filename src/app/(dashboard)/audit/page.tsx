@@ -1,6 +1,8 @@
 import Link from "next/link";
 
 import { SignInNotice } from "@/app/(dashboard)/_components/sign-in-notice";
+import { PageHeader } from "@/components/ui/page-header";
+import { DataTable, EmptyRow, TD, TH, THead, TR } from "@/components/ui/table";
 import { redact } from "@/lib/redaction";
 import { tryCurrentContext } from "@/modules/identity/current";
 import { listAuditEvents } from "@/modules/governance/audit";
@@ -23,12 +25,10 @@ export default async function AuditPage({
 
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-2xl font-bold">Audit log</h1>
-        <p className="text-sm text-muted-foreground">
-          Append-only record of every significant action. Secrets are redacted.
-        </p>
-      </header>
+      <PageHeader
+        title="Audit log"
+        description="Append-only record of every significant action. Secrets are redacted."
+      />
 
       <form className="flex flex-wrap gap-2 text-sm" action="/audit">
         <input
@@ -53,44 +53,36 @@ export default async function AuditPage({
         )}
       </form>
 
-      <div className="rounded-lg border">
-        <table className="w-full text-left text-sm">
-          <thead className="border-b text-muted-foreground">
-            <tr>
-              <th className="p-3 font-medium">Time</th>
-              <th className="p-3 font-medium">Action</th>
-              <th className="p-3 font-medium">Resource</th>
-              <th className="p-3 font-medium">Actor</th>
-              <th className="p-3 font-medium">Detail</th>
-            </tr>
-          </thead>
-          <tbody>
-            {events.length === 0 && (
-              <tr>
-                <td className="p-6 text-center text-muted-foreground" colSpan={5}>
-                  No audit events match.
-                </td>
-              </tr>
-            )}
-            {events.map((e) => (
-              <tr key={e.id} className="border-b last:border-0 align-top">
-                <td className="p-3 text-xs">{e.createdAt.toLocaleString()}</td>
-                <td className="p-3 font-mono text-xs">{e.action}</td>
-                <td className="p-3 text-xs">
-                  {e.resourceType}
-                  {e.resourceId ? <span className="text-muted-foreground"> · {e.resourceId}</span> : null}
-                </td>
-                <td className="p-3 font-mono text-xs text-muted-foreground">
-                  {e.actorUserId ?? e.actorApiKeyId ?? "system"}
-                </td>
-                <td className="p-3 font-mono text-xs text-muted-foreground">
-                  {e.after ? JSON.stringify(redact(e.after)) : "—"}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <DataTable>
+        <THead>
+          <TR>
+            <TH>Time</TH>
+            <TH>Action</TH>
+            <TH>Resource</TH>
+            <TH>Actor</TH>
+            <TH>Detail</TH>
+          </TR>
+        </THead>
+        <tbody>
+          {events.length === 0 && <EmptyRow colSpan={5}>No audit events match.</EmptyRow>}
+          {events.map((e) => (
+            <TR key={e.id}>
+              <TD className="text-xs align-top">{e.createdAt.toLocaleString()}</TD>
+              <TD className="font-mono text-xs align-top">{e.action}</TD>
+              <TD className="text-xs align-top">
+                {e.resourceType}
+                {e.resourceId ? <span className="text-muted-foreground"> · {e.resourceId}</span> : null}
+              </TD>
+              <TD className="font-mono text-xs align-top text-muted-foreground">
+                {e.actorUserId ?? e.actorApiKeyId ?? "system"}
+              </TD>
+              <TD className="font-mono text-xs align-top text-muted-foreground">
+                {e.after ? JSON.stringify(redact(e.after)) : "—"}
+              </TD>
+            </TR>
+          ))}
+        </tbody>
+      </DataTable>
     </div>
   );
 }

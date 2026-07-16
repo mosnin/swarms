@@ -41,6 +41,7 @@ export function GET(request: NextRequest): Response {
       evaluations: "/api/v1/evaluations",
       jobs: "/api/v1/jobs",
       spawn: "/api/v1/spawn",
+      hostedAgents: "/api/v1/agents",
     },
     docs: "https://swarms.example.com/docs",
     auth: {

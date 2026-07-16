@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { SearchTrigger } from "@/app/(dashboard)/_components/search-trigger";
 import { SignInNotice } from "@/app/(dashboard)/_components/sign-in-notice";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -26,17 +27,8 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      {/* Search */}
-      <div className="relative">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden>
-          <circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" strokeLinecap="round" />
-        </svg>
-        <input
-          placeholder="Search runs, swarms, connectors…"
-          className="h-11 w-full rounded-xl border bg-background pl-10 pr-12 text-sm shadow-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground/20"
-        />
-        <kbd className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md border bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">/</kbd>
-      </div>
+      {/* Search — opens the command palette */}
+      <SearchTrigger />
 
       {/* Heading */}
       <div className="flex flex-wrap items-end justify-between gap-4">

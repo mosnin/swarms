@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { SignInNotice } from "@/app/(dashboard)/_components/sign-in-notice";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusPill } from "@/components/ui/status-pill";
@@ -34,15 +36,25 @@ export default async function SchedulesPage() {
         </THead>
         <tbody>
           {schedules.length === 0 && (
-            <EmptyRow colSpan={7}>No schedules yet. Create one via POST /api/v1/schedules or MCP.</EmptyRow>
+            <EmptyRow colSpan={7}>
+              No schedules yet. Put recurring runs on a cron —{" "}
+              <Link href="/docs" className="underline hover:text-foreground">
+                see the docs
+              </Link>{" "}
+              to create your first one.
+            </EmptyRow>
           )}
           {schedules.map((s) => (
             <TR key={s.id}>
               <TD className="text-xs font-medium">
                 {s.name}
                 {s.lastError && (
-                  <span className="ml-2 text-red-500" title={s.lastError}>
-                    ⚠
+                  <span
+                    className="ml-2 inline-flex items-center rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-700 dark:text-red-400"
+                    aria-label={`Last run failed: ${s.lastError}`}
+                    title={s.lastError}
+                  >
+                    Failing
                   </span>
                 )}
               </TD>

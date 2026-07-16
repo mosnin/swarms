@@ -22,6 +22,7 @@ import {
   reapOrphanedSwarmRuns,
 } from "@/modules/execution/worker";
 import { deliverPendingWebhooks } from "@/modules/webhooks/webhook-service";
+import { applyCompletedWakes, wakeDueAgents } from "@/modules/hosted-agents/agent-service";
 import { runDueSchedules } from "@/modules/schedules/schedule-service";
 import { reapExpiredArtifacts } from "@/modules/artifacts/artifact-service";
 import { runDueAutoReloads } from "@/modules/billing/credit-service";
@@ -67,6 +68,13 @@ async function tick(): Promise<void> {
     // runs through the normal spine. Idempotent per firing; safe across replicas.
     const firedSchedules = await runDueSchedules();
     if (firedSchedules > 0) logger.info("Worker fired schedules", { firedSchedules });
+
+    // Wake due hosted agents (message-driven + heartbeat) — each wake is a
+    // normal charged job — and fold finished wake outputs back into memory.
+    const woken = await wakeDueAgents().catch(() => 0);
+    if (woken > 0) logger.info("Worker woke hosted agents", { woken });
+    const wakesApplied = await applyCompletedWakes().catch(() => 0);
+    if (wakesApplied > 0) logger.info("Worker applied hosted-agent wake outputs", { wakesApplied });
 
     // Deliver any pending webhooks (signed, retried).
     const delivered = await deliverPendingWebhooks();

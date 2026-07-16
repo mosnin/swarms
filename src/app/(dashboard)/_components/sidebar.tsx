@@ -31,6 +31,7 @@ const Icons = {
     <Svg {...p}><rect x="3" y="3" width="7" height="9" rx="1.5" /><rect x="14" y="3" width="7" height="5" rx="1.5" /><rect x="14" y="12" width="7" height="9" rx="1.5" /><rect x="3" y="16" width="7" height="5" rx="1.5" /></Svg>
   ),
   spawn: (p: IconProps) => (<Svg {...p}><path d="M12 5v14M5 12h14" /></Svg>),
+  hostedAgents: (p: IconProps) => (<Svg {...p}><circle cx="12" cy="9" r="3.2" /><path d="M12 12.2V15M7 20a5 5 0 0 1 10 0" /><path d="M4.5 9a7.5 7.5 0 0 1 15 0" /></Svg>),
   jobs: (p: IconProps) => (<Svg {...p}><path d="M8 6h13M8 12h13M8 18h13" /><circle cx="3.5" cy="6" r="1.1" /><circle cx="3.5" cy="12" r="1.1" /><circle cx="3.5" cy="18" r="1.1" /></Svg>),
   swarms: (p: IconProps) => (<Svg {...p}><circle cx="12" cy="5" r="2.1" /><circle cx="5" cy="18" r="2.1" /><circle cx="19" cy="18" r="2.1" /><path d="M12 7.1 6.4 15.9M12 7.1l5.6 8.8M7.2 18h9.6" /></Svg>),
   approvals: (p: IconProps) => (<Svg {...p}><path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3Z" /><path d="M9 11.5l2 2 4-4" /></Svg>),
@@ -58,6 +59,7 @@ const GROUPS: { title: string; tree?: boolean; items: NavItem[] }[] = [
     title: "Workspace",
     items: [
       { href: "/dashboard", label: "Overview", icon: Icons.overview },
+      { href: "/agents", label: "Hosted agents", icon: Icons.hostedAgents },
       { href: "/jobs", label: "Agent runs", icon: Icons.jobs },
       { href: "/swarms", label: "Swarms", icon: Icons.swarms },
       { href: "/simulations", label: "Simulations", icon: Icons.simulations },

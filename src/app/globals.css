@@ -118,6 +118,116 @@
   .animate-rise-in {
     animation: rise-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
   }
+
+  /* Marketing site: infinite horizontal marquee (duplicated-content technique —
+     the track is rendered twice back-to-back and slides exactly one copy's
+     width, so the loop is seamless). */
+  @keyframes marquee-scroll {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(-50%);
+    }
+  }
+  .animate-marquee {
+    animation: marquee-scroll var(--marquee-duration, 32s) linear infinite;
+  }
+  .animate-marquee-reverse {
+    animation: marquee-scroll var(--marquee-duration, 32s) linear infinite reverse;
+  }
+  .pause-on-hover:hover .animate-marquee,
+  .pause-on-hover:hover .animate-marquee-reverse {
+    animation-play-state: paused;
+  }
+  /* Fade the marquee track's edges into the page background instead of a hard cut. */
+  .fade-edges-x {
+    mask-image: linear-gradient(to right, transparent, black 8%, black 92%, transparent);
+    -webkit-mask-image: linear-gradient(to right, transparent, black 8%, black 92%, transparent);
+  }
+
+  /* Slow ambient drift for the blurred gradient blobs behind hero/CTA sections. */
+  @keyframes aurora-drift {
+    0%, 100% {
+      transform: translate(0, 0) scale(1);
+    }
+    33% {
+      transform: translate(3%, -4%) scale(1.06);
+    }
+    66% {
+      transform: translate(-3%, 3%) scale(0.97);
+    }
+  }
+  .animate-aurora {
+    animation: aurora-drift 18s ease-in-out infinite;
+  }
+
+  /* A slow, living drift for gradient-clipped headline text. Animates
+     background-position only (the texture is prepainted) — no filters. */
+  @keyframes gradient-drift {
+    0%,
+    100% {
+      background-position: 0% 50%;
+    }
+    50% {
+      background-position: 100% 50%;
+    }
+  }
+  .animate-gradient-text {
+    background-size: 200% 100%;
+    animation: gradient-drift 7s ease-in-out infinite;
+  }
+
+  /* Slow continuous rotation for orbital graphics — transform-only, own layer. */
+  @keyframes spin-slow {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  .animate-spin-slow {
+    animation: spin-slow 36s linear infinite;
+    will-change: transform;
+  }
+  .animate-spin-slower {
+    animation: spin-slow 56s linear infinite reverse;
+    will-change: transform;
+  }
+
+  /* A soft up-down float for hero product panels. */
+  @keyframes float-y {
+    0%, 100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-10px);
+    }
+  }
+  .animate-float {
+    animation: float-y 6s ease-in-out infinite;
+  }
+
+  /* A traveling highlight sweep across a border/edge — used for "live" chrome. */
+  @keyframes shimmer-x {
+    from {
+      background-position: -200% 0;
+    }
+    to {
+      background-position: 200% 0;
+    }
+  }
+  .animate-shimmer {
+    background-image: linear-gradient(
+      100deg,
+      transparent 30%,
+      hsl(var(--marketing-shimmer, 0 0% 100%) / 0.6) 50%,
+      transparent 70%
+    );
+    background-size: 200% 100%;
+    animation: shimmer-x 2.6s ease-in-out infinite;
+  }
 }
 
 /* Honor reduced-motion: kill all motion for viewers who ask for it. */

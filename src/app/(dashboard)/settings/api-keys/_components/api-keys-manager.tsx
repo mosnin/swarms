@@ -3,6 +3,8 @@
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { StatusPill } from "@/components/ui/status-pill";
+import { DataTable, EmptyRow, TD, TH, THead, TR } from "@/components/ui/table";
 import { PERMISSIONS, type Permission } from "@/modules/identity/roles";
 
 export interface ApiKeyListItem {
@@ -22,6 +24,10 @@ export function ApiKeysManager({ initialKeys }: { initialKeys: ApiKeyListItem[] 
   const [created, setCreated] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** Id of the key whose Revoke button is armed, awaiting a confirming click. */
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  /** Id of the key whose revoke request is in flight. */
+  const [revokingId, setRevokingId] = useState<string | null>(null);
 
   function toggleScope(scope: Permission) {
     setScopes((prev) =>
@@ -54,6 +60,8 @@ export function ApiKeysManager({ initialKeys }: { initialKeys: ApiKeyListItem[] 
 
   async function revoke(id: string) {
     setError(null);
+    setConfirmingId(null);
+    setRevokingId(id);
     try {
       const res = await fetch(`/api/api-keys/${id}`, { method: "DELETE" });
       const body = await res.json();
@@ -61,6 +69,8 @@ export function ApiKeysManager({ initialKeys }: { initialKeys: ApiKeyListItem[] 
       setKeys((prev) => prev.map((k) => (k.id === id ? { ...body.data.key } : k)));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to revoke key");
+    } finally {
+      setRevokingId(null);
     }
   }
 
@@ -105,49 +115,62 @@ export function ApiKeysManager({ initialKeys }: { initialKeys: ApiKeyListItem[] 
         )}
       </div>
 
-      <div className="rounded-lg border">
-        <table className="w-full text-left text-sm">
-          <thead className="border-b text-muted-foreground">
-            <tr>
-              <th className="p-3 font-medium">Name</th>
-              <th className="p-3 font-medium">Prefix</th>
-              <th className="p-3 font-medium">Scopes</th>
-              <th className="p-3 font-medium">Status</th>
-              <th className="p-3"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {keys.length === 0 && (
-              <tr>
-                <td className="p-3 text-muted-foreground" colSpan={5}>
-                  No API keys yet.
-                </td>
-              </tr>
-            )}
-            {keys.map((key) => (
-              <tr key={key.id} className="border-b last:border-0">
-                <td className="p-3">{key.name}</td>
-                <td className="p-3 font-mono text-xs">{key.prefix}…</td>
-                <td className="p-3 text-xs">{key.scopes.length || "agent"}</td>
-                <td className="p-3">
-                  {key.revokedAt ? (
-                    <span className="text-xs text-destructive">revoked</span>
+      <DataTable>
+        <THead>
+          <TR>
+            <TH>Name</TH>
+            <TH>Prefix</TH>
+            <TH>Scopes</TH>
+            <TH>Status</TH>
+            <TH />
+          </TR>
+        </THead>
+        <tbody>
+          {keys.length === 0 && <EmptyRow colSpan={5}>No API keys yet.</EmptyRow>}
+          {keys.map((key) => (
+            <TR key={key.id}>
+              <TD>{key.name}</TD>
+              <TD className="font-mono text-xs">{key.prefix}…</TD>
+              <TD className="text-xs">{key.scopes.length || "agent"}</TD>
+              <TD>
+                <StatusPill status={key.revokedAt ? "revoked" : "active"} />
+              </TD>
+              <TD className="text-right">
+                {!key.revokedAt &&
+                  (confirmingId === key.id ? (
+                    <div className="flex items-center justify-end gap-2">
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        disabled={revokingId !== null}
+                        onClick={() => revoke(key.id)}
+                      >
+                        Confirm revoke
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={revokingId !== null}
+                        onClick={() => setConfirmingId(null)}
+                      >
+                        Keep
+                      </Button>
+                    </div>
                   ) : (
-                    <span className="text-xs text-green-600">active</span>
-                  )}
-                </td>
-                <td className="p-3 text-right">
-                  {!key.revokedAt && (
-                    <Button variant="outline" size="sm" onClick={() => revoke(key.id)}>
-                      Revoke
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={revokingId !== null}
+                      onClick={() => setConfirmingId(key.id)}
+                    >
+                      {revokingId === key.id ? "Revoking…" : "Revoke…"}
                     </Button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+                  ))}
+              </TD>
+            </TR>
+          ))}
+        </tbody>
+      </DataTable>
     </div>
   );
 }
