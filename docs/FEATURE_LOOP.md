@@ -17,7 +17,7 @@ Each item lands as its own commit the moment it verifies:
 - [x] R5 service-layer input bounds on createAgentInstance (security) + deny-path tests
 - [x] R6 /changelog + /status marketing pages + footer links
 - [x] R7 epoch-token primitive (short-TTL HMAC agent token, epoch revocation, constant-time verify, env secret + prod gate) + 9 unit tests
-- [ ] R8 SDK hosted-agent methods + drift fixes + tests
+- [x] R8 SDK hosted-agent methods (create/list/get/pause/resume/terminate/sendMessage/listMessages w/ cursor) + schemas + 6 tests
 - [ ] R9 Playwright e2e smoke suite + config
 - [ ] R10 multi-page docs (agents/swarms/billing/webhooks/errors)
 

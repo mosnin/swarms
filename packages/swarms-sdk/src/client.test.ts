@@ -94,6 +94,114 @@ describe("SwarmsClient.spawnSwarm", () => {
   });
 });
 
+const AGENT_FIXTURE = {
+  id: "agi_1",
+  name: "Concierge",
+  template: "hermes",
+  instructions: "Answer briefly.",
+  model: "mock",
+  status: "active",
+  wakeIntervalMinutes: 60,
+  nextWakeAt: "2026-01-01T01:00:00Z",
+  lastWakeAt: null,
+  lastJobId: null,
+  budgetMinorPerWake: 200,
+  currency: "USD",
+  stateVersion: 0,
+  createdAt: "2026-01-01T00:00:00Z",
+};
+
+describe("SwarmsClient hosted agents", () => {
+  it("creates an agent via POST /api/v1/agents and returns the parsed instance", async () => {
+    const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      expect(init?.method).toBe("POST");
+      const sent = JSON.parse(init?.body as string);
+      expect(sent.name).toBe("Concierge");
+      return jsonResponse({ data: { agent: AGENT_FIXTURE } }, 201);
+    });
+    const agent = await client(fetchMock as unknown as typeof fetch).createAgent({
+      name: "Concierge",
+      instructions: "Answer briefly.",
+      budgetMinorPerWake: 200,
+    });
+    expect(agent.id).toBe("agi_1");
+    expect(agent.budgetMinorPerWake).toBe(200);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("https://cloud.test/api/v1/agents");
+  });
+
+  it("lists agents", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ data: { agents: [AGENT_FIXTURE] } }));
+    const agents = await client(fetchMock as unknown as typeof fetch).listAgents();
+    expect(agents).toHaveLength(1);
+    expect(agents[0]?.name).toBe("Concierge");
+  });
+
+  it("gets full agent detail (agent + thread + spend)", async () => {
+    const fetchMock = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) =>
+      jsonResponse({
+        data: {
+          agent: AGENT_FIXTURE,
+          messages: [
+            { id: "agm_1", role: "user", content: "hi", jobId: null, processedAt: null, createdAt: "2026-01-01T00:00:00Z" },
+          ],
+          spend: { totalSpendMinor: 42, wakeCount: 3, currency: "USD" },
+        },
+      }),
+    );
+    const detail = await client(fetchMock as unknown as typeof fetch).getAgent("agi_1");
+    expect(detail.agent.id).toBe("agi_1");
+    expect(detail.messages[0]?.content).toBe("hi");
+    expect(detail.spend.totalSpendMinor).toBe(42);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("https://cloud.test/api/v1/agents/agi_1");
+  });
+
+  it("sends a message and returns the recorded row", async () => {
+    const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      expect(init?.method).toBe("POST");
+      expect(JSON.parse(init?.body as string).content).toBe("do the thing");
+      return jsonResponse(
+        { data: { message: { id: "agm_9", role: "user", content: "do the thing", jobId: null, processedAt: null, createdAt: "2026-01-01T00:00:00Z" } } },
+        202,
+      );
+    });
+    const msg = await client(fetchMock as unknown as typeof fetch).sendAgentMessage("agi_1", "do the thing");
+    expect(msg.id).toBe("agm_9");
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("https://cloud.test/api/v1/agents/agi_1/messages");
+  });
+
+  it("paginates messages with limit + cursor in the query string", async () => {
+    const fetchMock = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) =>
+      jsonResponse({
+        data: {
+          messages: [
+            { id: "agm_2", role: "agent", content: "reply", jobId: "job_1", processedAt: "2026-01-01T00:01:00Z", createdAt: "2026-01-01T00:01:00Z" },
+          ],
+          nextCursor: "Y3Vyc29y",
+        },
+      }),
+    );
+    const page = await client(fetchMock as unknown as typeof fetch).listAgentMessages("agi_1", {
+      limit: 10,
+      cursor: "abc",
+    });
+    expect(page.messages).toHaveLength(1);
+    expect(page.nextCursor).toBe("Y3Vyc29y");
+    const calledUrl = String(fetchMock.mock.calls[0]?.[0]);
+    expect(calledUrl).toContain("/api/v1/agents/agi_1/messages?");
+    expect(calledUrl).toContain("limit=10");
+    expect(calledUrl).toContain("cursor=abc");
+  });
+
+  it("terminates an agent via DELETE", async () => {
+    const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      expect(init?.method).toBe("DELETE");
+      return jsonResponse({ data: { agentInstanceId: "agi_1", status: "terminated" } });
+    });
+    const res = await client(fetchMock as unknown as typeof fetch).terminateAgent("agi_1");
+    expect(res.status).toBe("terminated");
+  });
+});
+
 describe("transport safety", () => {
   it("wraps fetch failures and never includes the API key", async () => {
     const fetchMock = vi.fn(async () => {
