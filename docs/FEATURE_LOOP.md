@@ -10,7 +10,7 @@ until it's on origin.
 ## Immediate: rebuild the expansion batch lost to a container reclaim
 Each item lands as its own commit the moment it verifies:
 - [x] R1 hosted-agent recurring billing (standby ticks, suspend/resume) + worker wiring + tests — d062383
-- [ ] R2 agent-reply webhooks + GET messages pagination + worker wiring + tests
+- [x] R2 agent-reply webhooks (agent.replied / agent.wake_failed fan-out) + keyset-paginated GET messages + tests
 - [x] R3 admin spend/jobs timeseries API + SVG chart on /admin — metrics module, guarded route, PlatformChart, dense-series tests
 - [x] R4b scripts/grant-platform-admin.ts bootstrap (first-admin break-glass)
 - [ ] R4a richer demo seed (agents, historical jobs, budget)

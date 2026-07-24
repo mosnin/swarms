@@ -7,7 +7,7 @@
  * pattern as schedule firings so concurrent workers never double-wake.
  */
 
-import { and, asc, count, desc, eq, isNull, like, lte, sum } from "drizzle-orm";
+import { and, asc, count, desc, eq, isNull, like, lt, lte, or, sql, sum } from "drizzle-orm";
 
 import { getDb } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
@@ -25,6 +25,7 @@ import {
 import { writeAudit } from "@/modules/governance/audit";
 import { spawnAgent } from "@/modules/agents/spawn-service";
 import { storeResourceBundle, type ResourceBundle } from "@/modules/resources/resource-bundle";
+import { fanOutWebhook } from "@/modules/webhooks/webhook-service";
 
 type Db = ReturnType<typeof getDb>;
 type InstanceRow = typeof schema.agentInstances.$inferSelect;
@@ -248,6 +249,77 @@ export async function getAgentInstance(
       wakeCount: spendRows[0]?.c ?? 0,
       currency: row.currency,
     },
+  };
+}
+
+export interface AgentMessagePage {
+  messages: AgentMessageView[];
+  /** Opaque cursor for the next (older) page, or null when the thread is exhausted. */
+  nextCursor: string | null;
+}
+
+const MESSAGE_PAGE_DEFAULT = 30;
+const MESSAGE_PAGE_MAX = 100;
+
+function encodeCursor(id: string): string {
+  return Buffer.from(id, "utf8").toString("base64url");
+}
+
+function decodeCursor(cursor: string): string | null {
+  try {
+    const decoded = Buffer.from(cursor, "base64url").toString("utf8");
+    return decoded.length > 0 ? decoded : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Newest-first, keyset-paginated message thread for one agent. The cursor is the
+ * boundary row's id; its exact `created_at` is read back in a subquery so
+ * pagination keeps full timestamp precision (Drizzle hands us millisecond-
+ * truncated Dates, which would drift a plain value-based keyset). Ties on
+ * `created_at` break on id, giving a total, stable order across pages.
+ */
+export async function listAgentMessages(
+  ctx: AuthContext,
+  id: string,
+  opts: { limit?: number; cursor?: string | null } = {},
+  db: Db = getDb(),
+): Promise<AgentMessagePage> {
+  requirePermission(ctx, "jobs.read");
+  const row = await loadOwned(ctx, id, db);
+
+  const limit = Math.min(
+    MESSAGE_PAGE_MAX,
+    Math.max(1, Math.floor(opts.limit ?? MESSAGE_PAGE_DEFAULT)),
+  );
+  const cursorId = opts.cursor ? decodeCursor(opts.cursor) : null;
+
+  const conditions = [eq(schema.agentMessages.agentInstanceId, row.id)];
+  if (cursorId) {
+    const boundary = sql`(select ${schema.agentMessages.createdAt} from ${schema.agentMessages} where ${schema.agentMessages.id} = ${cursorId})`;
+    conditions.push(
+      or(
+        lt(schema.agentMessages.createdAt, boundary),
+        and(eq(schema.agentMessages.createdAt, boundary), lt(schema.agentMessages.id, cursorId)),
+      )!,
+    );
+  }
+
+  const rows = await db
+    .select()
+    .from(schema.agentMessages)
+    .where(and(...conditions))
+    .orderBy(desc(schema.agentMessages.createdAt), desc(schema.agentMessages.id))
+    .limit(limit + 1);
+
+  const hasMore = rows.length > limit;
+  const page = hasMore ? rows.slice(0, limit) : rows;
+  const last = page[page.length - 1];
+  return {
+    messages: page.map(toMessageView),
+    nextCursor: hasMore && last ? encodeCursor(last.id) : null,
   };
 }
 
@@ -475,6 +547,36 @@ export async function wakeDueAgents(db: Db = getDb(), clock: Clock = systemClock
 }
 
 /**
+ * Fan a hosted-agent lifecycle event out to every enabled org webhook endpoint.
+ * Best-effort and fully swallowed: a webhook problem must never wedge the wake
+ * fold-back or block the worker tick.
+ */
+async function emitAgentWebhook(
+  row: InstanceRow,
+  jobId: string,
+  event: { eventType: string; data: Record<string, unknown> },
+  db: Db = getDb(),
+): Promise<void> {
+  try {
+    await fanOutWebhook(
+      {
+        organizationId: row.organizationId,
+        jobId,
+        eventType: event.eventType,
+        data: event.data,
+      },
+      db,
+    );
+  } catch (error) {
+    logger.error("hosted agent webhook fan-out failed", {
+      agentInstanceId: row.id,
+      eventType: event.eventType,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
  * Worker entrypoint: fold completed wake-job outputs back into durable memory
  * and the message thread. Idempotent via `state.lastAppliedJobId` CAS on
  * `stateVersion`, so a crash between steps re-applies safely.
@@ -536,16 +638,41 @@ export async function applyCompletedWakes(db: Db = getDb(), clock: Clock = syste
     if (updated.length === 0) continue;
 
     // The agent's reply becomes a visible thread message (idempotent per job).
+    // The CAS above fires once per job, so the webhook fans out at-most-once.
     const existingReply = consumed.find((m) => m.role === "agent");
     if (!existingReply && job.status === "succeeded") {
-      await db.insert(schema.agentMessages).values({
-        organizationId: row.organizationId,
-        agentInstanceId: row.id,
-        role: "agent",
-        content: outputText,
-        jobId: job.id,
-        processedAt: clock.now(),
-      });
+      const [reply] = await db
+        .insert(schema.agentMessages)
+        .values({
+          organizationId: row.organizationId,
+          agentInstanceId: row.id,
+          role: "agent",
+          content: outputText,
+          jobId: job.id,
+          processedAt: clock.now(),
+        })
+        .returning({ id: schema.agentMessages.id });
+      await emitAgentWebhook(
+        row,
+        job.id,
+        {
+          eventType: "agent.replied",
+          data: {
+            agentInstanceId: row.id,
+            messageId: reply?.id ?? null,
+            jobId: job.id,
+            content: outputText.slice(0, 4_000),
+          },
+        },
+        db,
+      );
+    } else if (job.status === "failed") {
+      await emitAgentWebhook(
+        row,
+        job.id,
+        { eventType: "agent.wake_failed", data: { agentInstanceId: row.id, jobId: job.id } },
+        db,
+      );
     }
     applied += 1;
   }
