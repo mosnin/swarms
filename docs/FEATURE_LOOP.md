@@ -14,7 +14,7 @@ Each item lands as its own commit the moment it verifies:
 - [ ] R3 admin spend/jobs timeseries API + SVG chart on /admin
 - [x] R4b scripts/grant-platform-admin.ts bootstrap (first-admin break-glass)
 - [ ] R4a richer demo seed (agents, historical jobs, budget)
-- [ ] R5 service-layer input bounds on createAgentInstance (security) + deny-path tests
+- [x] R5 service-layer input bounds on createAgentInstance (security) + deny-path tests
 - [ ] R6 /changelog + /status marketing pages + footer links
 - [ ] R7 epoch-token primitive (short-TTL signed agent token) + tests
 - [ ] R8 SDK hosted-agent methods + drift fixes + tests

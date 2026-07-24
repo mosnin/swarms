@@ -129,11 +129,30 @@ export async function createAgentInstance(
 ): Promise<AgentInstanceView> {
   requirePermission(ctx, "jobs.create");
 
-  if (input.wakeIntervalMinutes != null && input.wakeIntervalMinutes < MIN_WAKE_INTERVAL_MINUTES) {
-    throw Errors.validation(`wakeIntervalMinutes must be at least ${MIN_WAKE_INTERVAL_MINUTES}`);
+  // Defense in depth: the route's Zod schema enforces these same bounds, but
+  // any internal caller (a schedule, a future bulk-import) reaches this
+  // service directly — the boundary must hold here, not only at HTTP.
+  if (input.name.trim().length === 0 || input.name.length > 120) {
+    throw Errors.validation("name must be 1-120 characters");
+  }
+  if (input.instructions.trim().length === 0 || input.instructions.length > 8_000) {
+    throw Errors.validation("instructions must be 1-8000 characters");
+  }
+  if (
+    input.wakeIntervalMinutes != null &&
+    (input.wakeIntervalMinutes < MIN_WAKE_INTERVAL_MINUTES || input.wakeIntervalMinutes > 24 * 60)
+  ) {
+    throw Errors.validation(
+      `wakeIntervalMinutes must be between ${MIN_WAKE_INTERVAL_MINUTES} and ${24 * 60}`,
+    );
   }
   const rate = env.GPU_RATE_MINOR_PER_SECOND ?? 2;
   const budgetMinorPerWake = input.budgetMinorPerWake ?? 100;
+  // Absolute bounds first (holds even if an operator sets the GPU rate to 0),
+  // then the rate floor.
+  if (budgetMinorPerWake <= 0 || budgetMinorPerWake > 1_000_000) {
+    throw Errors.validation("budgetMinorPerWake must be between 1 and 1,000,000 minor units");
+  }
   if (rate > 0 && budgetMinorPerWake < rate) {
     throw Errors.validation(
       `budgetMinorPerWake is too low: at least ${rate} minor units are required per wake`,
