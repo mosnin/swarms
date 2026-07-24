@@ -24,12 +24,13 @@ Each item lands as its own commit the moment it verifies:
 ## Then: net-new features (Jobs lens — what makes it insanely great)
 Pick ONE per loop, ship it whole, commit, move on. Do NOT re-loop a shipped item.
 Candidates (refine each cycle by what most raises the product):
-- Agent detail: live-streaming wake console (SSE) so you watch it think
-- One-click "clone this agent" + shareable agent templates gallery
-- Spend guardrails UX: real-time budget burn-down with projected runway
-- Approvals: mobile-first inbox with one-tap approve + reason
-- "Explain this run" — plain-English trace of what an agent did and why it cost that
-- Onboarding: 60-second first-spawn flow that feels like magic
+- [x] F1 Agent detail: live-streaming wake console (SSE) so you watch it think —
+      pure diff (agent-stream.ts) + SSE route + WakeConsole + 8 tests
+- [ ] F2 One-click "clone this agent" + shareable agent templates gallery
+- [ ] F3 Spend guardrails UX: real-time budget burn-down with projected runway
+- [ ] F4 Approvals: mobile-first inbox with one-tap approve + reason
+- [ ] F5 "Explain this run" — plain-English trace of what an agent did and why it cost that
+- [ ] F6 Onboarding: 60-second first-spawn flow that feels like magic
 
 ## Cadence
 Hourly durable Routine fires this loop. Each fire: read last state, pick the next
