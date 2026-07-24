@@ -1,4 +1,6 @@
 import { SignInNotice } from "@/app/(dashboard)/_components/sign-in-notice";
+import { BurndownChart } from "@/app/(dashboard)/usage/_components/burndown-chart";
+import { Card, CardBody } from "@/components/ui/card";
 import { Id } from "@/components/ui/id";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatTile } from "@/components/ui/stat-tile";
@@ -6,6 +8,7 @@ import { DataTable, EmptyRow, TD, TH, THead, TR } from "@/components/ui/table";
 import { format } from "@/lib/money";
 import { tryCurrentContext } from "@/modules/identity/current";
 import { listLedger } from "@/modules/dashboard/reads";
+import { buildBurndown } from "@/modules/billing/burndown";
 import { getAutoReload, getUsageAnalytics } from "@/modules/billing/credit-service";
 
 export const dynamic = "force-dynamic";
@@ -59,6 +62,31 @@ export default async function UsagePage() {
             }
           />
         </div>
+      )}
+
+      {usage && (
+        <Card>
+          <CardBody>
+            <div className="flex items-baseline justify-between">
+              <p className="text-sm font-medium">Burn-down &amp; runway</p>
+              <p className="text-xs text-muted-foreground">
+                last {usage.sinceDays}d spend · balance projected at current burn
+              </p>
+            </div>
+            <div className="mt-4">
+              <BurndownChart
+                series={buildBurndown({
+                  byDay: usage.byDay,
+                  balanceMinor: usage.balanceMinor,
+                  dailyBurnMinor: usage.dailyBurnMinor,
+                  windowDays: usage.sinceDays,
+                  todayIso: new Date().toISOString().slice(0, 10),
+                })}
+                currency={usage.currency}
+              />
+            </div>
+          </CardBody>
+        </Card>
       )}
 
       <DataTable>
