@@ -18,8 +18,10 @@ const COLS: { title: string; links: { href: string; label: string }[] }[] = [
     title: "Developers",
     links: [
       { href: "/docs", label: "Quickstart" },
-      { href: "/docs#api", label: "API reference" },
-      { href: "/docs#mcp", label: "MCP" },
+      { href: "/docs/agents", label: "Hosted agents" },
+      { href: "/docs/swarms", label: "Swarms" },
+      { href: "/docs/webhooks", label: "Webhooks" },
+      { href: "/docs/errors", label: "Errors" },
       { href: "/pricing", label: "Pricing" },
     ],
   },

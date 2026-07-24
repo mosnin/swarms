@@ -41,6 +41,21 @@ test("status page reports operational components", async ({ page }) => {
   await expect(page.getByText(/operational/i).first()).toBeVisible();
 });
 
+test("docs sub-pages render and cross-link", async ({ page }) => {
+  for (const [path, title] of [
+    ["/docs/agents", /Hosted agents/],
+    ["/docs/swarms", /Swarms/],
+    ["/docs/billing", /Billing/],
+    ["/docs/webhooks", /Webhooks/],
+    ["/docs/errors", /Errors/],
+  ] as const) {
+    const res = await page.goto(path);
+    expect(res?.status()).toBeLessThan(400);
+    await expect(page).toHaveTitle(title);
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+  }
+});
+
 test("a feature page renders", async ({ page }) => {
   const res = await page.goto("/features/hosted-agents");
   expect(res?.status()).toBeLessThan(400);
