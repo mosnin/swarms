@@ -8,6 +8,7 @@ import { format } from "@/lib/money";
 import { redact } from "@/lib/redaction";
 import { tryCurrentContext } from "@/modules/identity/current";
 import { getJobDetail } from "@/modules/dashboard/reads";
+import { buildRunFacts, explainRun } from "@/modules/execution/explain-run";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +20,9 @@ export default async function JobDetailPage({ params }: { params: Promise<{ jobI
   const detail = await getJobDetail(ctx, jobId);
   if (!detail) notFound();
   const { job, logs, workerRuns, ledger, receipt } = detail;
+  const explanation = explainRun(
+    buildRunFacts({ job, ledger, workerRunCount: workerRuns.length }),
+  );
 
   return (
     <div className="space-y-6">
@@ -41,6 +45,24 @@ export default async function JobDetailPage({ params }: { params: Promise<{ jobI
         <Meta label="Cost" value={format({ amountMinor: job.costMinor, currency: job.costCurrency })} />
         <Meta label="Created" value={job.createdAt.toLocaleString()} />
       </dl>
+
+      <section className="rounded-xl border bg-gradient-to-br from-violet-50/60 to-background p-5 dark:from-violet-950/20">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold">Explain this run</span>
+          <span className="rounded-full bg-violet-500/10 px-2 py-0.5 text-[10px] font-medium text-violet-700 dark:text-violet-300">
+            plain English
+          </span>
+        </div>
+        <p className="mt-2 text-[15px] font-medium text-foreground">{explanation.headline}</p>
+        <dl className="mt-3 space-y-2.5">
+          {explanation.points.map((p) => (
+            <div key={p.label} className="grid gap-0.5 sm:grid-cols-[13rem_1fr] sm:gap-4">
+              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{p.label}</dt>
+              <dd className="text-sm text-foreground">{p.body}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
 
       <Json label="Input" value={job.input} />
       {job.output ? <Json label="Output" value={job.output} /> : null}

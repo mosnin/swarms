@@ -29,7 +29,7 @@ Candidates (refine each cycle by what most raises the product):
 - [x] F2 One-click clone (fresh identity, no secrets copied) + 6-template gallery on /agents + SDK cloneAgent — service/route/UI + 5 tests
 - [x] F3 Spend guardrails UX: burn-down chart with projected runway on /usage — pure buildBurndown series + SVG chart + 4 tests
 - [x] F4 Approvals: mobile-first inbox — tap-friendly cards, one-tap approve, decline-with-reason, "held" summary + task/kind enrichment + 3 tests
-- [ ] F5 "Explain this run" — plain-English trace of what an agent did and why it cost that
+- [x] F5 "Explain this run" — deterministic, ledger-true plain-English trace (pure explainRun) on job detail + /explain route + SDK.explainRun + 6 tests
 - [ ] F6 Onboarding: 60-second first-spawn flow that feels like magic
 
 ## Cadence

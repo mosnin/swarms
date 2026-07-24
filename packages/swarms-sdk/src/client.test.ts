@@ -213,6 +213,25 @@ describe("SwarmsClient hosted agents", () => {
   });
 });
 
+describe("SwarmsClient.explainRun", () => {
+  it("fetches a plain-English run explanation", async () => {
+    const fetchMock = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) =>
+      jsonResponse({
+        data: {
+          explanation: {
+            headline: "This agent run succeeded and cost $0.40.",
+            points: [{ label: "Why it cost what it did", body: "20s of GPU time × $0.02/s = $0.40." }],
+          },
+        },
+      }),
+    );
+    const e = await client(fetchMock as unknown as typeof fetch).explainRun("job_1");
+    expect(e.headline).toContain("$0.40");
+    expect(e.points[0]?.label).toBe("Why it cost what it did");
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("https://cloud.test/api/v1/jobs/job_1/explain");
+  });
+});
+
 describe("transport safety", () => {
   it("wraps fetch failures and never includes the API key", async () => {
     const fetchMock = vi.fn(async () => {

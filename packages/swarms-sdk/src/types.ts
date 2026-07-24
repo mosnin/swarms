@@ -397,6 +397,14 @@ export const agentMessagePageSchema = z.object({
 });
 export type AgentMessagePage = z.infer<typeof agentMessagePageSchema>;
 
+/* --------------------------- run explanation ------------------------ */
+
+export const runExplanationSchema = z.object({
+  headline: z.string(),
+  points: z.array(z.object({ label: z.string(), body: z.string() })),
+});
+export type RunExplanation = z.infer<typeof runExplanationSchema>;
+
 export const usageSchema = z.object({
   currency: z.string(),
   sinceDays: z.number(),

@@ -20,6 +20,7 @@ import {
   jobLogSchema,
   jobSchema,
   pendingApprovalSchema,
+  runExplanationSchema,
   scheduleSchema,
   simulationEstimateSchema,
   simulationResponseSchema,
@@ -42,6 +43,7 @@ import {
   type Job,
   type JobLog,
   type PendingApproval,
+  type RunExplanation,
   type Schedule,
   type SimulateParams,
   type SimulationEstimate,
@@ -133,6 +135,15 @@ export class SwarmsClient {
       schema: z.object({ job: jobSchema }),
     });
     return data.job;
+  }
+
+  /** A plain-English, ledger-true explanation of what a run did and why it cost what it did. */
+  async explainRun(jobId: string): Promise<RunExplanation> {
+    const data = await this.request(`/api/v1/jobs/${encodeURIComponent(jobId)}/explain`, {
+      method: "GET",
+      schema: z.object({ explanation: runExplanationSchema }),
+    });
+    return data.explanation;
   }
 
   /**

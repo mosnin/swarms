@@ -22,4 +22,5 @@ export type {
   AgentSpend,
   AgentDetail,
   AgentMessagePage,
+  RunExplanation,
 } from "./types";
