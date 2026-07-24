@@ -192,6 +192,17 @@ describe("SwarmsClient hosted agents", () => {
     expect(calledUrl).toContain("cursor=abc");
   });
 
+  it("clones an agent via POST /clone", async () => {
+    const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      expect(init?.method).toBe("POST");
+      expect(JSON.parse(init?.body as string).name).toBe("My Clone");
+      return jsonResponse({ data: { agent: { ...AGENT_FIXTURE, id: "agi_2", name: "My Clone" } } }, 201);
+    });
+    const agent = await client(fetchMock as unknown as typeof fetch).cloneAgent("agi_1", "My Clone");
+    expect(agent.id).toBe("agi_2");
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("https://cloud.test/api/v1/agents/agi_1/clone");
+  });
+
   it("terminates an agent via DELETE", async () => {
     const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       expect(init?.method).toBe("DELETE");

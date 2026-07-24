@@ -199,6 +199,37 @@ export async function createAgentInstance(
   return toView(row);
 }
 
+/**
+ * Clone an existing agent's configuration into a brand-new agent — same
+ * instructions, model, cadence, and per-wake budget, but a fresh identity with
+ * empty memory and no thread. Resources/secrets are deliberately NOT copied: a
+ * clone starts without the source's credentials, which the owner re-attaches on
+ * purpose rather than by accident.
+ */
+export async function cloneAgentInstance(
+  ctx: AuthContext,
+  sourceId: string,
+  overrides: { name?: string } = {},
+  db: Db = getDb(),
+  clock: Clock = systemClock,
+): Promise<AgentInstanceView> {
+  requirePermission(ctx, "jobs.create");
+  const src = await loadOwned(ctx, sourceId, db);
+  const name = (overrides.name?.trim() || `${src.name} (copy)`).slice(0, 120);
+  return createAgentInstance(
+    ctx,
+    {
+      name,
+      instructions: src.instructions,
+      model: src.model,
+      wakeIntervalMinutes: src.wakeIntervalMinutes,
+      budgetMinorPerWake: src.budgetMinorPerWake,
+    },
+    db,
+    clock,
+  );
+}
+
 export async function listAgentInstances(ctx: AuthContext, db: Db = getDb()): Promise<AgentInstanceView[]> {
   requirePermission(ctx, "jobs.read");
   const rows = await db

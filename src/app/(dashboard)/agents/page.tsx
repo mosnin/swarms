@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { SignInNotice } from "@/app/(dashboard)/_components/sign-in-notice";
 import { DeployAgentForm } from "@/app/(dashboard)/agents/_components/deploy-agent-form";
+import { TemplatesGallery } from "@/app/(dashboard)/agents/_components/templates-gallery";
 import { Card } from "@/components/ui/card";
 import { format } from "@/lib/money";
 import { tryCurrentContext } from "@/modules/identity/current";
@@ -34,6 +35,8 @@ export default async function AgentsPage() {
       </div>
 
       <DeployAgentForm />
+
+      <TemplatesGallery />
 
       {agents.length === 0 ? (
         <Card className="p-10 text-center text-sm text-muted-foreground">

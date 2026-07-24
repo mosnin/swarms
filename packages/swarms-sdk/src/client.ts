@@ -248,6 +248,20 @@ export class SwarmsClient {
     return data.agent;
   }
 
+  /**
+   * Clone an agent's configuration into a new agent with a fresh identity and
+   * empty memory. Secrets are not copied. Pass `name` to override the default
+   * "(copy)" suffix.
+   */
+  async cloneAgent(agentId: string, name?: string): Promise<AgentInstance> {
+    const data = await this.request(`/api/v1/agents/${encodeURIComponent(agentId)}/clone`, {
+      method: "POST",
+      body: name !== undefined ? { name } : {},
+      schema: z.object({ agent: agentInstanceSchema }),
+    });
+    return data.agent;
+  }
+
   /** Permanently terminate a hosted agent (no further wakes). */
   async terminateAgent(agentId: string): Promise<{ agentInstanceId: string; status: string }> {
     return this.request(`/api/v1/agents/${encodeURIComponent(agentId)}`, {

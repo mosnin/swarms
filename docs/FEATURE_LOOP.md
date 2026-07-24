@@ -26,7 +26,7 @@ Pick ONE per loop, ship it whole, commit, move on. Do NOT re-loop a shipped item
 Candidates (refine each cycle by what most raises the product):
 - [x] F1 Agent detail: live-streaming wake console (SSE) so you watch it think —
       pure diff (agent-stream.ts) + SSE route + WakeConsole + 8 tests
-- [ ] F2 One-click "clone this agent" + shareable agent templates gallery
+- [x] F2 One-click clone (fresh identity, no secrets copied) + 6-template gallery on /agents + SDK cloneAgent — service/route/UI + 5 tests
 - [ ] F3 Spend guardrails UX: real-time budget burn-down with projected runway
 - [ ] F4 Approvals: mobile-first inbox with one-tap approve + reason
 - [ ] F5 "Explain this run" — plain-English trace of what an agent did and why it cost that
