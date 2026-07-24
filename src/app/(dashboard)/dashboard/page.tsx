@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { OnboardingCard } from "@/app/(dashboard)/_components/onboarding-card";
 import { SearchTrigger } from "@/app/(dashboard)/_components/search-trigger";
 import { SignInNotice } from "@/app/(dashboard)/_components/sign-in-notice";
 import { Button } from "@/components/ui/button";
@@ -8,7 +9,9 @@ import { StatTile } from "@/components/ui/stat-tile";
 import { format } from "@/lib/money";
 import { tryCurrentContext } from "@/modules/identity/current";
 import { getOrganization } from "@/modules/identity/service";
+import { getBalances } from "@/modules/billing/credit-service";
 import { overviewMetrics } from "@/modules/dashboard/reads";
+import { onboardingState } from "@/modules/dashboard/onboarding";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +26,18 @@ export default async function DashboardPage() {
   const ctx = await tryCurrentContext();
   if (!ctx) return <SignInNotice />;
 
-  const [org, metrics] = await Promise.all([getOrganization(ctx), overviewMetrics(ctx)]);
+  const [org, metrics, balances] = await Promise.all([
+    getOrganization(ctx),
+    overviewMetrics(ctx),
+    getBalances(ctx).catch(() => []),
+  ]);
+
+  const maxBalanceMinor = balances.reduce((a, b) => Math.max(a, b.balanceMinor), 0);
+  const onboarding = onboardingState({
+    balanceMinor: maxBalanceMinor,
+    totalJobs: metrics.totalJobs,
+    succeededJobs: metrics.succeededJobs,
+  });
 
   return (
     <div className="space-y-6">
@@ -45,6 +59,9 @@ export default async function DashboardPage() {
           </Button>
         </Link>
       </div>
+
+      {/* First-run guide — shown until the first run has succeeded */}
+      {!onboarding.complete && <OnboardingCard state={onboarding} />}
 
       {/* Stat cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">

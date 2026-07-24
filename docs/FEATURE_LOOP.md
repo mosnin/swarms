@@ -30,7 +30,9 @@ Candidates (refine each cycle by what most raises the product):
 - [x] F3 Spend guardrails UX: burn-down chart with projected runway on /usage — pure buildBurndown series + SVG chart + 4 tests
 - [x] F4 Approvals: mobile-first inbox — tap-friendly cards, one-tap approve, decline-with-reason, "held" summary + task/kind enrichment + 3 tests
 - [x] F5 "Explain this run" — deterministic, ledger-true plain-English trace (pure explainRun) on job detail + /explain route + SDK.explainRun + 6 tests
-- [ ] F6 Onboarding: 60-second first-spawn flow that feels like magic
+- [x] F6 Onboarding: first-run guide on the dashboard (fund → spawn → finish), data-driven done-state (pure onboardingState) + 3 tests
+
+All rebuild (R1–R10) and net-new (F1–F6) lanes shipped. Next cycle: pick fresh candidates that most raise the product.
 
 ## Cadence
 Hourly durable Routine fires this loop. Each fire: read last state, pick the next
