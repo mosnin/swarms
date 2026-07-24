@@ -27,6 +27,8 @@ export default async function ApprovalsPage() {
           id: p.id,
           costMinor: p.costMinor,
           costCurrency: p.costCurrency,
+          capabilityKind: p.capabilityKind,
+          task: p.task,
           createdAt: p.createdAt.toISOString(),
         }))}
       />

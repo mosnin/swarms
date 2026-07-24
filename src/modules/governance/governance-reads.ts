@@ -34,6 +34,8 @@ export interface PendingApproval {
   id: string;
   costMinor: number;
   costCurrency: string;
+  capabilityKind: string;
+  task: string | null;
   createdAt: Date;
 }
 
@@ -47,6 +49,8 @@ export async function listPendingApprovals(
       id: schema.jobs.id,
       costMinor: schema.jobs.costMinor,
       costCurrency: schema.jobs.costCurrency,
+      capabilityKind: schema.jobs.capabilityKind,
+      task: schema.jobs.task,
       input: schema.jobs.input,
       createdAt: schema.jobs.createdAt,
     })
