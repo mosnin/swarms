@@ -28,6 +28,8 @@ const COLS: { title: string; links: { href: string; label: string }[] }[] = [
     links: [
       { href: "/company", label: "Company" },
       { href: "/security", label: "Security" },
+      { href: "/changelog", label: "Changelog" },
+      { href: "/status", label: "Status" },
       { href: "/login", label: "Sign in" },
       { href: "mailto:hello@swarms.dev", label: "Contact" },
     ],
