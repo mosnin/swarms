@@ -11,7 +11,7 @@ until it's on origin.
 Each item lands as its own commit the moment it verifies:
 - [x] R1 hosted-agent recurring billing (standby ticks, suspend/resume) + worker wiring + tests — d062383
 - [ ] R2 agent-reply webhooks + GET messages pagination + worker wiring + tests
-- [ ] R3 admin spend/jobs timeseries API + SVG chart on /admin
+- [x] R3 admin spend/jobs timeseries API + SVG chart on /admin — metrics module, guarded route, PlatformChart, dense-series tests
 - [x] R4b scripts/grant-platform-admin.ts bootstrap (first-admin break-glass)
 - [ ] R4a richer demo seed (agents, historical jobs, budget)
 - [x] R5 service-layer input bounds on createAgentInstance (security) + deny-path tests

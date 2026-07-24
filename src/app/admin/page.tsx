@@ -7,7 +7,10 @@ import { clientIpFrom } from "@/lib/client-ip";
 import { requestIdFrom } from "@/lib/request-id";
 import { logAdminAction } from "@/modules/admin/authz";
 import { currentPlatformAdmin } from "@/modules/admin/current";
+import { getPlatformTimeseries } from "@/modules/admin/metrics";
 import { getPlatformOverview } from "@/modules/admin/service";
+
+import { PlatformChart } from "./_components/platform-chart";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +43,7 @@ const g = (d: string) => (
 export default async function AdminOverviewPage() {
   const admin = await currentPlatformAdmin();
   const overview = await getPlatformOverview();
+  const timeseries = await getPlatformTimeseries({ days: 14 });
 
   const headerList = await headers();
   await logAdminAction(admin, {
@@ -118,6 +122,18 @@ export default async function AdminOverviewPage() {
           </CardBody>
         </Card>
       </div>
+
+      <Card>
+        <CardBody>
+          <div className="flex items-baseline justify-between">
+            <p className="text-sm font-medium">Activity &amp; spend</p>
+            <p className="text-xs text-muted-foreground">last 14 days · UTC</p>
+          </div>
+          <div className="mt-4">
+            <PlatformChart days={timeseries.days} />
+          </div>
+        </CardBody>
+      </Card>
 
       <Card>
         <CardBody>
