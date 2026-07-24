@@ -16,7 +16,7 @@ Each item lands as its own commit the moment it verifies:
 - [x] R4a richer demo seed (3 hosted agents + thread, 14d of historical jobs, ledger-reconciled spend, 2 budgets, credit, webhook endpoint) + idempotency tests
 - [x] R5 service-layer input bounds on createAgentInstance (security) + deny-path tests
 - [x] R6 /changelog + /status marketing pages + footer links
-- [ ] R7 epoch-token primitive (short-TTL signed agent token) + tests
+- [x] R7 epoch-token primitive (short-TTL HMAC agent token, epoch revocation, constant-time verify, env secret + prod gate) + 9 unit tests
 - [ ] R8 SDK hosted-agent methods + drift fixes + tests
 - [ ] R9 Playwright e2e smoke suite + config
 - [ ] R10 multi-page docs (agents/swarms/billing/webhooks/errors)
