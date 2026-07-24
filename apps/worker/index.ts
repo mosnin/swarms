@@ -23,6 +23,11 @@ import {
 } from "@/modules/execution/worker";
 import { deliverPendingWebhooks } from "@/modules/webhooks/webhook-service";
 import { applyCompletedWakes, wakeDueAgents } from "@/modules/hosted-agents/agent-service";
+import {
+  chargeAgentStandby,
+  resumeFundedAgents,
+  suspendUnfundedAgents,
+} from "@/modules/hosted-agents/billing-service";
 import { runDueSchedules } from "@/modules/schedules/schedule-service";
 import { reapExpiredArtifacts } from "@/modules/artifacts/artifact-service";
 import { runDueAutoReloads } from "@/modules/billing/credit-service";
@@ -104,6 +109,14 @@ async function tick(): Promise<void> {
       // Top up orgs whose balance dropped below their auto-reload threshold.
       const reloaded = await runDueAutoReloads().catch(() => 0);
       if (reloaded > 0) logger.info("Worker ran auto-reloads", { reloaded });
+      // Hosted-agent recurring billing: hourly standby ticks (exactly-once per
+      // agent-hour), then enforce funding — suspend unfunded, resume topped-up.
+      const standbyCharged = await chargeAgentStandby().catch(() => 0);
+      if (standbyCharged > 0) logger.info("Worker charged agent standby", { standbyCharged });
+      const agentsSuspended = await suspendUnfundedAgents().catch(() => 0);
+      if (agentsSuspended > 0) logger.warn("Worker suspended unfunded agents", { agentsSuspended });
+      const agentsResumed = await resumeFundedAgents().catch(() => 0);
+      if (agentsResumed > 0) logger.info("Worker resumed funded agents", { agentsResumed });
       // Evict old terminal webhook deliveries so the queue table stays bounded.
       const whPruned = await pruneWebhookDeliveries().catch(() => 0);
       if (whPruned > 0) logger.info("Worker pruned webhook deliveries", { whPruned });
