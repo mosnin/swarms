@@ -17,6 +17,11 @@ export default defineConfig({
   use: {
     baseURL,
     trace: "on-first-retry",
+    // Honor a pre-installed browser when set (e.g. a sandbox that ships Chromium
+    // at a fixed path); otherwise use Playwright's managed download. No-op in CI.
+    launchOptions: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE
+      ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE }
+      : undefined,
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {

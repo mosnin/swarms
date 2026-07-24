@@ -18,7 +18,7 @@ Each item lands as its own commit the moment it verifies:
 - [x] R6 /changelog + /status marketing pages + footer links
 - [x] R7 epoch-token primitive (short-TTL HMAC agent token, epoch revocation, constant-time verify, env secret + prod gate) + 9 unit tests
 - [x] R8 SDK hosted-agent methods (create/list/get/pause/resume/terminate/sendMessage/listMessages w/ cursor) + schemas + 6 tests
-- [ ] R9 Playwright e2e smoke suite + config
+- [x] R9 Playwright marketing smoke suite (7 specs: home/pricing/docs/changelog/status/feature/footer-nav) + config browser-path override — verified green against live server
 - [ ] R10 multi-page docs (agents/swarms/billing/webhooks/errors)
 
 ## Then: net-new features (Jobs lens — what makes it insanely great)
