@@ -9,16 +9,17 @@ until it's on origin.
 
 ## Immediate: rebuild the expansion batch lost to a container reclaim
 Each item lands as its own commit the moment it verifies:
-- R1 hosted-agent recurring billing (standby ticks, suspend/resume unfunded) + worker wiring + tests
-- R2 agent-reply webhooks + GET messages pagination + worker wiring + tests
-- R3 admin spend/jobs timeseries API + SVG chart on /admin
-- R4 richer demo seed + scripts/grant-platform-admin.ts bootstrap
-- R5 service-layer input bounds on createAgentInstance (security) + deny-path tests
-- R6 /changelog + /status marketing pages + footer links
-- R7 epoch-token primitive (short-TTL signed agent token) + tests
-- R8 SDK hosted-agent methods + drift fixes + tests
-- R9 Playwright e2e smoke suite + config
-- R10 multi-page docs (agents/swarms/billing/webhooks/errors)
+- [x] R1 hosted-agent recurring billing (standby ticks, suspend/resume) + worker wiring + tests — d062383
+- [ ] R2 agent-reply webhooks + GET messages pagination + worker wiring + tests
+- [ ] R3 admin spend/jobs timeseries API + SVG chart on /admin
+- [x] R4b scripts/grant-platform-admin.ts bootstrap (first-admin break-glass)
+- [ ] R4a richer demo seed (agents, historical jobs, budget)
+- [ ] R5 service-layer input bounds on createAgentInstance (security) + deny-path tests
+- [ ] R6 /changelog + /status marketing pages + footer links
+- [ ] R7 epoch-token primitive (short-TTL signed agent token) + tests
+- [ ] R8 SDK hosted-agent methods + drift fixes + tests
+- [ ] R9 Playwright e2e smoke suite + config
+- [ ] R10 multi-page docs (agents/swarms/billing/webhooks/errors)
 
 ## Then: net-new features (Jobs lens — what makes it insanely great)
 Pick ONE per loop, ship it whole, commit, move on. Do NOT re-loop a shipped item.
