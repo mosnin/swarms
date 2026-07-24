@@ -334,6 +334,77 @@ export type PendingApproval = z.infer<typeof pendingApprovalSchema>;
 export const balanceSchema = z.object({ currency: z.string(), balanceMinor: z.number() });
 export type Balance = z.infer<typeof balanceSchema>;
 
+/* -------------------------- hosted agents --------------------------- */
+
+export interface CreateAgentParams {
+  /** Display name for the hosted agent. */
+  name: string;
+  /** Standing instructions injected into every wake. */
+  instructions: string;
+  model?: string;
+  /** Heartbeat cadence in minutes (5..1440); null/omitted = message-driven only. */
+  wakeIntervalMinutes?: number | null;
+  /** Hard per-wake budget ceiling in minor units. */
+  budgetMinorPerWake?: number;
+  resources?: SpawnResources;
+}
+
+export const agentInstanceSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  template: z.string(),
+  instructions: z.string(),
+  model: z.string(),
+  status: z.string(),
+  wakeIntervalMinutes: z.number().nullable(),
+  nextWakeAt: z.string().nullable(),
+  lastWakeAt: z.string().nullable(),
+  lastJobId: z.string().nullable(),
+  budgetMinorPerWake: z.number(),
+  currency: z.string(),
+  stateVersion: z.number(),
+  createdAt: z.string(),
+});
+export type AgentInstance = z.infer<typeof agentInstanceSchema>;
+
+export const agentMessageSchema = z.object({
+  id: z.string(),
+  role: z.string(),
+  content: z.string(),
+  jobId: z.string().nullable(),
+  processedAt: z.string().nullable(),
+  createdAt: z.string(),
+});
+export type AgentMessage = z.infer<typeof agentMessageSchema>;
+
+export const agentSpendSchema = z.object({
+  totalSpendMinor: z.number(),
+  wakeCount: z.number(),
+  currency: z.string(),
+});
+export type AgentSpend = z.infer<typeof agentSpendSchema>;
+
+export const agentDetailSchema = z.object({
+  agent: agentInstanceSchema,
+  messages: z.array(agentMessageSchema),
+  spend: agentSpendSchema,
+});
+export type AgentDetail = z.infer<typeof agentDetailSchema>;
+
+export const agentMessagePageSchema = z.object({
+  messages: z.array(agentMessageSchema),
+  nextCursor: z.string().nullable(),
+});
+export type AgentMessagePage = z.infer<typeof agentMessagePageSchema>;
+
+/* --------------------------- run explanation ------------------------ */
+
+export const runExplanationSchema = z.object({
+  headline: z.string(),
+  points: z.array(z.object({ label: z.string(), body: z.string() })),
+});
+export type RunExplanation = z.infer<typeof runExplanationSchema>;
+
 export const usageSchema = z.object({
   currency: z.string(),
   sinceDays: z.number(),

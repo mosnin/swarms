@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { SignInNotice } from "@/app/(dashboard)/_components/sign-in-notice";
 import { AgentControls } from "@/app/(dashboard)/agents/_components/agent-controls";
 import { AgentThread } from "@/app/(dashboard)/agents/_components/agent-thread";
+import { WakeConsole } from "@/app/(dashboard)/agents/_components/wake-console";
 import { Card, CardBody } from "@/components/ui/card";
 import { format } from "@/lib/money";
 import { tryCurrentContext } from "@/modules/identity/current";
@@ -54,7 +55,10 @@ export default async function AgentDetailPage({
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
-        <AgentThread agentInstanceId={agent.id} status={agent.status} initialMessages={messages} />
+        <div className="space-y-4">
+          <AgentThread agentInstanceId={agent.id} status={agent.status} initialMessages={messages} />
+          <WakeConsole agentInstanceId={agent.id} />
+        </div>
 
         <div className="space-y-4">
           <Card>

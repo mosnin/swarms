@@ -1,0 +1,40 @@
+# /goal — Swarms feature loop (world-class, Jobs lens)
+
+Branch: claude/practical-wozniak-92w5kj (from origin/main). Model: Opus.
+
+## Iron rule (learned the hard way)
+COMMIT + PUSH after EVERY lane completes. Never batch uncommitted work — the
+container is ephemeral and reclaims wipe the working tree. A lane isn't done
+until it's on origin.
+
+## Immediate: rebuild the expansion batch lost to a container reclaim
+Each item lands as its own commit the moment it verifies:
+- [x] R1 hosted-agent recurring billing (standby ticks, suspend/resume) + worker wiring + tests — d062383
+- [x] R2 agent-reply webhooks (agent.replied / agent.wake_failed fan-out) + keyset-paginated GET messages + tests
+- [x] R3 admin spend/jobs timeseries API + SVG chart on /admin — metrics module, guarded route, PlatformChart, dense-series tests
+- [x] R4b scripts/grant-platform-admin.ts bootstrap (first-admin break-glass)
+- [x] R4a richer demo seed (3 hosted agents + thread, 14d of historical jobs, ledger-reconciled spend, 2 budgets, credit, webhook endpoint) + idempotency tests
+- [x] R5 service-layer input bounds on createAgentInstance (security) + deny-path tests
+- [x] R6 /changelog + /status marketing pages + footer links
+- [x] R7 epoch-token primitive (short-TTL HMAC agent token, epoch revocation, constant-time verify, env secret + prod gate) + 9 unit tests
+- [x] R8 SDK hosted-agent methods (create/list/get/pause/resume/terminate/sendMessage/listMessages w/ cursor) + schemas + 6 tests
+- [x] R9 Playwright marketing smoke suite (7 specs: home/pricing/docs/changelog/status/feature/footer-nav) + config browser-path override — verified green against live server
+- [x] R10 multi-page docs — shared DocsShell/DocsNav + 5 grounded pages (agents/swarms/billing/webhooks/errors), footer wired, e2e-verified
+
+## Then: net-new features (Jobs lens — what makes it insanely great)
+Pick ONE per loop, ship it whole, commit, move on. Do NOT re-loop a shipped item.
+Candidates (refine each cycle by what most raises the product):
+- [x] F1 Agent detail: live-streaming wake console (SSE) so you watch it think —
+      pure diff (agent-stream.ts) + SSE route + WakeConsole + 8 tests
+- [x] F2 One-click clone (fresh identity, no secrets copied) + 6-template gallery on /agents + SDK cloneAgent — service/route/UI + 5 tests
+- [x] F3 Spend guardrails UX: burn-down chart with projected runway on /usage — pure buildBurndown series + SVG chart + 4 tests
+- [x] F4 Approvals: mobile-first inbox — tap-friendly cards, one-tap approve, decline-with-reason, "held" summary + task/kind enrichment + 3 tests
+- [x] F5 "Explain this run" — deterministic, ledger-true plain-English trace (pure explainRun) on job detail + /explain route + SDK.explainRun + 6 tests
+- [x] F6 Onboarding: first-run guide on the dashboard (fund → spawn → finish), data-driven done-state (pure onboardingState) + 3 tests
+
+All rebuild (R1–R10) and net-new (F1–F6) lanes shipped. Next cycle: pick fresh candidates that most raise the product.
+
+## Cadence
+Hourly durable Routine fires this loop. Each fire: read last state, pick the next
+unstarted item, build it, verify (typecheck/lint/targeted tests), commit+push,
+update this doc, stop. One shippable increment per fire.

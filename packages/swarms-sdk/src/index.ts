@@ -16,4 +16,11 @@ export type {
   Job,
   JobLog,
   SwarmRun,
+  CreateAgentParams,
+  AgentInstance,
+  AgentMessage,
+  AgentSpend,
+  AgentDetail,
+  AgentMessagePage,
+  RunExplanation,
 } from "./types";

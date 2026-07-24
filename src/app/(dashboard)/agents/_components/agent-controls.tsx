@@ -19,10 +19,34 @@ export function AgentControls({ agentInstanceId, status }: { agentInstanceId: st
     }
   }
 
+  async function clone() {
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/v1/agents/${agentInstanceId}/clone`, { method: "POST" });
+      const json: unknown = await res.json().catch(() => null);
+      const newId =
+        json && typeof json === "object" && "data" in json
+          ? (json as { data?: { agent?: { id?: string } } }).data?.agent?.id
+          : undefined;
+      if (newId) router.push(`/agents/${newId}`);
+      else router.refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (status === "suspended") return null;
 
   return (
     <div className="flex items-center gap-2">
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => void clone()}
+        className="inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium transition-colors hover:bg-muted disabled:opacity-50"
+      >
+        Clone
+      </button>
       {status === "active" ? (
         <button
           type="button"

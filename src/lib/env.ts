@@ -65,6 +65,11 @@ export const envSchema = z.object({
   // production; a fixed dev secret is used otherwise.
   SESSION_SECRET: z.string().min(32).optional(),
 
+  // HMAC secret for short-TTL hosted-agent epoch tokens. Lets an agent's own
+  // wake requests authenticate without a long-lived API key. Required in
+  // production; a fixed dev secret is used otherwise.
+  EPOCH_TOKEN_SECRET: z.string().min(32).optional(),
+
   // OAuth 2.0 (authorization-code + PKCE) login. Provider-agnostic: point these
   // at any compliant IdP (Auth0, Okta, Google, Keycloak, ...). When AUTH_MODE is
   // "oauth" in production these are required; in "dev" mode the dev-login route
@@ -172,6 +177,9 @@ export const envSchema = z.object({
     }
     if (!data.INTERNAL_WORKER_SECRET) {
       ctx.addIssue({ code: "custom", path: ["INTERNAL_WORKER_SECRET"], message: "Required in production" });
+    }
+    if (!data.EPOCH_TOKEN_SECRET) {
+      ctx.addIssue({ code: "custom", path: ["EPOCH_TOKEN_SECRET"], message: "Required in production" });
     }
     // The in-process "memory" rate-limit backend cannot enforce a global limit
     // across a serverless/horizontally-scaled fleet (each instance has its own

@@ -9,6 +9,10 @@ import { z } from "zod";
 
 import { SwarmsError, SwarmsNetworkError, type SwarmsErrorShape } from "./errors";
 import {
+  agentDetailSchema,
+  agentInstanceSchema,
+  agentMessagePageSchema,
+  agentMessageSchema,
   artifactSchema,
   balanceSchema,
   evaluationResponseSchema,
@@ -16,6 +20,7 @@ import {
   jobLogSchema,
   jobSchema,
   pendingApprovalSchema,
+  runExplanationSchema,
   scheduleSchema,
   simulationEstimateSchema,
   simulationResponseSchema,
@@ -24,8 +29,13 @@ import {
   swarmRunSchema,
   swarmSpawnResponseSchema,
   usageSchema,
+  type AgentDetail,
+  type AgentInstance,
+  type AgentMessage,
+  type AgentMessagePage,
   type Artifact,
   type Balance,
+  type CreateAgentParams,
   type CreateScheduleParams,
   type EvaluateParams,
   type Evaluation,
@@ -33,6 +43,7 @@ import {
   type Job,
   type JobLog,
   type PendingApproval,
+  type RunExplanation,
   type Schedule,
   type SimulateParams,
   type SimulationEstimate,
@@ -126,6 +137,15 @@ export class SwarmsClient {
     return data.job;
   }
 
+  /** A plain-English, ledger-true explanation of what a run did and why it cost what it did. */
+  async explainRun(jobId: string): Promise<RunExplanation> {
+    const data = await this.request(`/api/v1/jobs/${encodeURIComponent(jobId)}/explain`, {
+      method: "GET",
+      schema: z.object({ explanation: runExplanationSchema }),
+    });
+    return data.explanation;
+  }
+
   /**
    * Placeholder streaming: polls job logs until the job reaches a terminal
    * state. A real server-sent-events / websocket transport will replace this.
@@ -188,6 +208,104 @@ export class SwarmsClient {
       schema: spawnResponseSchema.extend({ replayedFrom: z.string() }) as z.ZodType<
         SpawnResponse & { replayedFrom: string }
       >,
+    });
+  }
+
+  /* ------------------------ hosted agents ----------------------- */
+
+  /**
+   * Deploy a persistent hosted agent. It keeps durable memory and wakes on an
+   * inbound message or an optional heartbeat; every wake is a metered,
+   * budget-capped job.
+   */
+  async createAgent(params: CreateAgentParams): Promise<AgentInstance> {
+    const data = await this.request("/api/v1/agents", {
+      method: "POST",
+      body: params,
+      schema: z.object({ agent: agentInstanceSchema }),
+    });
+    return data.agent;
+  }
+
+  async listAgents(): Promise<AgentInstance[]> {
+    const data = await this.request("/api/v1/agents", {
+      method: "GET",
+      schema: z.object({ agents: z.array(agentInstanceSchema) }),
+    });
+    return data.agents;
+  }
+
+  /** Full detail: the agent, its recent thread, and lifetime spend. */
+  async getAgent(agentId: string): Promise<AgentDetail> {
+    return this.request(`/api/v1/agents/${encodeURIComponent(agentId)}`, {
+      method: "GET",
+      schema: agentDetailSchema,
+    });
+  }
+
+  async pauseAgent(agentId: string): Promise<AgentInstance> {
+    const data = await this.request(`/api/v1/agents/${encodeURIComponent(agentId)}/pause`, {
+      method: "POST",
+      schema: z.object({ agent: agentInstanceSchema }),
+    });
+    return data.agent;
+  }
+
+  async resumeAgent(agentId: string): Promise<AgentInstance> {
+    const data = await this.request(`/api/v1/agents/${encodeURIComponent(agentId)}/resume`, {
+      method: "POST",
+      schema: z.object({ agent: agentInstanceSchema }),
+    });
+    return data.agent;
+  }
+
+  /**
+   * Clone an agent's configuration into a new agent with a fresh identity and
+   * empty memory. Secrets are not copied. Pass `name` to override the default
+   * "(copy)" suffix.
+   */
+  async cloneAgent(agentId: string, name?: string): Promise<AgentInstance> {
+    const data = await this.request(`/api/v1/agents/${encodeURIComponent(agentId)}/clone`, {
+      method: "POST",
+      body: name !== undefined ? { name } : {},
+      schema: z.object({ agent: agentInstanceSchema }),
+    });
+    return data.agent;
+  }
+
+  /** Permanently terminate a hosted agent (no further wakes). */
+  async terminateAgent(agentId: string): Promise<{ agentInstanceId: string; status: string }> {
+    return this.request(`/api/v1/agents/${encodeURIComponent(agentId)}`, {
+      method: "DELETE",
+      schema: z.object({ agentInstanceId: z.string(), status: z.string() }),
+    });
+  }
+
+  /** Deliver an inbound message; the agent wakes to handle it as a charged job. */
+  async sendAgentMessage(agentId: string, content: string): Promise<AgentMessage> {
+    const data = await this.request(`/api/v1/agents/${encodeURIComponent(agentId)}/messages`, {
+      method: "POST",
+      body: { content },
+      schema: z.object({ message: agentMessageSchema }),
+    });
+    return data.message;
+  }
+
+  /**
+   * Page through an agent's message thread, newest first. Pass the returned
+   * `nextCursor` to fetch the next (older) page; a null cursor ends the thread.
+   */
+  async listAgentMessages(
+    agentId: string,
+    opts: { limit?: number; cursor?: string } = {},
+  ): Promise<AgentMessagePage> {
+    const params = new URLSearchParams();
+    if (opts.limit !== undefined) params.set("limit", String(opts.limit));
+    if (opts.cursor) params.set("cursor", opts.cursor);
+    const qs = params.size > 0 ? `?${params.toString()}` : "";
+    return this.request(`/api/v1/agents/${encodeURIComponent(agentId)}/messages${qs}`, {
+      method: "GET",
+      schema: agentMessagePageSchema,
     });
   }
 

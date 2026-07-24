@@ -8,6 +8,7 @@ import { and, count, desc, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
 import { requirePermission, type AuthContext } from "@/modules/identity/access-control";
+import { buildRunFacts, explainRun, type RunExplanation } from "@/modules/execution/explain-run";
 import { listConnectors } from "@/server/connectors/connectorRegistry";
 import { committedMinor } from "@/server/budget/budgetMath";
 import { entriesForOrgSince, periodStart } from "@/server/budget/ledgerQueries";
@@ -123,6 +124,19 @@ export async function getJobDetail(
   ]);
 
   return { job, logs, workerRuns, ledger, receipt: receiptRows[0] ?? null };
+}
+
+/** A plain-English, ledger-true explanation of a single run. */
+export async function getRunExplanation(
+  ctx: AuthContext,
+  jobId: string,
+  db: Db = getDb(),
+): Promise<RunExplanation | null> {
+  const detail = await getJobDetail(ctx, jobId, db);
+  if (!detail) return null;
+  return explainRun(
+    buildRunFacts({ job: detail.job, ledger: detail.ledger, workerRunCount: detail.workerRuns.length }),
+  );
 }
 
 export async function listSwarmRuns(ctx: AuthContext, db: Db = getDb()) {

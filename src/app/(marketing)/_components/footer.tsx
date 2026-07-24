@@ -18,8 +18,10 @@ const COLS: { title: string; links: { href: string; label: string }[] }[] = [
     title: "Developers",
     links: [
       { href: "/docs", label: "Quickstart" },
-      { href: "/docs#api", label: "API reference" },
-      { href: "/docs#mcp", label: "MCP" },
+      { href: "/docs/agents", label: "Hosted agents" },
+      { href: "/docs/swarms", label: "Swarms" },
+      { href: "/docs/webhooks", label: "Webhooks" },
+      { href: "/docs/errors", label: "Errors" },
       { href: "/pricing", label: "Pricing" },
     ],
   },
@@ -28,6 +30,8 @@ const COLS: { title: string; links: { href: string; label: string }[] }[] = [
     links: [
       { href: "/company", label: "Company" },
       { href: "/security", label: "Security" },
+      { href: "/changelog", label: "Changelog" },
+      { href: "/status", label: "Status" },
       { href: "/login", label: "Sign in" },
       { href: "mailto:hello@swarms.dev", label: "Contact" },
     ],
